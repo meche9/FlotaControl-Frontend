@@ -1,8 +1,10 @@
-import api from './api';
+import api, { tokenStore, refreshSession, type SessionResponse } from './api';
 
 export interface LoginCredentials {
   email: string;
   password: string;
+  // "Recordar estación": la sesión sobrevive al cierre del navegador
+  recordar?: boolean;
 }
 
 export interface AuthUser {
@@ -20,43 +22,42 @@ export interface AuthUser {
   ultimoAcceso: string | null;
 }
 
-export interface LoginResponse {
-  accessToken: string;
-  refreshToken: string;
-  user: AuthUser;
-}
+export type LoginResponse = SessionResponse;
 
-export interface ForgotPasswordResponse {
-  message: string;
-  resetToken?: string; // Solo en desarrollo
-}
-
-export interface ResetPasswordResponse {
+export interface MessageResponse {
   message: string;
 }
 
 const authService = {
   /**
-   * Iniciar sesión con email y contraseña
+   * Iniciar sesión. El refresh token queda en una cookie httpOnly (no accesible desde JS).
    */
   async login(credentials: LoginCredentials): Promise<LoginResponse> {
     const response = await api.post<LoginResponse>('/auth/login', credentials);
+    tokenStore.set(response.data.accessToken);
     return response.data;
+  },
+
+  /**
+   * Recuperar la sesión a partir de la cookie (al recargar la página).
+   */
+  restoreSession(): Promise<SessionResponse> {
+    return refreshSession();
   },
 
   /**
    * Solicitar restablecimiento de contraseña
    */
-  async forgotPassword(email: string): Promise<ForgotPasswordResponse> {
-    const response = await api.post<ForgotPasswordResponse>('/auth/forgot-password', { email });
+  async forgotPassword(email: string): Promise<MessageResponse> {
+    const response = await api.post<MessageResponse>('/auth/forgot-password', { email });
     return response.data;
   },
 
   /**
-   * Restablecer contraseña con token
+   * Restablecer contraseña con el token recibido por correo
    */
-  async resetPassword(token: string, newPassword: string): Promise<ResetPasswordResponse> {
-    const response = await api.post<ResetPasswordResponse>('/auth/reset-password', {
+  async resetPassword(token: string, newPassword: string): Promise<MessageResponse> {
+    const response = await api.post<MessageResponse>('/auth/reset-password', {
       token,
       newPassword,
     });
@@ -72,12 +73,14 @@ const authService = {
   },
 
   /**
-   * Cerrar sesión (limpia tokens del almacenamiento local)
+   * Cerrar sesión: revoca la sesión en el servidor y borra el token en memoria
    */
-  logout(): void {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user');
+  async logout(): Promise<void> {
+    try {
+      await api.post('/auth/logout');
+    } finally {
+      tokenStore.set(null);
+    }
   },
 };
 

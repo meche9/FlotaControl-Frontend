@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from 'react';
-import { Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { useEffect, useState, type FormEvent } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import authService from '../../services/authService';
+import { getApiErrorMessage } from '../../services/api';
 import {
   Truck,
   Lock,
@@ -14,11 +15,26 @@ import {
   KeyRound,
 } from 'lucide-react';
 
+// Misma política que el backend (src/common/validators/password-policy.ts)
+const PASSWORD_MIN = 8;
+const PASSWORD_MAX = 64;
+
+// El enlace del correo trae el token en el fragmento (#token=...), que el navegador
+// no envía al servidor ni en el Referer. Se acepta ?token= por compatibilidad.
+function leerTokenDeUrl(hash: string, search: string): string {
+  return (
+    new URLSearchParams(hash.replace(/^#/, '')).get('token') ??
+    new URLSearchParams(search).get('token') ??
+    ''
+  );
+}
+
 export default function ResetPassword() {
-  const [searchParams] = useSearchParams();
+  const location = useLocation();
   const navigate = useNavigate();
 
-  const [token, setToken] = useState(searchParams.get('token') || '');
+  const [token, setToken] = useState(() => leerTokenDeUrl(location.hash, location.search));
+  const [tokenDesdeEnlace] = useState(() => Boolean(leerTokenDeUrl(location.hash, location.search)));
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -27,13 +43,20 @@ export default function ResetPassword() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
+  // Quita el token de la barra de direcciones y del historial una vez leído
+  useEffect(() => {
+    if (location.hash || location.search) {
+      navigate(location.pathname, { replace: true });
+    }
+  }, [location.hash, location.search, location.pathname, navigate]);
+
   // Validaciones de fortaleza de contraseña
   const passwordChecks = {
-    length: newPassword.length >= 8,
+    length: newPassword.length >= PASSWORD_MIN && newPassword.length <= PASSWORD_MAX,
     uppercase: /[A-Z]/.test(newPassword),
     lowercase: /[a-z]/.test(newPassword),
     number: /\d/.test(newPassword),
-    special: /[!@#$%^&*(),.?":{}|<>]/.test(newPassword),
+    special: /[^A-Za-z0-9]/.test(newPassword),
   };
 
   const isPasswordStrong = Object.values(passwordChecks).every(Boolean);
@@ -61,12 +84,16 @@ export default function ResetPassword() {
     setIsLoading(true);
 
     try {
-      await authService.resetPassword(token, newPassword);
+      await authService.resetPassword(token.trim(), newPassword);
       setSuccess(true);
-    } catch (err: any) {
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err) {
       setError(
-        err.response?.data?.message ||
-        'Error al restablecer la contraseña. El token puede ser inválido o haber expirado.'
+        getApiErrorMessage(
+          err,
+          'Error al restablecer la contraseña. El enlace puede ser inválido o haber expirado.',
+        ),
       );
     } finally {
       setIsLoading(false);
@@ -131,7 +158,7 @@ export default function ResetPassword() {
 
                 {/* Error */}
                 {error && (
-                  <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium flex items-start gap-2">
+                  <div role="alert" className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium flex items-start gap-2">
                     <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-red-500" />
                     <span>{error}</span>
                   </div>
@@ -140,7 +167,7 @@ export default function ResetPassword() {
                 <form onSubmit={handleSubmit} className="space-y-4">
 
                   {/* Token (hidden si viene por URL, visible si no) */}
-                  {!searchParams.get('token') && (
+                  {!tokenDesdeEnlace && (
                     <div className="space-y-1.5">
                       <label className="block text-xs font-bold uppercase tracking-wider text-slate-700" htmlFor="reset-token">
                         Token de Restablecimiento
@@ -178,6 +205,7 @@ export default function ResetPassword() {
                         value={newPassword}
                         onChange={(e) => { setNewPassword(e.target.value); setError(null); }}
                         placeholder="Mínimo 8 caracteres"
+                        maxLength={PASSWORD_MAX}
                         className="block w-full pl-11 pr-11 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all"
                         required
                         autoComplete="new-password"
@@ -200,7 +228,7 @@ export default function ResetPassword() {
                       <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600">Requisitos de Seguridad:</span>
                       <div className="grid grid-cols-2 gap-1">
                         {[
-                          { check: passwordChecks.length, label: '8+ caracteres' },
+                          { check: passwordChecks.length, label: `${PASSWORD_MIN}-${PASSWORD_MAX} caracteres` },
                           { check: passwordChecks.uppercase, label: 'Mayúscula' },
                           { check: passwordChecks.lowercase, label: 'Minúscula' },
                           { check: passwordChecks.number, label: 'Número' },
@@ -230,6 +258,7 @@ export default function ResetPassword() {
                         value={confirmPassword}
                         onChange={(e) => { setConfirmPassword(e.target.value); setError(null); }}
                         placeholder="Repita la nueva contraseña"
+                        maxLength={PASSWORD_MAX}
                         className={`block w-full pl-11 pr-11 py-2.5 bg-slate-50 border rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-all ${
                           confirmPassword.length > 0
                             ? passwordsMatch

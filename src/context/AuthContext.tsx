@@ -1,84 +1,104 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import authService, { type AuthUser, type LoginCredentials } from '../services/authService';
+import { setSessionExpiredHandler, tokenStore } from '../services/api';
+
+export type AuthStatus = 'checking' | 'authenticated' | 'anonymous';
 
 interface AuthContextType {
   user: AuthUser | null;
+  status: AuthStatus;
   isAuthenticated: boolean;
-  isLoading: boolean;
   login: (credentials: LoginCredentials) => Promise<void>;
-  logout: () => void;
-  error: string | null;
-  clearError: () => void;
+  logout: () => Promise<void>;
 }
+
+type MensajeSesion = 'login' | 'logout';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<AuthStatus>('checking');
+  // Sincroniza login/logout entre pestañas abiertas
+  const canalRef = useRef<BroadcastChannel | null>(null);
 
-  // Al montar, verificar si hay una sesión guardada
-  useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    const accessToken = localStorage.getItem('accessToken');
-
-    if (storedUser && accessToken) {
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch {
-        // Datos corruptos, limpiar
-        authService.logout();
-      }
-    }
-    setIsLoading(false);
+  const limpiarSesion = useCallback(() => {
+    tokenStore.set(null);
+    setUser(null);
+    setStatus('anonymous');
   }, []);
+
+  const restaurarSesion = useCallback(
+    (esVigente: () => boolean = () => true) =>
+      authService
+        .restoreSession()
+        .then((sesion) => {
+          if (!esVigente()) return;
+          setUser(sesion.user);
+          setStatus('authenticated');
+        })
+        .catch(() => {
+          if (esVigente()) limpiarSesion();
+        }),
+    [limpiarSesion],
+  );
+
+  // Al montar: recuperar la sesión desde la cookie httpOnly (si existe)
+  useEffect(() => {
+    let vigente = true;
+    void restaurarSesion(() => vigente);
+    return () => {
+      vigente = false;
+    };
+  }, [restaurarSesion]);
+
+  // Si una petición falla por sesión vencida, volver al login
+  useEffect(() => {
+    setSessionExpiredHandler(limpiarSesion);
+    return () => setSessionExpiredHandler(null);
+  }, [limpiarSesion]);
+
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined') return;
+
+    const canal = new BroadcastChannel('fleetflow-auth');
+    canal.onmessage = (evento: MessageEvent<MensajeSesion>) => {
+      if (evento.data === 'logout') limpiarSesion();
+      if (evento.data === 'login') void restaurarSesion();
+    };
+    canalRef.current = canal;
+
+    return () => {
+      canal.close();
+      canalRef.current = null;
+    };
+  }, [limpiarSesion, restaurarSesion]);
 
   const login = useCallback(async (credentials: LoginCredentials) => {
-    setIsLoading(true);
-    setError(null);
+    const sesion = await authService.login(credentials);
+    setUser(sesion.user);
+    setStatus('authenticated');
+    canalRef.current?.postMessage('login' satisfies MensajeSesion);
+  }, []);
 
+  const logout = useCallback(async () => {
     try {
-      const response = await authService.login(credentials);
-
-      // Guardar tokens y datos del usuario
-      localStorage.setItem('accessToken', response.accessToken);
-      localStorage.setItem('refreshToken', response.refreshToken);
-      localStorage.setItem('user', JSON.stringify(response.user));
-
-      setUser(response.user);
-    } catch (err: any) {
-      const message =
-        err.response?.data?.message ||
-        err.message ||
-        'Error al iniciar sesión. Verifique sus credenciales.';
-      setError(message);
-      throw err;
-    } finally {
-      setIsLoading(false);
+      await authService.logout();
+    } catch {
+      // Aunque el servidor no responda, la sesión local se cierra igual
     }
-  }, []);
-
-  const logout = useCallback(() => {
-    authService.logout();
-    setUser(null);
-    setError(null);
-  }, []);
-
-  const clearError = useCallback(() => {
-    setError(null);
-  }, []);
+    limpiarSesion();
+    canalRef.current?.postMessage('logout' satisfies MensajeSesion);
+  }, [limpiarSesion]);
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        isAuthenticated: !!user,
-        isLoading,
+        status,
+        isAuthenticated: status === 'authenticated',
         login,
         logout,
-        error,
-        clearError,
       }}
     >
       {children}
@@ -86,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth(): AuthContextType {
   const context = useContext(AuthContext);
   if (context === undefined) {
