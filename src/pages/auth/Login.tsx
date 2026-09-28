@@ -198,7 +198,8 @@ export default function Login() {
             </div>
 
             {/* ── Columna Derecha: Formulario de Login ── */}
-            <div className="lg:col-span-5" id="login-box">
+            {/* En móvil el formulario va primero; en escritorio queda a la derecha */}
+            <div className="order-first lg:order-none lg:col-span-5" id="login-box">
               <div className="bg-white/[0.97] backdrop-blur-2xl rounded-3xl p-6 sm:p-8 text-slate-900 shadow-2xl border border-white/40 relative overflow-hidden">
 
                 {/* Barra tricolor superior */}
