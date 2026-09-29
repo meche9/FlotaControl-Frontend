@@ -1,13 +1,13 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import authService from '../../services/authService';
+import { getApiErrorMessage } from '../../services/api';
 import {
   Truck,
   Mail,
   ArrowRight,
   ArrowLeft,
   ShieldCheck,
-  Lock,
   CheckCircle,
   AlertTriangle,
 } from 'lucide-react';
@@ -17,7 +17,6 @@ export default function ForgotPassword() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [resetToken, setResetToken] = useState<string | null>(null); // Solo dev
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -25,17 +24,10 @@ export default function ForgotPassword() {
     setError(null);
 
     try {
-      const response = await authService.forgotPassword(email);
+      await authService.forgotPassword(email.trim());
       setSuccess(true);
-      // En desarrollo mostramos el token para testing
-      if (response.resetToken) {
-        setResetToken(response.resetToken);
-      }
-    } catch (err: any) {
-      setError(
-        err.response?.data?.message ||
-        'Error al procesar la solicitud. Intente nuevamente.'
-      );
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Error al procesar la solicitud. Intente nuevamente.'));
     } finally {
       setIsLoading(false);
     }
@@ -100,7 +92,7 @@ export default function ForgotPassword() {
 
                 {/* Error */}
                 {error && (
-                  <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium flex items-start gap-2">
+                  <div role="alert" className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium flex items-start gap-2">
                     <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-red-500" />
                     <span>{error}</span>
                   </div>
@@ -123,6 +115,7 @@ export default function ForgotPassword() {
                         placeholder="operador@fleetflow.com"
                         className="block w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all"
                         required
+                        maxLength={150}
                         autoComplete="email"
                         disabled={isLoading}
                       />
@@ -177,25 +170,10 @@ export default function ForgotPassword() {
                   </p>
                 </div>
 
-                {/* Token de desarrollo */}
-                {resetToken && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-left">
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700">Solo Desarrollo</span>
-                    </div>
-                    <p className="text-[11px] text-amber-800 mb-2">Use este token para restablecer la contraseña:</p>
-                    <code className="block text-[10px] bg-amber-100 p-2 rounded-lg break-all font-mono text-amber-900 select-all">
-                      {resetToken}
-                    </code>
-                    <Link
-                      to={`/reset-password?token=${resetToken}`}
-                      className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-amber-700 hover:text-amber-800 underline"
-                    >
-                      Ir a restablecer contraseña <ArrowRight className="w-3.5 h-3.5" />
-                    </Link>
-                  </div>
-                )}
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  El enlace es válido por tiempo limitado y solo puede usarse una vez.
+                  Revise también su carpeta de correo no deseado.
+                </p>
 
                 <div className="pt-2 border-t border-slate-200">
                   <Link

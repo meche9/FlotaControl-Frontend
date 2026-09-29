@@ -1,9 +1,11 @@
 import { useState, type FormEvent } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link, type Location } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { getApiErrorMessage } from '../../services/api';
 import {
   Truck,
   Lock,
+  LockOpen,
   Mail,
   Eye,
   EyeOff,
@@ -21,25 +23,62 @@ import {
   UserPlus,
 } from 'lucide-react';
 
+// "Recordar estación": solo se guarda el email (nunca la contraseña ni tokens)
+const EMAIL_RECORDADO_KEY = 'ff_estacion_email';
+
+function leerEmailRecordado(): string {
+  try {
+    return localStorage.getItem(EMAIL_RECORDADO_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function guardarEmailRecordado(email: string | null) {
+  try {
+    if (email) localStorage.setItem(EMAIL_RECORDADO_KEY, email);
+    else localStorage.removeItem(EMAIL_RECORDADO_KEY);
+  } catch {
+    // Almacenamiento no disponible (modo privado): se ignora
+  }
+}
+
+// Solo se vuelve a rutas internas de la aplicación (evita redirecciones abiertas)
+function rutaDestino(state: unknown): string {
+  const from = (state as { from?: Location } | null)?.from;
+  const ruta = from ? `${from.pathname}${from.search}` : '';
+  return ruta.startsWith('/') && !ruta.startsWith('//') && !ruta.startsWith('/login') ? ruta : '/dashboard';
+}
+
 export default function Login() {
   const navigate = useNavigate();
-  const { login, error, clearError, isLoading } = useAuth();
+  const location = useLocation();
+  const { login } = useAuth();
 
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(leerEmailRecordado);
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberStation, setRememberStation] = useState(true);
   const [selectedModule, setSelectedModule] = useState('despacho');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const clearError = () => setError(null);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    clearError();
+    setError(null);
+    setIsLoading(true);
 
     try {
-      await login({ email, password });
-      navigate('/dashboard', { replace: true });
-    } catch {
-      // Error ya se maneja en el contexto
+      await login({ email: email.trim(), password, recordar: rememberStation });
+      guardarEmailRecordado(rememberStation ? email.trim() : null);
+      navigate(rutaDestino(location.state), { replace: true });
+    } catch (err) {
+      setPassword('');
+      setError(getApiErrorMessage(err, 'Error al iniciar sesión. Verifique sus credenciales.'));
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -80,6 +119,21 @@ export default function Login() {
               </span>
               <span>Soporte Central</span>
             </nav>
+
+            {/* Acceso rápido al formulario (útil en móvil, donde queda debajo del hero) */}
+            <a
+              href="#login-box"
+              aria-label="Entra a tu Terminal"
+              onClick={(e) => {
+                e.preventDefault();
+                document.getElementById('login-box')?.scrollIntoView({ behavior: 'smooth' });
+                document.getElementById('operator-id')?.focus({ preventScroll: true });
+              }}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600 text-white text-xs font-bold tracking-wider uppercase shadow-lg shadow-orange-600/30 active:scale-95 transition-all"
+            >
+              <LockOpen className="w-[17px] h-[17px]" />
+              <span className="hidden sm:inline">Entra a tu Terminal</span>
+            </a>
           </div>
         </div>
       </header>
@@ -144,7 +198,8 @@ export default function Login() {
             </div>
 
             {/* ── Columna Derecha: Formulario de Login ── */}
-            <div className="lg:col-span-5" id="login-box">
+            {/* En móvil el formulario va primero; en escritorio queda a la derecha */}
+            <div className="order-first lg:order-none lg:col-span-5" id="login-box">
               <div className="bg-white/[0.97] backdrop-blur-2xl rounded-3xl p-6 sm:p-8 text-slate-900 shadow-2xl border border-white/40 relative overflow-hidden">
 
                 {/* Barra tricolor superior */}
@@ -166,7 +221,7 @@ export default function Login() {
 
                 {/* Error message */}
                 {error && (
-                  <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium flex items-start gap-2 animate-shake">
+                  <div role="alert" className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium flex items-start gap-2">
                     <ShieldCheck className="w-4 h-4 mt-0.5 shrink-0 text-red-500" />
                     <span>{error}</span>
                   </div>
@@ -191,7 +246,8 @@ export default function Login() {
                         placeholder="Ej. operador@fleetflow.com"
                         className="block w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all"
                         required
-                        autoComplete="email"
+                        maxLength={150}
+                        autoComplete="username"
                         disabled={isLoading}
                       />
                     </div>
@@ -222,6 +278,7 @@ export default function Login() {
                         placeholder="Ingrese su clave secreta"
                         className="block w-full pl-11 pr-11 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all"
                         required
+                        maxLength={128}
                         autoComplete="current-password"
                         disabled={isLoading}
                       />
@@ -229,6 +286,7 @@ export default function Login() {
                         type="button"
                         className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 transition-colors"
                         onClick={() => setShowPassword(!showPassword)}
+                        aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                         tabIndex={-1}
                       >
                         {showPassword ? <EyeOff className="w-[19px] h-[19px]" /> : <Eye className="w-[19px] h-[19px]" />}

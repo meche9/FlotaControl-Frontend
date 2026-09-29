@@ -18,7 +18,7 @@ import {
 
 export default function Sidebar() {
   const location = useLocation();
-  const [baseActual, setBaseActual] = useState('Base Central Valencia');
+  const [baseActual] = useState('Base Central Valencia');
 
   // Función para determinar si el link está activo y darle el estilo naranja
   const isActive = (path: string) => location.pathname === path;

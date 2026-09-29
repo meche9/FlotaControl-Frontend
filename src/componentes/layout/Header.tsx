@@ -1,6 +1,19 @@
-import { Search, Bell, Plus, User } from 'lucide-react';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Search, Bell, Plus, User, LogOut } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 
 export default function Header() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const [cerrandoSesion, setCerrandoSesion] = useState(false);
+
+  const handleLogout = async () => {
+    setCerrandoSesion(true);
+    await logout();
+    navigate('/login', { replace: true });
+  };
+
   return (
     <header className="h-20 bg-white border-b border-gray-200 px-8 flex items-center justify-between shadow-sm">
       
@@ -55,10 +68,24 @@ export default function Header() {
             <User className="w-5 h-5 text-gray-600" />
           </div>
           <div className="hidden sm:block text-left leading-tight">
-            <h4 className="text-xs font-bold text-gray-900">Mercedes</h4>
-            <span className="text-[11px] font-medium text-gray-500">Super Admin</span>
+            <h4 className="text-xs font-bold text-gray-900">
+              {user ? `${user.nombre} ${user.apellido}` : ''}
+            </h4>
+            <span className="text-[11px] font-medium text-gray-500">{user?.rol.nombre}</span>
           </div>
         </div>
+
+        {/* Cerrar sesión */}
+        <button
+          type="button"
+          onClick={handleLogout}
+          disabled={cerrandoSesion}
+          title="Cerrar sesión"
+          aria-label="Cerrar sesión"
+          className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition disabled:opacity-50"
+        >
+          <LogOut className="w-5 h-5" />
+        </button>
 
       </div>
     </header>
