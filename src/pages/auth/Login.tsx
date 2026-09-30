@@ -95,14 +95,14 @@ export default function Login() {
             <div className="flex flex-col">
               <div className="flex items-center gap-2">
                 <span className="text-xl font-extrabold tracking-tight text-white">
-                  Fleet<span className="text-orange-400">Flow</span>
+                  Fleet<span className="text-orange-400">Control</span>
                 </span>
                 <span className="px-2 py-0.5 rounded text-[10px] font-extrabold tracking-widest uppercase bg-white/10 text-orange-300 border border-orange-400/30">
-                  Mack Pro v4.8
+                  Transporte Teles, C.A
                 </span>
               </div>
               <span className="text-[11px] text-slate-400 tracking-wide font-medium hidden sm:inline-block">
-                Gestión Logística Integral & Góndolas Mack de Servicio Pesado
+                Gestión Logística Integral & Góndolas de Servicio Pesado
               </span>
             </div>
           </div>
@@ -156,7 +156,7 @@ export default function Login() {
             <div className="lg:col-span-7 space-y-6 text-white">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-black/30 backdrop-blur-md border border-white/20 text-xs font-semibold tracking-wide text-orange-200">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>Sistema Central de Carga Pesada y Tolvas Mack</span>
+                <span>Sistema Central de Carga Pesada y Tolvas </span>
               </div>
 
               <div className="space-y-2">
@@ -167,7 +167,7 @@ export default function Login() {
                   </span>
                 </h1>
                 <p className="text-base sm:text-lg text-white/90 max-w-xl font-normal leading-relaxed drop-shadow-sm pt-1">
-                  Despacho en tiempo real de góndolas Mack Granite, monitoreo de tonelaje en tolva, básculas inteligentes y proformas de liquidación de fletes.
+                  Despacho en tiempo real de gandolas Mack Granite, monitoreo de tonelaje en tolva, básculas inteligentes y proformas de liquidación de fletes.
                 </p>
               </div>
 
@@ -177,21 +177,21 @@ export default function Login() {
                   <Monitor className="w-6 h-6 text-orange-400 mt-0.5 shrink-0" />
                   <div>
                     <span className="text-xs font-bold uppercase tracking-wider text-orange-200 block">Terminal Web Logística Central:</span>
-                    <span className="text-xs font-mono text-white/90">https://central.fleetflow.internal/dispatch</span>
+                    <span className="text-xs font-mono text-white/90">https://central.fleetcontrol.internal/dispatch</span>
                   </div>
                 </div>
                 <div className="flex items-start gap-3 bg-black/25 backdrop-blur-sm p-3 rounded-xl border border-white/10 max-w-lg hover:border-emerald-500/40 transition-colors">
                   <Smartphone className="w-6 h-6 text-emerald-500 mt-0.5 shrink-0" />
                   <div>
                     <span className="text-xs font-bold uppercase tracking-wider text-emerald-200 block">App Móvil para Operadores de Góndola:</span>
-                    <span className="text-xs font-mono text-white/90">fleetflow://mobile.operator.app/login</span>
+                    <span className="text-xs font-mono text-white/90">fleetcontrol://mobile.operator.app/login</span>
                   </div>
                 </div>
                 <div className="flex items-start gap-3 bg-black/25 backdrop-blur-sm p-3 rounded-xl border border-white/10 max-w-lg hover:border-sky-400/40 transition-colors">
                   <Receipt className="w-6 h-6 text-sky-400 mt-0.5 shrink-0" />
                   <div>
                     <span className="text-xs font-bold uppercase tracking-wider text-sky-200 block">Portal Financiero & Proformas de Flete:</span>
-                    <span className="text-xs font-mono text-white/90">https://billing.fleetflow.internal/proformas</span>
+                    <span className="text-xs font-mono text-white/90">https://billing.fleetcontrol.internal/proformas</span>
                   </div>
                 </div>
               </div>
@@ -465,7 +465,7 @@ export default function Login() {
                 <span className="text-xs font-bold text-white underline underline-offset-4 flex items-center gap-1 cursor-pointer hover:text-yellow-100 transition-colors">
                   Reportar avería <ChevronRight className="w-4 h-4" />
                 </span>
-                <span className="text-[11px] font-bold text-white/90">Base Querétaro</span>
+                <span className="text-[11px] font-bold text-white/90">Base Central Valencia</span>
               </div>
             </div>
           </div>
