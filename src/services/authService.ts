@@ -13,6 +13,7 @@ export interface AuthUser {
   apellido: string;
   email: string;
   telefono: string | null;
+  foto: string | null;
   estado: string;
   rol: {
     id: string;
@@ -27,6 +28,9 @@ export type LoginResponse = SessionResponse;
 export interface MessageResponse {
   message: string;
 }
+
+export const urlFotoPerfil = (user: AuthUser | null) =>
+  user?.foto ? `/auth/profile/foto?v=${user.foto}` : null;
 
 const authService = {
   /**
@@ -69,6 +73,20 @@ const authService = {
    */
   async getProfile(): Promise<AuthUser> {
     const response = await api.get<AuthUser>('/auth/profile');
+    return response.data;
+  },
+
+  async subirFotoPerfil(archivo: File): Promise<AuthUser> {
+    const datos = new FormData();
+    datos.append('foto', archivo);
+    const response = await api.put<AuthUser>('/auth/profile/foto', datos, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  async eliminarFotoPerfil(): Promise<AuthUser> {
+    const response = await api.delete<AuthUser>('/auth/profile/foto');
     return response.data;
   },
 

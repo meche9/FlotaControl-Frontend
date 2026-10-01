@@ -35,6 +35,8 @@ import {
   TableHead,
   TableCell,
   TableEmpty,
+  ImagenProtegida,
+  SelectorImagen,
 } from '../../components/ui';
 import {
   vehiculosService,
@@ -42,6 +44,7 @@ import {
   type VehiculoFormData,
   type EstadoUnidad,
 } from '../../services/vehiculosService';
+import { getApiErrorMessage } from '../../services/api';
 
 type FilterTab = 'todos' | 'patio' | 'en_ruta' | 'taller' | 'inactivo';
 
@@ -64,6 +67,12 @@ export default function Vehiculos() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [activeVehicle, setActiveVehicle] = useState<Vehiculo | null>(null);
+
+  // Foto y estado de guardado de los formularios
+  const [fotoArchivo, setFotoArchivo] = useState<File | null>(null);
+  const [quitarFoto, setQuitarFoto] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [errorFormulario, setErrorFormulario] = useState<string | null>(null);
 
   // Form State
   const initialFormData: VehiculoFormData = {
@@ -196,23 +205,69 @@ export default function Vehiculos() {
     document.body.removeChild(link);
   };
 
+  const reiniciarFormulario = () => {
+    setFotoArchivo(null);
+    setQuitarFoto(false);
+    setErrorFormulario(null);
+  };
+
+  const reemplazarVehiculo = (actualizado: Vehiculo) =>
+    setVehiculos((prev) =>
+      prev.map((item) => (item.idVehiculo === actualizado.idVehiculo ? actualizado : item))
+    );
+
+  const seleccionarFoto = (archivo: File) => {
+    setFotoArchivo(archivo);
+    setQuitarFoto(false);
+  };
+
+  const quitarFotoSeleccionada = () => {
+    setFotoArchivo(null);
+    setQuitarFoto(true);
+  };
+
   // Crear vehículo
   const handleCreateVehicle = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.placa || !formData.marca || !formData.modelo) return;
 
+    setGuardando(true);
+    setErrorFormulario(null);
+
+    let nuevo: Vehiculo;
     try {
-      const nuevo = await vehiculosService.createVehiculo(formData);
-      setVehiculos((prev) => [nuevo, ...prev]);
-      setIsCreateModalOpen(false);
-      setFormData(initialFormData);
+      nuevo = await vehiculosService.createVehiculo(formData);
     } catch (err) {
-      console.error('Error al guardar vehículo:', err);
+      setErrorFormulario(getApiErrorMessage(err, 'No se pudo registrar el vehículo.'));
+      setGuardando(false);
+      return;
+    }
+
+    setVehiculos((prev) => [nuevo, ...prev]);
+    setIsCreateModalOpen(false);
+
+    const fotoPendiente = fotoArchivo;
+    try {
+      if (fotoPendiente) {
+        reemplazarVehiculo(await vehiculosService.subirFoto(nuevo, fotoPendiente));
+      }
+      setFormData(initialFormData);
+      reiniciarFormulario();
+    } catch (err) {
+      // El vehículo ya existe: se abre en edición para reintentar solo la foto
+      handleOpenEdit(nuevo);
+      setFotoArchivo(fotoPendiente);
+      setErrorFormulario(
+        `El vehículo se registró, pero la foto no se pudo subir. ${getApiErrorMessage(err, '')}`.trim()
+      );
+    } finally {
+      setGuardando(false);
     }
   };
 
   // Editar vehículo
   const handleOpenEdit = (v: Vehiculo) => {
+    reiniciarFormulario();
     setActiveVehicle(v);
     setFormData({
       placa: v.placa,
@@ -234,31 +289,28 @@ export default function Vehiculos() {
     setIsEditModalOpen(true);
   };
 
-  const handleUpdateVehicle = (e: React.FormEvent) => {
+  const handleUpdateVehicle = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeVehicle) return;
 
-    setVehiculos((prev) =>
-      prev.map((item) => {
-        if (item.idVehiculo === activeVehicle.idVehiculo) {
-          return {
-            ...item,
-            ...formData,
-            estadoTelemetrico:
-              formData.estadoTipo === 'en_ruta'
-                ? `En Ruta • ${formData.ubicacion || 'En Tránsito'}`
-                : formData.estadoTipo === 'taller'
-                ? `Taller Preventivo • ${formData.ubicacion || 'Box Central'}`
-                : formData.estadoTipo === 'inactivo'
-                ? `Inactivo • ${formData.ubicacion || 'Reserva'}`
-                : `Activo en Patio • ${formData.ubicacion || 'Central'}`,
-          };
-        }
-        return item;
-      })
-    );
-    setIsEditModalOpen(false);
-    setActiveVehicle(null);
+    setGuardando(true);
+    setErrorFormulario(null);
+    try {
+      let actualizado = await vehiculosService.updateVehiculo(activeVehicle.idVehiculo, formData);
+      if (fotoArchivo) {
+        actualizado = await vehiculosService.subirFoto(actualizado, fotoArchivo);
+      } else if (quitarFoto && activeVehicle.foto) {
+        actualizado = await vehiculosService.eliminarFoto(actualizado);
+      }
+      reemplazarVehiculo(actualizado);
+      setIsEditModalOpen(false);
+      setActiveVehicle(null);
+      reiniciarFormulario();
+    } catch (err) {
+      setErrorFormulario(getApiErrorMessage(err, 'No se pudieron guardar los cambios.'));
+    } finally {
+      setGuardando(false);
+    }
   };
 
   // Eliminar vehículo
@@ -438,6 +490,7 @@ export default function Vehiculos() {
             type="button"
             onClick={() => {
               setFormData(initialFormData);
+              reiniciarFormulario();
               setIsCreateModalOpen(true);
             }}
             className="flex items-center gap-1.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 active:scale-[0.98] text-white text-xs font-bold px-4 py-2 rounded-xl shadow-sm shadow-orange-500/25 transition select-none"
@@ -641,17 +694,24 @@ export default function Vehiculos() {
                       <div className="flex items-center gap-3">
                         {/* Icon Box */}
                         <div
-                          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
+                          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 overflow-hidden border ${
                             isMotriz
                               ? 'bg-amber-50/80 border-amber-200/60 text-amber-700'
                               : 'bg-emerald-50/80 border-emerald-200/60 text-emerald-700'
                           }`}
                         >
-                          {isMotriz ? (
-                            <Truck className="w-5 h-5 stroke-[1.8]" />
-                          ) : (
-                            <Container className="w-5 h-5 stroke-[1.8]" />
-                          )}
+                          <ImagenProtegida
+                            url={v.fotoUrl}
+                            alt={`Foto del vehículo ${v.placa}`}
+                            className="w-full h-full object-cover"
+                            fallback={
+                              isMotriz ? (
+                                <Truck className="w-5 h-5 stroke-[1.8]" />
+                              ) : (
+                                <Container className="w-5 h-5 stroke-[1.8]" />
+                              )
+                            }
+                          />
                         </div>
 
                         {/* Placa + Code */}
@@ -887,6 +947,16 @@ export default function Vehiculos() {
       >
         <form onSubmit={handleCreateVehicle} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="sm:col-span-2">
+              <SelectorImagen
+                etiqueta="Foto del vehículo (opcional)"
+                archivo={fotoArchivo}
+                quitada={quitarFoto}
+                onSeleccionar={seleccionarFoto}
+                onQuitar={quitarFotoSeleccionada}
+              />
+            </div>
+
             {/* Placa */}
             <div>
               <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
@@ -1064,6 +1134,12 @@ export default function Vehiculos() {
             </div>
           </div>
 
+          {errorFormulario && (
+            <p className="text-[11px] font-semibold text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+              {errorFormulario}
+            </p>
+          )}
+
           <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2.5">
             <Button
               variant="outline"
@@ -1073,8 +1149,8 @@ export default function Vehiculos() {
             >
               Cancelar
             </Button>
-            <Button variant="primary" size="md" type="submit">
-              Guardar Unidad
+            <Button variant="primary" size="md" type="submit" disabled={guardando}>
+              {guardando ? 'Guardando...' : 'Guardar Unidad'}
             </Button>
           </div>
         </form>
@@ -1106,6 +1182,14 @@ export default function Vehiculos() {
       >
         {activeVehicle && (
           <div className="space-y-5">
+            {activeVehicle.fotoUrl && (
+              <ImagenProtegida
+                url={activeVehicle.fotoUrl}
+                alt={`Foto del vehículo ${activeVehicle.placa}`}
+                className="w-full h-56 object-cover rounded-2xl border border-slate-200"
+              />
+            )}
+
             {/* Status overview banner */}
             <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center gap-3">
@@ -1236,6 +1320,17 @@ export default function Vehiculos() {
       >
         <form onSubmit={handleUpdateVehicle} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="sm:col-span-2">
+              <SelectorImagen
+                etiqueta="Foto del vehículo"
+                urlActual={activeVehicle?.fotoUrl}
+                archivo={fotoArchivo}
+                quitada={quitarFoto}
+                onSeleccionar={seleccionarFoto}
+                onQuitar={quitarFotoSeleccionada}
+              />
+            </div>
+
             <div>
               <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
                 Placa
@@ -1308,14 +1403,35 @@ export default function Vehiculos() {
               <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
                 Clasificación
               </label>
-              <input
-                type="text"
+              <select
                 value={formData.clasificacion}
                 onChange={(e) => setFormData({ ...formData, clasificacion: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-slate-800 text-xs outline-none"
-              />
+                className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-semibold text-slate-800 text-xs outline-none"
+              >
+                {formData.tipoUnidad === 'motriz' ? (
+                  <>
+                    <option value="Tractocamión 6x2">Tractocamión 6x2</option>
+                    <option value="Tractocamión 6x4">Tractocamión 6x4</option>
+                    <option value="Tractocamión 4x2">Tractocamión 4x2</option>
+                    <option value="Rígido 3 Ejes">Rígido 3 Ejes</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="Góndola Volquete 3 Ejes">Góndola Volquete 3 Ejes</option>
+                    <option value="Caja Frigorífica 13.6m">Caja Frigorífica 13.6m</option>
+                    <option value="Semirremolque Lona 13.6m">Semirremolque Lona 13.6m</option>
+                    <option value="Plataforma Portacontenedor">Plataforma Portacontenedor</option>
+                  </>
+                )}
+              </select>
             </div>
           </div>
+
+          {errorFormulario && (
+            <p className="text-[11px] font-semibold text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+              {errorFormulario}
+            </p>
+          )}
 
           <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2.5">
             <Button
@@ -1326,8 +1442,8 @@ export default function Vehiculos() {
             >
               Cancelar
             </Button>
-            <Button variant="primary" size="md" type="submit">
-              Guardar Cambios
+            <Button variant="primary" size="md" type="submit" disabled={guardando}>
+              {guardando ? 'Guardando...' : 'Guardar Cambios'}
             </Button>
           </div>
         </form>
