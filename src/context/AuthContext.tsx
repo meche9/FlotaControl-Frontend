@@ -10,6 +10,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   login: (credentials: LoginCredentials) => Promise<void>;
   logout: () => Promise<void>;
+  actualizarUsuario: (user: AuthUser) => void;
 }
 
 type MensajeSesion = 'login' | 'logout';
@@ -99,6 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: status === 'authenticated',
         login,
         logout,
+        actualizarUsuario: setUser,
       }}
     >
       {children}

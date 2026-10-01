@@ -2,11 +2,15 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Bell, Plus, User, LogOut } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { ImagenProtegida } from '../../components/ui';
+import { urlFotoPerfil } from '../../services/authService';
+import FotoPerfilModal from './FotoPerfilModal';
 
 export default function Header() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [cerrandoSesion, setCerrandoSesion] = useState(false);
+  const [fotoPerfilAbierta, setFotoPerfilAbierta] = useState(false);
 
   const handleLogout = async () => {
     setCerrandoSesion(true);
@@ -63,10 +67,20 @@ export default function Header() {
 
         {/* Perfil del Usuario */}
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border border-gray-300">
-            {/* Aquí puedes cambiar el div por una etiqueta <img src="..." alt="Avatar" /> si tienes la foto */}
-            <User className="w-5 h-5 text-gray-600" />
-          </div>
+          <button
+            type="button"
+            onClick={() => setFotoPerfilAbierta(true)}
+            title="Cambiar foto de perfil"
+            aria-label="Cambiar foto de perfil"
+            className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border border-gray-300 hover:ring-2 hover:ring-orange-500/30 transition"
+          >
+            <ImagenProtegida
+              url={urlFotoPerfil(user)}
+              alt="Foto de perfil"
+              className="w-full h-full object-cover"
+              fallback={<User className="w-5 h-5 text-gray-600" />}
+            />
+          </button>
           <div className="hidden sm:block text-left leading-tight">
             <h4 className="text-xs font-bold text-gray-900">
               {user ? `${user.nombre} ${user.apellido}` : ''}
@@ -88,6 +102,8 @@ export default function Header() {
         </button>
 
       </div>
+
+      <FotoPerfilModal isOpen={fotoPerfilAbierta} onClose={() => setFotoPerfilAbierta(false)} />
     </header>
   );
 }

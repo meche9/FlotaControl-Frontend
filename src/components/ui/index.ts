@@ -3,3 +3,5 @@ export * from './Card';
 export * from './Badge';
 export * from './Modal';
 export * from './Table';
+export * from './ImagenProtegida';
+export * from './SelectorImagen';
