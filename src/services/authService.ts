@@ -8,14 +8,14 @@ export interface LoginCredentials {
 }
 
 export interface AuthUser {
-  id: number;
+  id: string;
   nombre: string;
   apellido: string;
   email: string;
   telefono: string | null;
   estado: string;
   rol: {
-    id: number;
+    id: string;
     nombre: string;
     descripcion: string | null;
   };
