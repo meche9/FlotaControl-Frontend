@@ -62,7 +62,6 @@ export default function Vehiculos() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedType, setSelectedType] = useState<'todos' | 'motriz' | 'acoplado'>('todos');
   const [selectedTab, setSelectedTab] = useState<FilterTab>('todos');
-  const [selectedZona, setSelectedZona] = useState('Todas las Zonas');
   const [selectedEstadoFilter, setSelectedEstadoFilter] = useState<'todos' | EstadoUnidad>('todos');
 
   // Paginación
@@ -435,7 +434,7 @@ export default function Vehiculos() {
             Centro de Control Operativo
           </h1>
           <p className="text-xs text-slate-500 font-normal mt-0.5">
-            Supervisión en tiempo real de unidades activas, operadores, telemetría y mantenimiento preventivo.
+            Supervisión en tiempo real de unidades activas, conductores, telemetría y mantenimiento preventivo.
           </p>
         </div>
 
@@ -501,7 +500,7 @@ export default function Vehiculos() {
         <Card className="p-4 rounded-2xl border border-slate-100/90 shadow-2xs flex flex-col justify-between hover:shadow-xs transition">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-              OPERADORES EN TURNO
+              CONDUCTORES ACTIVOS
             </span>
             <div className="w-9 h-9 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center shrink-0">
               <UserCheck className="w-4 h-4 stroke-[2]" />
@@ -618,13 +617,13 @@ export default function Vehiculos() {
 
       {/* ─── 3. MAIN DASHBOARD CONTENT: 2 COLUMNS ─── */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
-        {/* ─── LEFT COLUMN: GESTIÓN DE UNIDADES Y FLOTA (8 COLUMNS) ─── */}
-        <div className="xl:col-span-8">
+        {/* ─── LEFT COLUMN: GESTIÓN DE UNIDADES Y FLOTA (9 COLUMNS) ─── */}
+        <div className="xl:col-span-9">
           <Card className="rounded-3xl border border-slate-100 p-5 sm:p-6 shadow-xs bg-white">
             {/* Header del bloque */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4">
               <div>
-                <h2 className="text-lg font-black text-slate-900 tracking-tight">
+                <h2 className="text-lg font-black text-orange-900 tracking-tight">
                   Gestión de Unidades y Flota
                 </h2>
                 <p className="text-xs text-slate-400 font-normal mt-0.5">
@@ -739,7 +738,7 @@ export default function Vehiculos() {
               {/* Filter button */}
               <button
                 type="button"
-                title="Filtros avanzados"
+                title="Filtros avanzados (Todos/Motriz/Acoplados)"
                 onClick={() => {
                   setSelectedType(selectedType === 'todos' ? 'motriz' : selectedType === 'motriz' ? 'acoplado' : 'todos');
                   setCurrentPage(1);
@@ -1100,21 +1099,21 @@ export default function Vehiculos() {
           </Card>
         </div>
 
-        {/* ─── RIGHT COLUMN: 2 SIDEBAR CARDS (4 COLUMNS) ─── */}
-        <div className="xl:col-span-4 space-y-6">
+        {/* ─── RIGHT COLUMN: 2 SIDEBAR CARDS (3 COLUMNS) ─── */}
+        <div className="xl:col-span-3 space-y-6">
           {/* ─── CARD 1: MANTENIMIENTO CRÍTICO ─── */}
           <Card className="rounded-3xl border border-slate-100 p-5 shadow-xs bg-white">
             {/* Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center">
+            <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center shrink-0">
                   <AlertCircle className="w-4 h-4 stroke-[2.5]" />
                 </div>
-                <h3 className="font-extrabold text-sm text-slate-900 tracking-tight">
+                <h3 className="font-extrabold text-sm text-slate-900 tracking-tight truncate">
                   Mantenimiento Crítico
                 </h3>
               </div>
-              <span className="text-[10px] font-bold text-orange-700 bg-orange-50 border border-orange-200/60 px-2.5 py-0.5 rounded-full">
+              <span className="text-[10px] font-bold text-orange-700 bg-orange-50 border border-orange-200/60 px-2.5 py-0.5 rounded-full shrink-0">
                 3 Prioritarios
               </span>
             </div>
@@ -1123,11 +1122,11 @@ export default function Vehiculos() {
             <div className="divide-y divide-slate-100 pt-1">
               {/* Item 1 */}
               <div className="py-3.5 space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-slate-900">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="font-bold text-xs text-slate-900 leading-tight">
                     #TR-104 Cambio de Aceite & Filtros
                   </span>
-                  <span className="text-[10px] font-bold text-orange-700 bg-orange-50 px-2 py-0.5 rounded-md">
+                  <span className="text-[10px] font-bold text-orange-700 bg-orange-50 px-2 py-0.5 rounded-md shrink-0">
                     en 250 km
                   </span>
                 </div>
@@ -1142,11 +1141,11 @@ export default function Vehiculos() {
 
               {/* Item 2 */}
               <div className="py-3.5 space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-slate-900">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="font-bold text-xs text-slate-900 leading-tight">
                     #TR-088 Desgaste Balatas y Frenos
                   </span>
-                  <span className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md">
+                  <span className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md shrink-0">
                     Programado
                   </span>
                 </div>
@@ -1161,11 +1160,11 @@ export default function Vehiculos() {
 
               {/* Item 3 */}
               <div className="py-3.5 space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs text-slate-900">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="font-bold text-xs text-slate-900 leading-tight">
                     #TR-201 Calibración Sensores Inyección
                   </span>
-                  <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md">
+                  <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md shrink-0">
                     Alerta Amarilla
                   </span>
                 </div>
@@ -1184,10 +1183,10 @@ export default function Vehiculos() {
               <button
                 type="button"
                 onClick={() => setIsMaintenanceModalOpen(true)}
-                className="w-full py-2.5 px-4 bg-orange-500 hover:bg-orange-600 active:scale-[0.99] text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm shadow-orange-500/25 transition cursor-pointer select-none"
+                className="w-full py-2.5 px-3 bg-orange-500 hover:bg-orange-600 active:scale-[0.99] text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-sm shadow-orange-500/25 transition cursor-pointer select-none"
               >
-                <CalendarPlus className="w-4 h-4 stroke-[2.5]" />
-                <span>Programar Ingreso a Taller</span>
+                <CalendarPlus className="w-4 h-4 stroke-[2.5] shrink-0" />
+                <span className="truncate">Programar Ingreso a Taller</span>
               </button>
             </div>
           </Card>
@@ -1195,14 +1194,14 @@ export default function Vehiculos() {
           {/* ─── CARD 2: OPERADORES DESTACADOS ─── */}
           <Card className="rounded-3xl border border-slate-100 p-5 shadow-xs bg-white">
             {/* Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <Award className="w-4 h-4 text-emerald-600" />
-                <h3 className="font-extrabold text-sm text-slate-900 tracking-tight">
-                  Operadores Destacados
+            <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2 min-w-0">
+                <Award className="w-4 h-4 text-emerald-600 shrink-0" />
+                <h3 className="font-extrabold text-sm text-slate-900 tracking-tight truncate">
+                  Conductores Destacados
                 </h3>
               </div>
-              <span className="text-xs font-semibold text-slate-400">
+              <span className="text-xs font-semibold text-slate-400 shrink-0">
                 Turno A
               </span>
             </div>
@@ -1210,27 +1209,27 @@ export default function Vehiculos() {
             {/* Operators List */}
             <div className="divide-y divide-slate-100">
               {/* Operator 1 */}
-              <div className="py-3 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <div className="w-9 h-9 rounded-full bg-slate-800 text-white font-black text-xs flex items-center justify-center">
+              <div className="py-3 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="relative shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-slate-800 text-white font-black text-xs flex items-center justify-center">
                       MC
                     </div>
-                    <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-emerald-500 text-white font-bold text-[9px] flex items-center justify-center border border-white">
+                    <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 text-white font-bold text-[8px] flex items-center justify-center border border-white">
                       1
                     </span>
                   </div>
-                  <div>
-                    <h4 className="font-bold text-xs text-slate-900">
+                  <div className="min-w-0">
+                    <h4 className="font-bold text-xs text-slate-900 truncate">
                       Miguel Ángel Cruz
                     </h4>
-                    <p className="text-[11px] text-slate-400 font-medium">
+                    <p className="text-[11px] text-slate-400 font-medium truncate">
                       0 frenados bruscos • 8.4h
                     </p>
                   </div>
                 </div>
 
-                <div className="text-right">
+                <div className="text-right shrink-0">
                   <span className="text-base font-black text-teal-700 tracking-tight block">
                     99
                   </span>
@@ -1241,27 +1240,27 @@ export default function Vehiculos() {
               </div>
 
               {/* Operator 2 */}
-              <div className="py-3 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <div className="w-9 h-9 rounded-full bg-slate-700 text-white font-black text-xs flex items-center justify-center">
+              <div className="py-3 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="relative shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-slate-700 text-white font-black text-xs flex items-center justify-center">
                       CM
                     </div>
-                    <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-emerald-500 text-white font-bold text-[9px] flex items-center justify-center border border-white">
+                    <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 text-white font-bold text-[8px] flex items-center justify-center border border-white">
                       2
                     </span>
                   </div>
-                  <div>
-                    <h4 className="font-bold text-xs text-slate-900">
+                  <div className="min-w-0">
+                    <h4 className="font-bold text-xs text-slate-900 truncate">
                       Carlos Mendoza
                     </h4>
-                    <p className="text-[11px] text-slate-400 font-medium">
+                    <p className="text-[11px] text-slate-400 font-medium truncate">
                       Eco-Driving +14% • 7.2h
                     </p>
                   </div>
                 </div>
 
-                <div className="text-right">
+                <div className="text-right shrink-0">
                   <span className="text-base font-black text-teal-700 tracking-tight block">
                     98
                   </span>
