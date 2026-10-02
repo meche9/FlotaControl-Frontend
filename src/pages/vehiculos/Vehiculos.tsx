@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Truck,
   Container,
@@ -8,7 +8,6 @@ import {
   Eye,
   Pencil,
   Trash2,
-  Building2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -20,9 +19,13 @@ import {
   Activity,
   CheckCircle2,
   AlertCircle,
-  Radio,
+  AlertTriangle,
   X,
-  FileSpreadsheet,
+  SlidersHorizontal,
+  CalendarPlus,
+  MoreVertical,
+  Award,
+  UserCheck,
 } from 'lucide-react';
 import {
   Button,
@@ -43,32 +46,42 @@ import {
   type Vehiculo,
   type VehiculoFormData,
   type EstadoUnidad,
+  type TipoUnidad,
+  type TipoVehiculo,
+  type ClasificacionVehiculo,
 } from '../../services/vehiculosService';
 import { getApiErrorMessage } from '../../services/api';
 
-type FilterTab = 'todos' | 'patio' | 'en_ruta' | 'taller' | 'inactivo';
+type FilterTab = 'todos' | 'en_ruta' | 'patio' | 'taller' | 'inactivo';
 
 export default function Vehiculos() {
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
+  const [tiposVehiculo, setTiposVehiculo] = useState<TipoVehiculo[]>([]);
+  const [clasificaciones, setClasificaciones] = useState<ClasificacionVehiculo[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedType, setSelectedType] = useState<'todos' | 'motriz' | 'acoplado'>('todos');
   const [selectedTab, setSelectedTab] = useState<FilterTab>('todos');
-  const [selectedLocation, setSelectedLocation] = useState('Patio Central Valencia (P-01)');
-  const [selectedVehicles, setSelectedVehicles] = useState<string[]>([]);
+  const [selectedZona, setSelectedZona] = useState('Todas las Zonas');
+  const [selectedEstadoFilter, setSelectedEstadoFilter] = useState<'todos' | EstadoUnidad>('todos');
 
   // Paginación
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(25);
+  const itemsPerPage = 6;
 
   // Modales
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false);
   const [activeVehicle, setActiveVehicle] = useState<Vehiculo | null>(null);
 
-  // Foto y estado de guardado de los formularios
+  // Dropdown de acciones por fila
+  const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
+  const actionMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // Foto y estado de formularios
   const [fotoArchivo, setFotoArchivo] = useState<File | null>(null);
   const [quitarFoto, setQuitarFoto] = useState(false);
   const [guardando, setGuardando] = useState(false);
@@ -84,7 +97,9 @@ export default function Vehiculos() {
     modelo: '',
     especificacionMotor: '',
     anio: new Date().getFullYear(),
-    clasificacion: 'Tractocamión 6x2',
+    clasificacion: 'Chuto',
+    idClasificacion: 1,
+    idTipo: 1,
     numeroChasis: '',
     numeroMotor: '',
     capacidadCarga: 25000,
@@ -95,13 +110,36 @@ export default function Vehiculos() {
 
   const [formData, setFormData] = useState<VehiculoFormData>(initialFormData);
 
+  // Cerrar menú de acciones al hacer clic fuera
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(event.target as Node)) {
+        setOpenActionMenuId(null);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   // Cargar datos
   useEffect(() => {
     async function loadData() {
       setLoading(true);
       try {
-        const data = await vehiculosService.getVehiculos();
+        const [data, tipos, clasifs] = await Promise.all([
+          vehiculosService.getVehiculos(),
+          vehiculosService.getTiposVehiculo().catch((e) => {
+            console.warn('No se pudieron cargar tipos de vehículos:', e);
+            return [] as TipoVehiculo[];
+          }),
+          vehiculosService.getClasificaciones().catch((e) => {
+            console.warn('No se pudieron cargar clasificaciones de vehículos:', e);
+            return [] as ClasificacionVehiculo[];
+          }),
+        ]);
         setVehiculos(data);
+        if (tipos.length > 0) setTiposVehiculo(tipos);
+        if (clasifs.length > 0) setClasificaciones(clasifs);
       } catch (err) {
         console.error('Error cargando vehículos:', err);
       } finally {
@@ -118,26 +156,54 @@ export default function Vehiculos() {
     const enRuta = vehiculos.filter((v) => v.estadoTipo === 'en_ruta').length;
     const taller = vehiculos.filter((v) => v.estadoTipo === 'taller').length;
     const inactivo = vehiculos.filter((v) => v.estadoTipo === 'inactivo').length;
-    const motrices = vehiculos.filter((v) => v.tipoUnidad === 'motriz').length;
-    const acoplados = vehiculos.filter((v) => v.tipoUnidad === 'acoplado').length;
+    const motrices = vehiculos.filter((v) => {
+      const c = clasificaciones.find((cl) => Number(cl.idClasificacion) === Number(v.idClasificacion));
+      const t = tiposVehiculo.find((tp) => Number(tp.idTipo) === Number(c?.idTipo)) || c?.tipo;
+      const tId = Number(t?.idTipo ?? c?.idTipo ?? v.idTipo ?? 1);
+      return tId === 1;
+    }).length;
+    const acoplados = vehiculos.length - motrices;
 
-    return { total, patio, enRuta, taller, inactivo, motrices, acoplados };
-  }, [vehiculos]);
+    const disponibilidadPorcentaje = total > 0 ? (((patio + enRuta) / total) * 100).toFixed(1) : '87.5';
+
+    return {
+      total: total || 48,
+      patio: patio || 6,
+      enRuta: enRuta || 35,
+      taller: taller || 4,
+      inactivo: inactivo || 3,
+      motrices,
+      acoplados,
+      disponibilidadPorcentaje,
+      unidadesActivas: patio + enRuta || 42,
+    };
+  }, [vehiculos, clasificaciones, tiposVehiculo]);
 
   // Filtrado reactivo
   const filteredVehiculos = useMemo(() => {
     return vehiculos.filter((v) => {
-      // Filtro por Tab de Estado
+      // Filtro por Tab de Estado (En Ruta, Disponibles/Patio, En Taller, Detenidas/Inactivo)
       if (selectedTab !== 'todos' && v.estadoTipo !== selectedTab) {
         return false;
       }
 
-      // Filtro por Tipo (Motriz vs Acoplado)
-      if (selectedType !== 'todos' && v.tipoUnidad !== selectedType) {
+      // Filtro de estado secundario (desde el dropdown superior)
+      if (selectedEstadoFilter !== 'todos' && v.estadoTipo !== selectedEstadoFilter) {
         return false;
       }
 
-      // Filtro por término de búsqueda (Placa, Marca, Modelo, Chasis/VIN)
+      // Filtro por Tipo (Motriz vs Acoplado según idClasificacion -> clasificaciones -> idTipo -> tipos_vehiculos)
+      if (selectedType !== 'todos') {
+        const c = clasificaciones.find((cl) => Number(cl.idClasificacion) === Number(v.idClasificacion));
+        const t = tiposVehiculo.find((tp) => Number(tp.idTipo) === Number(c?.idTipo)) || c?.tipo;
+        const tId = Number(t?.idTipo ?? c?.idTipo ?? v.idTipo ?? 1);
+        const tipoU = tId === 1 ? 'motriz' : 'acoplado';
+        if (tipoU !== selectedType) {
+          return false;
+        }
+      }
+
+      // Filtro por término de búsqueda (Placa, Marca, Modelo, Chasis, Código o Conductor)
       if (searchTerm.trim()) {
         const term = searchTerm.toLowerCase();
         const matchesPlaca = v.placa.toLowerCase().includes(term);
@@ -145,14 +211,27 @@ export default function Vehiculos() {
         const matchesModelo = v.modelo.toLowerCase().includes(term);
         const matchesVIN = v.numeroChasis.toLowerCase().includes(term);
         const matchesCodigo = v.codigoUnidad.toLowerCase().includes(term);
-        if (!matchesPlaca && !matchesMarca && !matchesModelo && !matchesVIN && !matchesCodigo) {
+        const matchesConductor = v.telemetriaDetalle?.operador?.toLowerCase().includes(term) ?? false;
+        const matchesClasificacion = (v.nombreClasificacion || v.clasificacion || '').toLowerCase().includes(term);
+        const matchesTipo = (v.nombreTipo || '').toLowerCase().includes(term);
+
+        if (
+          !matchesPlaca &&
+          !matchesMarca &&
+          !matchesModelo &&
+          !matchesVIN &&
+          !matchesCodigo &&
+          !matchesConductor &&
+          !matchesClasificacion &&
+          !matchesTipo
+        ) {
           return false;
         }
       }
 
       return true;
     });
-  }, [vehiculos, selectedTab, selectedType, searchTerm]);
+  }, [vehiculos, selectedTab, selectedType, selectedEstadoFilter, searchTerm, clasificaciones, tiposVehiculo]);
 
   // Paginación de la tabla
   const totalPages = Math.ceil(filteredVehiculos.length / itemsPerPage) || 1;
@@ -161,35 +240,20 @@ export default function Vehiculos() {
     return filteredVehiculos.slice(start, start + itemsPerPage);
   }, [filteredVehiculos, currentPage, itemsPerPage]);
 
-  // Manejo de Selección Múltiple
-  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.checked) {
-      setSelectedVehicles(filteredVehiculos.map((v) => v.idVehiculo));
-    } else {
-      setSelectedVehicles([]);
-    }
-  };
-
-  const handleSelectOne = (id: string) => {
-    setSelectedVehicles((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
-    );
-  };
-
   // Exportar a CSV
   const handleExportCSV = () => {
-    const headers = ['ID', 'Placa', 'Tipo', 'Código', 'Marca', 'Modelo', 'Año', 'Clasificación', 'VIN', 'Estado'];
+    const headers = ['Unidad', 'Placa', 'Marca', 'Modelo', 'Año', 'Tipo', 'Clasificación', 'Estado', 'Operador', 'Odómetro'];
     const rows = filteredVehiculos.map((v) => [
-      v.idVehiculo,
-      v.placa,
-      v.tipoUnidad,
       v.codigoUnidad,
+      v.placa,
       v.marca,
       v.modelo,
       v.anio,
-      v.clasificacion,
-      v.numeroChasis,
-      v.estadoTelemetrico,
+      v.nombreTipo || (v.idTipo === 1 ? 'Unidad Motora' : 'Acoplado'),
+      v.nombreClasificacion || v.clasificacion,
+      v.estadoTipo,
+      v.telemetriaDetalle?.operador || 'Sin asignar',
+      v.telemetriaDetalle?.odometro || 'N/A',
     ]);
 
     const csvContent =
@@ -199,7 +263,7 @@ export default function Vehiculos() {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `flota_vehiculos_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('download', `reporte_flota_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -254,7 +318,6 @@ export default function Vehiculos() {
       setFormData(initialFormData);
       reiniciarFormulario();
     } catch (err) {
-      // El vehículo ya existe: se abre en edición para reintentar solo la foto
       handleOpenEdit(nuevo);
       setFotoArchivo(fotoPendiente);
       setErrorFormulario(
@@ -278,7 +341,9 @@ export default function Vehiculos() {
       modelo: v.modelo,
       especificacionMotor: v.especificacionMotor || '',
       anio: v.anio,
-      clasificacion: v.clasificacion,
+      clasificacion: v.nombreClasificacion || v.clasificacion,
+      idClasificacion: v.idClasificacion,
+      idTipo: v.idTipo,
       numeroChasis: v.numeroChasis,
       numeroMotor: v.numeroMotor || '',
       capacidadCarga: v.capacidadCarga,
@@ -286,6 +351,7 @@ export default function Vehiculos() {
       estadoTipo: v.estadoTipo,
       ubicacion: v.telemetriaDetalle?.ubicacion || '',
     });
+    setOpenActionMenuId(null);
     setIsEditModalOpen(true);
   };
 
@@ -326,616 +392,888 @@ export default function Vehiculos() {
     }
   };
 
+  // Programar a taller rápido
+  const handleSetMaintenance = async (vehiculo: Vehiculo) => {
+    try {
+      const updated = await vehiculosService.updateVehiculo(vehiculo.idVehiculo, {
+        placa: vehiculo.placa,
+        pais: vehiculo.pais,
+        tipoUnidad: vehiculo.tipoUnidad,
+        codigoUnidad: vehiculo.codigoUnidad,
+        marca: vehiculo.marca,
+        modelo: vehiculo.modelo,
+        anio: vehiculo.anio,
+        clasificacion: vehiculo.clasificacion,
+        numeroChasis: vehiculo.numeroChasis,
+        capacidadCarga: vehiculo.capacidadCarga,
+        capacidadArrastre: vehiculo.capacidadArrastre,
+        estadoTipo: 'taller',
+        ubicacion: 'Taller Central',
+      });
+      reemplazarVehiculo(updated);
+      setIsMaintenanceModalOpen(false);
+    } catch (err) {
+      console.error('Error programando a taller:', err);
+    }
+  };
+
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto pb-12 font-sans antialiased text-slate-800">
-      {/* ─── 1. HEADER SECTION & KPI METRICS ─── */}
-      <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-6">
+    <div className="space-y-6 max-w-[1650px] mx-auto pb-16 font-sans antialiased text-slate-800">
+      {/* ─── 1. TOP HEADER & TELEMETRÍA CONTROLS ─── */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          {/* Breadcrumb / Top subtitle tag */}
-          <div className="flex items-center gap-2 mb-1.5 text-[11px] uppercase tracking-wider font-semibold">
-            <span className="text-amber-700 font-bold">MÓDULO ERP CENTRAL</span>
-            <span className="text-slate-300">•</span>
-            <span className="text-slate-400 font-medium">Base Logística Valencia - HUB 01</span>
+          {/* Header pill / badge */}
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+            <span className="text-[11px] font-black uppercase tracking-wider text-teal-800">
+              TELEMETRÍA Y CONTROL ACTIVO
+            </span>
           </div>
 
           {/* Main Title */}
           <h1 className="text-2xl lg:text-3xl font-black text-slate-900 tracking-tight">
-            Gestión de Flota y Vehículos
+            Centro de Control Operativo
           </h1>
-
-          {/* Detailed summary */}
-          <p className="text-xs lg:text-sm text-slate-500 mt-1 max-w-2xl leading-relaxed">
-            Supervisión telemática integral de{' '}
-            <span className="font-bold text-slate-800">
-              {counts.total || 48} Unidades registradas
-            </span>
-            :{' '}
-            <span className="font-bold text-amber-800">
-              {counts.motrices || 34} Unidades Motoras
-            </span>{' '}
-            (Cabezales pesados) y{' '}
-            <span className="font-bold text-emerald-700">
-              {counts.acoplados || 14} Acoplados
-            </span>{' '}
-            (Tolvas y plataformas).
+          <p className="text-xs text-slate-500 font-normal mt-0.5">
+            Supervisión en tiempo real de unidades activas, operadores, telemetría y mantenimiento preventivo.
           </p>
         </div>
 
-        {/* 4 Mini KPI Cards at Top Right */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 shrink-0">
-          {/* KPI 1: DISPONIBILIDAD */}
-          <div className="bg-white/80 backdrop-blur-xs border border-slate-200/80 rounded-2xl p-3 shadow-2xs min-w-[110px] flex flex-col justify-between">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-              DISPONIBILIDAD
-            </span>
-            <div className="flex items-baseline gap-1 mt-1">
-              <span className="text-lg lg:text-xl font-black text-emerald-600 tracking-tight">
-                93.8%
-              </span>
-              <TrendingUp className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
-            </div>
-          </div>
 
-          {/* KPI 2: EN CARRETERA */}
-          <div className="bg-white/80 backdrop-blur-xs border border-slate-200/80 rounded-2xl p-3 shadow-2xs min-w-[110px] flex flex-col justify-between">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-              EN CARRETERA
-            </span>
-            <div className="flex items-baseline gap-1 mt-1">
-              <span className="text-lg lg:text-xl font-black text-sky-600 tracking-tight">
-                {counts.enRuta || 12}
-              </span>
-              <span className="text-[11px] font-bold text-sky-600/70">Unds</span>
-            </div>
-          </div>
-
-          {/* KPI 3: MANTENIMIENTO */}
-          <div className="bg-white/80 backdrop-blur-xs border border-slate-200/80 rounded-2xl p-3 shadow-2xs min-w-[110px] flex flex-col justify-between">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-              MANTENIMIENTO
-            </span>
-            <div className="flex items-baseline gap-1 mt-1">
-              <span className="text-lg lg:text-xl font-black text-amber-700 tracking-tight">
-                {String(counts.taller || 5).padStart(2, '0')}
-              </span>
-              <span className="text-[11px] font-bold text-amber-700/70">Taller</span>
-            </div>
-          </div>
-
-          {/* KPI 4: CONSUMO PROM */}
-          <div className="bg-white/80 backdrop-blur-xs border border-slate-200/80 rounded-2xl p-3 shadow-2xs min-w-[110px] flex flex-col justify-between">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-              CONSUMO PROM.
-            </span>
-            <div className="flex items-baseline gap-1 mt-1">
-              <span className="text-lg lg:text-xl font-black text-slate-800 tracking-tight">
-                32.4
-              </span>
-              <span className="text-[10px] font-medium text-slate-400">L/100km</span>
-            </div>
-          </div>
-        </div>
+        {/* Botón Primario Naranja */}
+        <button
+          type="button"
+          onClick={() => {
+            setFormData(initialFormData);
+            reiniciarFormulario();
+            setIsCreateModalOpen(true);
+          }}
+          className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white text-xs font-bold px-4 py-2 rounded-xl shadow-sm shadow-orange-500/25 transition select-none cursor-pointer"
+        >
+          <Plus className="w-4 h-4 stroke-[2.5]" />
+          <span>Registrar Vehículo</span>
+        </button>
       </div>
 
-      {/* ─── 2. CONTROLS & ACTION FILTERS BAR ─── */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-        {/* Left Filter Controls */}
-        <div className="flex flex-wrap items-center gap-2.5 flex-1">
-          {/* Search Box */}
-          <div className="relative flex-1 min-w-[260px] max-w-md">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-              }}
-              placeholder="Filtrar por placa, modelo o VIN..."
-              className="w-full pl-9 pr-8 py-2 text-xs bg-white rounded-xl border border-slate-200/80 shadow-2xs text-slate-800 placeholder-slate-400 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition"
-            />
-            {searchTerm ? (
+      {/* ─── 2. TOP 4 KPI METRIC CARDS ─── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* KPI 1: UNIDADES ACTIVAS */}
+        <Card className="p-4 rounded-2xl border border-slate-100/90 shadow-2xs flex flex-col justify-between hover:shadow-xs transition">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              UNIDADES ACTIVAS
+            </span>
+            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+              <Truck className="w-4 h-4 stroke-[2]" />
+            </div>
+          </div>
+
+          <div className="mt-2 mb-2 flex items-baseline gap-1">
+            <span className="text-3xl font-black text-slate-900 tracking-tight">
+              {counts.unidadesActivas}
+            </span>
+            <span className="text-sm font-semibold text-slate-400">
+              / {counts.total}
+            </span>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between text-[11px] mb-1.5">
+              <span className="font-bold text-emerald-600 flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                {counts.disponibilidadPorcentaje}% Disponibilidad
+              </span>
+              <span className="text-slate-400 font-medium">
+                {counts.patio} en base
+              </span>
+            </div>
+            {/* Progress bar */}
+            <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+                style={{ width: `${Math.min(100, Number(counts.disponibilidadPorcentaje))}%` }}
+              />
+            </div>
+          </div>
+        </Card>
+
+        {/* KPI 2: OPERADORES EN TURNO */}
+        <Card className="p-4 rounded-2xl border border-slate-100/90 shadow-2xs flex flex-col justify-between hover:shadow-xs transition">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              OPERADORES EN TURNO
+            </span>
+            <div className="w-9 h-9 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center shrink-0">
+              <UserCheck className="w-4 h-4 stroke-[2]" />
+            </div>
+          </div>
+
+          <div className="mt-2 mb-2 flex items-baseline gap-1">
+            <span className="text-3xl font-black text-slate-900 tracking-tight">
+              {Math.max(1, counts.enRuta + 3)}
+            </span>
+            <span className="text-xs font-bold text-sky-600 ml-1">
+              En cabina
+            </span>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between text-[11px] mb-1.5">
+              <span className="font-bold text-sky-600 flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                94% Puntualidad
+              </span>
+              <span className="text-slate-400 font-medium">
+                4 en relevo
+              </span>
+            </div>
+            {/* Progress bar */}
+            <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+              <div className="h-full bg-sky-500 rounded-full w-[94%]" />
+            </div>
+          </div>
+        </Card>
+
+        {/* KPI 3: KILOMETRAJE HOY */}
+        <Card className="p-4 rounded-2xl border border-slate-100/90 shadow-2xs flex flex-col justify-between hover:shadow-xs transition">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              KILOMETRAJE HOY
+            </span>
+            <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+              <Gauge className="w-4 h-4 stroke-[2]" />
+            </div>
+          </div>
+
+          <div className="mt-2 mb-2 flex items-baseline gap-1">
+            <span className="text-3xl font-black text-slate-900 tracking-tight">
+              14,820
+            </span>
+            <span className="text-xs font-semibold text-slate-400 ml-0.5">
+              km
+            </span>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between text-[11px] mb-1.5">
+              <span className="font-bold text-teal-600 flex items-center gap-1">
+                <TrendingUp className="w-3.5 h-3.5" />
+                +12.4% vs prom.
+              </span>
+              <span className="text-slate-400 font-medium">
+                Odómetro global
+              </span>
+            </div>
+            {/* Progress bar */}
+            <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+              <div className="h-full bg-teal-500 rounded-full w-[76%]" />
+            </div>
+          </div>
+        </Card>
+
+        {/* KPI 4: ALERTAS CRÍTICAS */}
+        <Card className="p-4 rounded-2xl border border-slate-100/90 shadow-2xs flex flex-col justify-between hover:shadow-xs transition">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              ALERTAS CRÍTICAS
+            </span>
+            <div className="w-9 h-9 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-4 h-4 stroke-[2]" />
+            </div>
+          </div>
+
+          <div className="mt-2 mb-2 flex items-baseline gap-1">
+            <span className="text-3xl font-black text-orange-500 tracking-tight">
+              {String(counts.taller).padStart(2, '0')}
+            </span>
+            <span className="text-xs font-semibold text-slate-400 ml-1">
+              en taller
+            </span>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between text-[11px] mb-1.5">
+              <span className="font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                Atención Inmediata
+              </span>
               <button
                 type="button"
-                onClick={() => setSearchTerm('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                onClick={() => {
+                  setSelectedTab('taller');
+                  setCurrentPage(1);
+                }}
+                className="text-slate-600 hover:text-orange-600 font-bold transition flex items-center gap-0.5 cursor-pointer"
               >
-                <X className="w-3.5 h-3.5" />
+                Revisar &rarr;
               </button>
-            ) : (
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-300 bg-slate-100 px-1.5 py-0.5 rounded select-none">
-                /
-              </span>
-            )}
+            </div>
+            {/* Progress bar */}
+            <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+              <div className="h-full bg-orange-500 rounded-full w-[45%]" />
+            </div>
           </div>
-
-          {/* Vehicle Type Dropdown */}
-          <div className="relative">
-            <select
-              value={selectedType}
-              onChange={(e) => {
-                setSelectedType(e.target.value as any);
-                setCurrentPage(1);
-              }}
-              className="appearance-none bg-white text-xs font-semibold text-slate-700 pl-3.5 pr-8 py-2 rounded-xl border border-slate-200/80 shadow-2xs outline-none focus:border-orange-500 cursor-pointer"
-            >
-              <option value="todos">Tipo: Todos los Vehículos</option>
-              <option value="motriz">Unidades Motoras (Cabezales)</option>
-              <option value="acoplado">Acoplados (Tolvas / Remolques)</option>
-            </select>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-
-          {/* Location Selector Chip */}
-          <div className="flex items-center gap-1.5 bg-white text-xs font-semibold text-slate-700 px-3.5 py-2 rounded-xl border border-slate-200/80 shadow-2xs cursor-default">
-            <span>{selectedLocation}</span>
-            <Building2 className="w-3.5 h-3.5 text-slate-400 ml-1" />
-          </div>
-        </div>
-
-        {/* Right Action Buttons */}
-        <div className="flex items-center gap-2.5 shrink-0">
-          {/* Export XLS / CSV */}
-          <button
-            type="button"
-            onClick={handleExportCSV}
-            className="flex items-center gap-1.5 bg-white hover:bg-slate-50 active:bg-slate-100 text-xs font-bold text-slate-700 px-3.5 py-2 rounded-xl border border-slate-200 shadow-2xs transition"
-          >
-            <Download className="w-3.5 h-3.5 text-slate-500" />
-            <span>Exportar XLS / CSV</span>
-          </button>
-
-          {/* + Registrar Nuevo Vehículo */}
-          <button
-            type="button"
-            onClick={() => {
-              setFormData(initialFormData);
-              reiniciarFormulario();
-              setIsCreateModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 active:scale-[0.98] text-white text-xs font-bold px-4 py-2 rounded-xl shadow-sm shadow-orange-500/25 transition select-none"
-          >
-            <Plus className="w-4 h-4 stroke-[2.5]" />
-            <span>Registrar Nuevo Vehículo</span>
-          </button>
-        </div>
+        </Card>
       </div>
 
-      {/* ─── 3. STATUS PILL FILTER TABS ─── */}
-      <div className="flex flex-wrap items-center gap-2 pt-1">
-        {/* Tab: Todos */}
-        <button
-          type="button"
-          onClick={() => {
-            setSelectedTab('todos');
-            setCurrentPage(1);
-          }}
-          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold transition select-none ${
-            selectedTab === 'todos'
-              ? 'bg-slate-900 text-white shadow-xs'
-              : 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-200/70'
-          }`}
-        >
-          <span>Todos ({counts.total})</span>
-        </button>
+      {/* ─── 3. MAIN DASHBOARD CONTENT: 2 COLUMNS ─── */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+        {/* ─── LEFT COLUMN: GESTIÓN DE UNIDADES Y FLOTA (8 COLUMNS) ─── */}
+        <div className="xl:col-span-8">
+          <Card className="rounded-3xl border border-slate-100 p-5 sm:p-6 shadow-xs bg-white">
+            {/* Header del bloque */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4">
+              <div>
+                <h2 className="text-lg font-black text-slate-900 tracking-tight">
+                  Gestión de Unidades y Flota
+                </h2>
+                <p className="text-xs text-slate-400 font-normal mt-0.5">
+                  Monitoreo detallado de bitácora, odómetro y telemetría por vehículo
+                </p>
+              </div>
 
-        {/* Tab: Activo en Patio */}
-        <button
-          type="button"
-          onClick={() => {
-            setSelectedTab('patio');
-            setCurrentPage(1);
-          }}
-          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold transition select-none ${
-            selectedTab === 'patio'
-              ? 'bg-emerald-700 text-white shadow-xs font-bold'
-              : 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-200/70'
-          }`}
-        >
-          <span
-            className={`w-2 h-2 rounded-full ${
-              selectedTab === 'patio' ? 'bg-white' : 'bg-emerald-500'
-            }`}
-          />
-          <span>Activo en Patio ({counts.patio})</span>
-        </button>
-
-        {/* Tab: En Ruta */}
-        <button
-          type="button"
-          onClick={() => {
-            setSelectedTab('en_ruta');
-            setCurrentPage(1);
-          }}
-          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold transition select-none ${
-            selectedTab === 'en_ruta'
-              ? 'bg-sky-700 text-white shadow-xs font-bold'
-              : 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-200/70'
-          }`}
-        >
-          <span
-            className={`w-2 h-2 rounded-full ${
-              selectedTab === 'en_ruta' ? 'bg-white' : 'bg-sky-500'
-            }`}
-          />
-          <span>En Ruta ({counts.enRuta})</span>
-        </button>
-
-        {/* Tab: Taller Preventivo */}
-        <button
-          type="button"
-          onClick={() => {
-            setSelectedTab('taller');
-            setCurrentPage(1);
-          }}
-          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold transition select-none ${
-            selectedTab === 'taller'
-              ? 'bg-amber-700 text-white shadow-xs font-bold'
-              : 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-200/70'
-          }`}
-        >
-          <span
-            className={`w-2 h-2 rounded-full ${
-              selectedTab === 'taller' ? 'bg-white' : 'bg-amber-500'
-            }`}
-          />
-          <span>Taller Preventivo ({counts.taller})</span>
-        </button>
-
-        {/* Tab: Inactivo */}
-        <button
-          type="button"
-          onClick={() => {
-            setSelectedTab('inactivo');
-            setCurrentPage(1);
-          }}
-          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold transition select-none ${
-            selectedTab === 'inactivo'
-              ? 'bg-slate-600 text-white shadow-xs font-bold'
-              : 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-200/70'
-          }`}
-        >
-          <span
-            className={`w-2 h-2 rounded-full ${
-              selectedTab === 'inactivo' ? 'bg-white' : 'bg-slate-400'
-            }`}
-          />
-          <span>Inactivo ({counts.inactivo})</span>
-        </button>
-      </div>
-
-      {/* ─── 4. VEHICLES DATA TABLE ─── */}
-      <Card className="overflow-hidden border border-slate-200/70 shadow-xs">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-slate-50/50 hover:bg-slate-50/50">
-              {/* Checkbox All */}
-              <TableHead className="w-10 pl-5 pr-2">
-                <input
-                  type="checkbox"
-                  checked={
-                    paginatedVehiculos.length > 0 &&
-                    paginatedVehiculos.every((v) => selectedVehicles.includes(v.idVehiculo))
-                  }
-                  onChange={handleSelectAll}
-                  className="rounded border-slate-300 text-orange-500 focus:ring-orange-500/20 w-4 h-4 cursor-pointer"
-                />
-              </TableHead>
-
-              <TableHead className="text-[10px] font-bold tracking-wider text-slate-400 uppercase py-3.5">
-                IDENTIFICACIÓN / PLACA
-              </TableHead>
-
-              <TableHead className="text-[10px] font-bold tracking-wider text-slate-400 uppercase py-3.5">
-                MARCA & MODELO
-              </TableHead>
-
-              <TableHead className="text-[10px] font-bold tracking-wider text-slate-400 uppercase py-3.5">
-                AÑO
-              </TableHead>
-
-              <TableHead className="text-[10px] font-bold tracking-wider text-slate-400 uppercase py-3.5">
-                TIPO / CLASIFICACIÓN
-              </TableHead>
-
-              <TableHead className="text-[10px] font-bold tracking-wider text-slate-400 uppercase py-3.5">
-                NÚMERO DE CHASIS (VIN)
-              </TableHead>
-
-              <TableHead className="text-[10px] font-bold tracking-wider text-slate-400 uppercase py-3.5 text-center">
-                ESTADO TELEMÉTRICO
-              </TableHead>
-
-              <TableHead className="text-[10px] font-bold tracking-wider text-slate-400 uppercase py-3.5 pr-5 text-right">
-                ACCIONES
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-
-          <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={8} className="py-16 text-center text-slate-400">
-                  <div className="flex flex-col items-center justify-center gap-2">
-                    <Activity className="w-6 h-6 animate-spin text-orange-500" />
-                    <span className="text-xs font-semibold">Cargando flota telemática...</span>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ) : paginatedVehiculos.length === 0 ? (
-              <TableEmpty
-                colSpan={8}
-                message="No se encontraron vehículos"
-                description="Intenta modificar los filtros de búsqueda o el tipo de unidad seleccionado."
-                icon={<Truck className="w-8 h-8 stroke-[1.5]" />}
-              />
-            ) : (
-              paginatedVehiculos.map((v) => {
-                const isSelected = selectedVehicles.includes(v.idVehiculo);
-                const isMotriz = v.tipoUnidad === 'motriz';
-
-                return (
-                  <TableRow
-                    key={v.idVehiculo}
-                    className={`transition-colors ${isSelected ? 'bg-orange-50/40' : ''}`}
-                  >
-                    {/* Checkbox Single */}
-                    <TableCell className="w-10 pl-5 pr-2">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => handleSelectOne(v.idVehiculo)}
-                        className="rounded border-slate-300 text-orange-500 focus:ring-orange-500/20 w-4 h-4 cursor-pointer"
-                      />
-                    </TableCell>
-
-                    {/* Identificación / Placa */}
-                    <TableCell className="py-3.5">
-                      <div className="flex items-center gap-3">
-                        {/* Icon Box */}
-                        <div
-                          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 overflow-hidden border ${
-                            isMotriz
-                              ? 'bg-amber-50/80 border-amber-200/60 text-amber-700'
-                              : 'bg-emerald-50/80 border-emerald-200/60 text-emerald-700'
-                          }`}
-                        >
-                          <ImagenProtegida
-                            url={v.fotoUrl}
-                            alt={`Foto del vehículo ${v.placa}`}
-                            className="w-full h-full object-cover"
-                            fallback={
-                              isMotriz ? (
-                                <Truck className="w-5 h-5 stroke-[1.8]" />
-                              ) : (
-                                <Container className="w-5 h-5 stroke-[1.8]" />
-                              )
-                            }
-                          />
-                        </div>
-
-                        {/* Placa + Code */}
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-extrabold text-sm text-slate-900 tracking-tight">
-                              {v.placa}
-                            </span>
-                            <span
-                              className={`text-[9px] font-black px-1 py-0.2 rounded border ${
-                                v.pais === 'ES-R'
-                                  ? 'bg-rose-50 text-rose-700 border-rose-200'
-                                  : 'bg-slate-100 text-slate-600 border-slate-200'
-                              }`}
-                            >
-                              {v.pais}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                v.estadoTipo === 'en_ruta'
-                                  ? 'bg-sky-500'
-                                  : v.estadoTipo === 'patio'
-                                  ? 'bg-emerald-500'
-                                  : v.estadoTipo === 'taller'
-                                  ? 'bg-amber-500'
-                                  : 'bg-slate-400'
-                              }`}
-                            />
-                            <span className="text-[11px] font-medium text-slate-400">
-                              {v.codigoUnidad}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </TableCell>
-
-                    {/* Marca & Modelo */}
-                    <TableCell className="py-3.5">
-                      <div>
-                        <span className="font-bold text-xs text-slate-900 block">
-                          {v.marca} {v.modelo}
-                        </span>
-                        {v.especificacionMotor && (
-                          <span className="text-[11px] text-slate-400 font-normal leading-none block mt-0.5">
-                            {v.especificacionMotor}
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-
-                    {/* Año */}
-                    <TableCell className="py-3.5">
-                      <span className="text-xs font-bold text-slate-700">{v.anio}</span>
-                    </TableCell>
-
-                    {/* Tipo / Clasificación */}
-                    <TableCell className="py-3.5">
-                      <span className="inline-block text-[11px] font-semibold text-slate-700 bg-slate-100/90 border border-slate-200/60 px-2.5 py-1 rounded-lg">
-                        {v.clasificacion}
-                      </span>
-                    </TableCell>
-
-                    {/* Número de Chasis (VIN) */}
-                    <TableCell className="py-3.5">
-                      <span className="font-mono text-[11px] font-medium text-slate-600 bg-slate-100/80 px-2.5 py-1 rounded border border-slate-200/50">
-                        {v.numeroChasis}
-                      </span>
-                    </TableCell>
-
-                    {/* Estado Telemétrico */}
-                    <TableCell className="py-3.5 text-center">
-                      {v.estadoTipo === 'en_ruta' && (
-                        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-sky-800 bg-sky-100/80 border border-sky-200/70 px-3 py-1 rounded-full">
-                          <Radio className="w-3 h-3 text-sky-600 animate-pulse" />
-                          <span>{v.estadoTelemetrico}</span>
-                        </span>
-                      )}
-
-                      {v.estadoTipo === 'patio' && (
-                        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-800 bg-emerald-100/80 border border-emerald-200/70 px-3 py-1 rounded-full">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
-                          <span>{v.estadoTelemetrico}</span>
-                        </span>
-                      )}
-
-                      {v.estadoTipo === 'taller' && (
-                        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-amber-900 bg-amber-100/80 border border-amber-200/70 px-3 py-1 rounded-full">
-                          <Wrench className="w-3 h-3 text-amber-700" />
-                          <span>{v.estadoTelemetrico}</span>
-                        </span>
-                      )}
-
-                      {v.estadoTipo === 'inactivo' && (
-                        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-600 bg-slate-100 border border-slate-200 px-3 py-1 rounded-full">
-                          <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-                          <span>{v.estadoTelemetrico}</span>
-                        </span>
-                      )}
-                    </TableCell>
-
-                    {/* Acciones */}
-                    <TableCell className="py-3.5 pr-5 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {/* Ver Detalle */}
-                        <button
-                          type="button"
-                          title="Ver telemetría y detalles"
-                          onClick={() => {
-                            setActiveVehicle(v);
-                            setIsDetailModalOpen(true);
-                          }}
-                          className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-
-                        {/* Editar */}
-                        <button
-                          type="button"
-                          title="Editar unidad"
-                          onClick={() => handleOpenEdit(v)}
-                          className="p-1.5 text-slate-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-
-                        {/* Eliminar */}
-                        <button
-                          type="button"
-                          title="Eliminar vehículo"
-                          onClick={() => {
-                            setActiveVehicle(v);
-                            setIsDeleteModalOpen(true);
-                          }}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-
-        {/* ─── 5. PAGINATION & SUMMARY FOOTER ─── */}
-        <div className="p-4 sm:px-6 border-t border-slate-100 bg-white flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
-          <div className="flex items-center gap-2">
-            <span>
-              Mostrando{' '}
-              <strong className="text-slate-800 font-bold">
-                {filteredVehiculos.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}
-              </strong>{' '}
-              a{' '}
-              <strong className="text-slate-800 font-bold">
-                {Math.min(currentPage * itemsPerPage, filteredVehiculos.length)}
-              </strong>{' '}
-              de{' '}
-              <strong className="text-slate-800 font-bold">{filteredVehiculos.length}</strong>{' '}
-              vehículos registrados
-            </span>
-            <span className="text-slate-300">•</span>
-            <div className="flex items-center gap-1.5">
-              <span>Filas por página:</span>
-              <div className="relative">
-                <select
-                  value={itemsPerPage}
-                  onChange={(e) => {
-                    setItemsPerPage(Number(e.target.value));
+              {/* Status Pill Filter Tabs */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {/* Tab: Todos */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedTab('todos');
                     setCurrentPage(1);
                   }}
-                  className="appearance-none bg-slate-100/80 font-bold text-slate-700 pl-2 pr-6 py-1 rounded-md border border-slate-200/60 outline-none cursor-pointer"
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer select-none ${selectedTab === 'todos'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-100'
+                    }`}
                 >
-                  <option value={6}>6</option>
-                  <option value={10}>10</option>
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                </select>
-                <ChevronDown className="w-3 h-3 text-slate-500 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  Todos ({counts.total})
+                </button>
+
+                {/* Tab: En Ruta */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedTab('en_ruta');
+                    setCurrentPage(1);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer select-none ${selectedTab === 'en_ruta'
+                    ? 'bg-sky-50 text-sky-700 border border-sky-200/80 shadow-xs'
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-100'
+                    }`}
+                >
+                  En Ruta ({counts.enRuta})
+                </button>
+
+                {/* Tab: Disponibles */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedTab('patio');
+                    setCurrentPage(1);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer select-none ${selectedTab === 'patio'
+                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80 shadow-xs'
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-100'
+                    }`}
+                >
+                  Disponibles ({counts.patio})
+                </button>
+
+                {/* Tab: En Taller */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedTab('taller');
+                    setCurrentPage(1);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer select-none ${selectedTab === 'taller'
+                    ? 'bg-amber-50 text-amber-800 border border-amber-200/80 shadow-xs'
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-100'
+                    }`}
+                >
+                  En Taller ({counts.taller})
+                </button>
+
+                {/* Tab: Detenidas */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedTab('inactivo');
+                    setCurrentPage(1);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer select-none ${selectedTab === 'inactivo'
+                    ? 'bg-slate-200 text-slate-800 border border-slate-300 shadow-xs'
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-100'
+                    }`}
+                >
+                  Detenidas ({counts.inactivo})
+                </button>
               </div>
             </div>
-          </div>
 
-          {/* Navigation Buttons */}
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              disabled={currentPage <= 1}
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200/80 text-slate-500 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
+            {/* Search Bar & Action Buttons */}
+            <div className="flex items-center gap-2.5 pb-4">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  placeholder="Filtrar por placa, unidad o nombre de operador..."
+                  className="w-full pl-9 pr-8 py-2 text-xs bg-slate-50/70 hover:bg-slate-50 focus:bg-white rounded-xl border border-slate-200/80 text-slate-800 placeholder-slate-400 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition"
+                />
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
 
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+              {/* Filter button */}
               <button
-                key={page}
                 type="button"
-                onClick={() => setCurrentPage(page)}
-                className={`w-8 h-8 flex items-center justify-center rounded-lg text-xs font-bold transition ${
-                  page === currentPage
-                    ? 'bg-orange-500 text-white shadow-xs'
-                    : 'border border-slate-200/80 text-slate-600 hover:bg-slate-50'
-                }`}
+                title="Filtros avanzados"
+                onClick={() => {
+                  setSelectedType(selectedType === 'todos' ? 'motriz' : selectedType === 'motriz' ? 'acoplado' : 'todos');
+                  setCurrentPage(1);
+                }}
+                className="p-2.5 bg-slate-50/80 hover:bg-slate-100 text-slate-600 rounded-xl border border-slate-200/80 transition cursor-pointer"
               >
-                {page}
+                <SlidersHorizontal className="w-4 h-4" />
               </button>
-            ))}
 
-            <button
-              type="button"
-              disabled={currentPage >= totalPages}
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200/80 text-slate-500 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none transition"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
+              {/* Export button */}
+              <button
+                type="button"
+                title="Descargar listado"
+                onClick={handleExportCSV}
+                className="p-2.5 bg-slate-50/80 hover:bg-slate-100 text-slate-600 rounded-xl border border-slate-200/80 transition cursor-pointer"
+              >
+                <Download className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Table */}
+            <div className="overflow-x-auto -mx-5 sm:-mx-6">
+              <Table className="w-full">
+                <TableHeader>
+                  <TableRow className="border-b border-slate-100/90 text-slate-400 text-[10px] uppercase font-bold tracking-wider">
+                    <TableHead className="py-3 px-6 text-left">UNIDAD / MODELO</TableHead>
+                    <TableHead className="py-3 px-4 text-left">OPERADOR ASIGNADO</TableHead>
+                    <TableHead className="py-3 px-4 text-left">ESTADO</TableHead>
+                    <TableHead className="py-3 px-4 text-left">ODÓMETRO</TableHead>
+                    <TableHead className="py-3 px-4 text-left">CLASIFICACIÓN</TableHead>
+                    <TableHead className="py-3 px-4 text-left">PRÓX. SERVICIO</TableHead>
+                    <TableHead className="py-3 px-6 text-right">ACCIÓN</TableHead>
+                  </TableRow>
+                </TableHeader>
+
+                <TableBody>
+                  {loading ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="py-16 text-center text-slate-400">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <Activity className="w-6 h-6 animate-spin text-orange-500" />
+                          <span className="text-xs font-semibold">Cargando unidades telemáticas...</span>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : paginatedVehiculos.length === 0 ? (
+                    <TableEmpty
+                      colSpan={7}
+                      message="No se encontraron vehículos"
+                      description="Intenta ajustar el término de búsqueda o el filtro de estado seleccionado."
+                      icon={<Truck className="w-8 h-8 stroke-[1.5]" />}
+                    />
+                  ) : (
+                    paginatedVehiculos.map((v) => {
+                      const combustible = v.telemetriaDetalle?.nivelCombustible ?? 75;
+                      const isLowFuel = combustible <= 30;
+                      const unitNumber = v.codigoUnidad.replace('#TR-', '').replace('#AC-', '');
+                      const assignedDriver =
+                        v.telemetriaDetalle?.operador ||
+                        (v.conductoresHabituales && v.conductoresHabituales.length > 0
+                          ? `${v.conductoresHabituales[0].nombres} ${v.conductoresHabituales[0].apellidos}`
+                          : null);
+
+                      // Relación BD: vehiculos.id_clasificacion -> clasificaciones_vehiculos.id_tipo -> tipos_vehiculos
+                      // 1 = Unidad Motora (motor), 2 = Acoplado
+                      const clasifInfo =
+                        clasificaciones.find((c) => Number(c.idClasificacion) === Number(v.idClasificacion)) ||
+                        v.clasificacionDetalle ||
+                        clasificaciones.find(
+                          (c) => c.nombreClasificacion?.toLowerCase() === (v.nombreClasificacion || v.clasificacion || '').toLowerCase()
+                        );
+
+                      const tipoInfo =
+                        tiposVehiculo.find((t) => Number(t.idTipo) === Number(clasifInfo?.idTipo)) ||
+                        clasifInfo?.tipo;
+
+                      const idTipoVehiculo = Number(tipoInfo?.idTipo ?? clasifInfo?.idTipo ?? v.idTipo ?? 1);
+                      const esUnidadMotriz = idTipoVehiculo === 1;
+                      const nombreTipoVehiculo = tipoInfo?.nombreTipo || (esUnidadMotriz ? 'Unidad Motora' : 'Acoplado');
+                      const nombreClasifVehiculo =
+                        clasifInfo?.nombreClasificacion || v.nombreClasificacion || v.clasificacion || 'Sin clasificar';
+
+                      return (
+                        <TableRow
+                          key={v.idVehiculo}
+                          className="hover:bg-slate-50/80 transition-colors border-b border-slate-50"
+                        >
+                          {/* UNIDAD / MODELO */}
+                          <TableCell className="py-3.5 px-6">
+                            <div className="flex items-center gap-3">
+                              {/* Thumbnail / Unit Tag */}
+                              <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200/60 text-amber-800 flex items-center justify-center font-black text-[11px] shrink-0 overflow-hidden shadow-2xs">
+                                {v.fotoUrl ? (
+                                  <ImagenProtegida
+                                    url={v.fotoUrl}
+                                    alt={v.placa}
+                                    className="w-full h-full object-cover"
+                                    fallback={<span>{unitNumber || 'TR'}</span>}
+                                  />
+                                ) : (
+                                  <span>{unitNumber || 'TR'}</span>
+                                )}
+                              </div>
+
+                              <div>
+                                <span className="font-extrabold text-xs text-slate-900 tracking-tight block">
+                                  {v.placa}
+                                </span>
+                                <span className="text-[11px] text-slate-500 font-medium block">
+                                  {v.marca} {v.modelo || ''}
+                                </span>
+                              </div>
+                            </div>
+                          </TableCell>
+
+                          {/* OPERADOR ASIGNADO */}
+                          <TableCell className="py-3.5 px-4">
+                            {assignedDriver ? (
+                              <div className="flex items-center gap-2">
+                                <div className="w-7 h-7 rounded-full bg-slate-800 text-white flex items-center justify-center font-bold text-[10px] shrink-0">
+                                  {assignedDriver
+                                    .split(' ')
+                                    .map((n) => n[0])
+                                    .slice(0, 2)
+                                    .join('')}
+                                </div>
+                                <span className="font-bold text-xs text-slate-800">
+                                  {assignedDriver}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="italic text-xs text-slate-400 font-medium">
+                                Sin asignar
+                              </span>
+                            )}
+                          </TableCell>
+
+                          {/* ESTADO */}
+                          <TableCell className="py-3.5 px-4">
+                            {v.estadoTipo === 'en_ruta' && (
+                              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200/70 px-2.5 py-1 rounded-full">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                <span>En Tránsito</span>
+                              </span>
+                            )}
+                            {v.estadoTipo === 'patio' && (
+                              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-700 bg-slate-100 border border-slate-200/80 px-2.5 py-1 rounded-full">
+                                <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                                <span>En Base</span>
+                              </span>
+                            )}
+                            {v.estadoTipo === 'taller' && (
+                              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-amber-900 bg-amber-100/70 border border-amber-200 px-2.5 py-1 rounded-full">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-600" />
+                                <span>Taller Central</span>
+                              </span>
+                            )}
+                            {v.estadoTipo === 'inactivo' && (
+                              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-600 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-full">
+                                <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                                <span>Detenido</span>
+                              </span>
+                            )}
+                          </TableCell>
+
+                          {/* ODÓMETRO */}
+                          <TableCell className="py-3.5 px-4">
+                            <span className="font-extrabold text-xs text-slate-900">
+                              {v.telemetriaDetalle?.odometro?.replace(' km', '') || '184,320'}
+                            </span>
+                            <span className="text-[11px] text-slate-400 font-medium ml-1">
+                              km
+                            </span>
+                          </TableCell>
+
+                          {/* CLASIFICACIÓN / TIPO (idTipo = 1 -> Truck verde / Unidad Motora, idTipo = 2 -> Container naranja / Acoplado) */}
+                          <TableCell className="py-3.5 px-4">
+                            <div className="inline-flex items-center gap-2">
+                              {esUnidadMotriz ? (
+                                <div
+                                  className="w-7 h-7 rounded-lg bg-emerald-50 border border-emerald-200/70 flex items-center justify-center shrink-0 text-emerald-600 shadow-2xs"
+                                  title={nombreTipoVehiculo}
+                                >
+                                  <Truck className="w-4 h-4 text-emerald-600" />
+                                </div>
+                              ) : (
+                                <div
+                                  className="w-7 h-7 rounded-lg bg-orange-50 border border-orange-200/70 flex items-center justify-center shrink-0 text-orange-500 shadow-2xs"
+                                  title={nombreTipoVehiculo}
+                                >
+                                  <Container className="w-4 h-4 text-orange-500" />
+                                </div>
+                              )}
+                              <div>
+                                <span className="text-xs font-bold text-slate-800 whitespace-nowrap block">
+                                  {nombreClasifVehiculo}
+                                </span>
+                                <span className="text-[10px] font-semibold text-slate-400 block">
+                                  {nombreTipoVehiculo}
+                                </span>
+                              </div>
+                            </div>
+                          </TableCell>
+
+                          {/* PRÓX. SERVICIO */}
+                          <TableCell className="py-3.5 px-4">
+                            {v.telemetriaDetalle?.proximoServicioEstado === 'urgente' ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-600">
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                                <span>{v.telemetriaDetalle.proximoServicio}</span>
+                              </span>
+                            ) : v.telemetriaDetalle?.proximoServicioEstado === 'programado' ? (
+                              <span className="inline-block text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-200/70 px-2 py-0.5 rounded-md">
+                                Programado
+                              </span>
+                            ) : v.telemetriaDetalle?.proximoServicioEstado === 'vencido' ? (
+                              <span className="text-[11px] font-black text-orange-600">
+                                Vencido
+                              </span>
+                            ) : (
+                              <span className="text-[11px] font-medium text-slate-600">
+                                {v.telemetriaDetalle?.proximoServicio || 'en 4,100 km'}
+                              </span>
+                            )}
+                          </TableCell>
+
+                          {/* ACCIÓN (3 DOTS DROPDOWN) */}
+                          <TableCell className="py-3.5 px-6 text-right relative">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setOpenActionMenuId(openActionMenuId === v.idVehiculo ? null : v.idVehiculo)
+                              }
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+
+                            {/* Dropdown Menu */}
+                            {openActionMenuId === v.idVehiculo && (
+                              <div
+                                ref={actionMenuRef}
+                                className="absolute right-6 top-10 w-44 bg-white rounded-xl shadow-xl border border-slate-100 py-1.5 z-30 text-left animate-in fade-in zoom-in-95 duration-100"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveVehicle(v);
+                                    setIsDetailModalOpen(true);
+                                    setOpenActionMenuId(null);
+                                  }}
+                                  className="w-full px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition"
+                                >
+                                  <Eye className="w-3.5 h-3.5 text-slate-400" />
+                                  <span>Ver Telemetría</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    handleOpenEdit(v);
+                                  }}
+                                  className="w-full px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition"
+                                >
+                                  <Pencil className="w-3.5 h-3.5 text-orange-500" />
+                                  <span>Editar Unidad</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    handleSetMaintenance(v);
+                                    setOpenActionMenuId(null);
+                                  }}
+                                  className="w-full px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-50 flex items-center gap-2 transition"
+                                >
+                                  <Wrench className="w-3.5 h-3.5 text-amber-600" />
+                                  <span>Enviar a Taller</span>
+                                </button>
+
+                                <div className="my-1 border-t border-slate-100" />
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveVehicle(v);
+                                    setIsDeleteModalOpen(true);
+                                    setOpenActionMenuId(null);
+                                  }}
+                                  className="w-full px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50 flex items-center gap-2 transition"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                  <span>Dar de Baja</span>
+                                </button>
+                              </div>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* Pagination footer */}
+            <div className="pt-4 mt-2 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
+              <span>
+                Mostrando{' '}
+                <strong className="text-slate-800 font-bold">
+                  {filteredVehiculos.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}
+                </strong>{' '}
+                a{' '}
+                <strong className="text-slate-800 font-bold">
+                  {Math.min(currentPage * itemsPerPage, filteredVehiculos.length)}
+                </strong>{' '}
+                de <strong className="text-slate-800 font-bold">{filteredVehiculos.length}</strong>{' '}
+                unidades registradas
+              </span>
+
+              {/* Botones de navegación */}
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <span>Anterior</span>
+                </button>
+
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                  <button
+                    key={page}
+                    type="button"
+                    onClick={() => setCurrentPage(page)}
+                    className={`w-7 h-7 flex items-center justify-center rounded-lg text-xs font-bold transition cursor-pointer ${page === currentPage
+                      ? 'bg-orange-500 text-white shadow-xs'
+                      : 'text-slate-600 hover:bg-slate-100'
+                      }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+
+                <button
+                  type="button"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer"
+                >
+                  <span>Siguiente</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          </Card>
         </div>
-      </Card>
+
+        {/* ─── RIGHT COLUMN: 2 SIDEBAR CARDS (4 COLUMNS) ─── */}
+        <div className="xl:col-span-4 space-y-6">
+          {/* ─── CARD 1: MANTENIMIENTO CRÍTICO ─── */}
+          <Card className="rounded-3xl border border-slate-100 p-5 shadow-xs bg-white">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center">
+                  <AlertCircle className="w-4 h-4 stroke-[2.5]" />
+                </div>
+                <h3 className="font-extrabold text-sm text-slate-900 tracking-tight">
+                  Mantenimiento Crítico
+                </h3>
+              </div>
+              <span className="text-[10px] font-bold text-orange-700 bg-orange-50 border border-orange-200/60 px-2.5 py-0.5 rounded-full">
+                3 Prioritarios
+              </span>
+            </div>
+
+            {/* List of critical items */}
+            <div className="divide-y divide-slate-100 pt-1">
+              {/* Item 1 */}
+              <div className="py-3.5 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-slate-900">
+                    #TR-104 Cambio de Aceite & Filtros
+                  </span>
+                  <span className="text-[10px] font-bold text-orange-700 bg-orange-50 px-2 py-0.5 rounded-md">
+                    en 250 km
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 font-medium">
+                  Tracto Volvo FH 540
+                </p>
+                {/* Colored orange bar */}
+                <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1">
+                  <div className="h-full bg-orange-500 rounded-full w-[85%]" />
+                </div>
+              </div>
+
+              {/* Item 2 */}
+              <div className="py-3.5 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-slate-900">
+                    #TR-088 Desgaste Balatas y Frenos
+                  </span>
+                  <span className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md">
+                    Programado
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 font-medium">
+                  Inspección de 2do eje
+                </p>
+                {/* Colored teal bar */}
+                <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1">
+                  <div className="h-full bg-teal-700 rounded-full w-[60%]" />
+                </div>
+              </div>
+
+              {/* Item 3 */}
+              <div className="py-3.5 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-slate-900">
+                    #TR-201 Calibración Sensores Inyección
+                  </span>
+                  <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md">
+                    Alerta Amarilla
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 font-medium">
+                  Código ECU P0087
+                </p>
+                {/* Colored amber bar */}
+                <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1">
+                  <div className="h-full bg-amber-700 rounded-full w-[40%]" />
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Button */}
+            <div className="pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsMaintenanceModalOpen(true)}
+                className="w-full py-2.5 px-4 bg-orange-500 hover:bg-orange-600 active:scale-[0.99] text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm shadow-orange-500/25 transition cursor-pointer select-none"
+              >
+                <CalendarPlus className="w-4 h-4 stroke-[2.5]" />
+                <span>Programar Ingreso a Taller</span>
+              </button>
+            </div>
+          </Card>
+
+          {/* ─── CARD 2: OPERADORES DESTACADOS ─── */}
+          <Card className="rounded-3xl border border-slate-100 p-5 shadow-xs bg-white">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Award className="w-4 h-4 text-emerald-600" />
+                <h3 className="font-extrabold text-sm text-slate-900 tracking-tight">
+                  Operadores Destacados
+                </h3>
+              </div>
+              <span className="text-xs font-semibold text-slate-400">
+                Turno A
+              </span>
+            </div>
+
+            {/* Operators List */}
+            <div className="divide-y divide-slate-100">
+              {/* Operator 1 */}
+              <div className="py-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <div className="w-9 h-9 rounded-full bg-slate-800 text-white font-black text-xs flex items-center justify-center">
+                      MC
+                    </div>
+                    <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-emerald-500 text-white font-bold text-[9px] flex items-center justify-center border border-white">
+                      1
+                    </span>
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-xs text-slate-900">
+                      Miguel Ángel Cruz
+                    </h4>
+                    <p className="text-[11px] text-slate-400 font-medium">
+                      0 frenados bruscos • 8.4h
+                    </p>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <span className="text-base font-black text-teal-700 tracking-tight block">
+                    99
+                  </span>
+                  <span className="text-[9px] font-bold text-slate-400 block -mt-1 uppercase tracking-wider">
+                    SCORE
+                  </span>
+                </div>
+              </div>
+
+              {/* Operator 2 */}
+              <div className="py-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <div className="w-9 h-9 rounded-full bg-slate-700 text-white font-black text-xs flex items-center justify-center">
+                      CM
+                    </div>
+                    <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-emerald-500 text-white font-bold text-[9px] flex items-center justify-center border border-white">
+                      2
+                    </span>
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-xs text-slate-900">
+                      Carlos Mendoza
+                    </h4>
+                    <p className="text-[11px] text-slate-400 font-medium">
+                      Eco-Driving +14% • 7.2h
+                    </p>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <span className="text-base font-black text-teal-700 tracking-tight block">
+                    98
+                  </span>
+                  <span className="text-[9px] font-bold text-slate-400 block -mt-1 uppercase tracking-wider">
+                    SCORE
+                  </span>
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
 
       {/* ─── MODAL 1: REGISTRAR NUEVO VEHÍCULO ─── */}
       <Modal
@@ -967,7 +1305,7 @@ export default function Vehiculos() {
                 required
                 value={formData.placa}
                 onChange={(e) => setFormData({ ...formData, placa: e.target.value.toUpperCase() })}
-                placeholder="Ej. 6482-KPL o R-8831-BD"
+                placeholder="Ej. 872-AJ-4 o 6482-KPL"
                 className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-bold text-slate-800 text-xs focus:bg-white focus:border-orange-500 outline-none"
               />
             </div>
@@ -980,12 +1318,18 @@ export default function Vehiculos() {
               <select
                 value={formData.tipoUnidad}
                 onChange={(e) => {
-                  const t = e.target.value as 'motriz' | 'acoplado';
+                  const t = e.target.value as TipoUnidad;
+                  const isMotriz = t === 'motriz';
+                  const targetTipoId = isMotriz ? 1 : 2;
+                  const match = clasificaciones.find((c) => Number(c.idTipo) === targetTipoId);
+                  const defaultClasif = match?.nombreClasificacion || (isMotriz ? 'Chuto' : 'Camion Volteo');
                   setFormData({
                     ...formData,
                     tipoUnidad: t,
                     pais: t === 'acoplado' ? 'ES-R' : 'ES',
-                    clasificacion: t === 'motriz' ? 'Tractocamión 6x2' : 'Semirremolque Lona 13.6m',
+                    clasificacion: defaultClasif,
+                    idClasificacion: match?.idClasificacion ?? targetTipoId,
+                    idTipo: targetTipoId,
                   });
                 }}
                 className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-semibold text-slate-800 text-xs focus:bg-white focus:border-orange-500 outline-none"
@@ -1005,7 +1349,7 @@ export default function Vehiculos() {
                 required
                 value={formData.marca}
                 onChange={(e) => setFormData({ ...formData, marca: e.target.value })}
-                placeholder="Ej. Volvo, Scania, Kenworth, Fruehauf"
+                placeholder="Ej. Volvo, Scania, Kenworth"
                 className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-slate-800 text-xs focus:bg-white focus:border-orange-500 outline-none"
               />
             </div>
@@ -1020,7 +1364,7 @@ export default function Vehiculos() {
                 required
                 value={formData.modelo}
                 onChange={(e) => setFormData({ ...formData, modelo: e.target.value })}
-                placeholder="Ej. FH 500 Globetrotter"
+                placeholder="Ej. FH 540 Globetrotter"
                 className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-slate-800 text-xs focus:bg-white focus:border-orange-500 outline-none"
               />
             </div>
@@ -1048,22 +1392,39 @@ export default function Vehiculos() {
               </label>
               <select
                 value={formData.clasificacion}
-                onChange={(e) => setFormData({ ...formData, clasificacion: e.target.value })}
+                onChange={(e) => {
+                  const nombre = e.target.value;
+                  const match = clasificaciones.find((c) => c.nombreClasificacion === nombre);
+                  setFormData({
+                    ...formData,
+                    clasificacion: nombre,
+                    idClasificacion: match?.idClasificacion,
+                    idTipo: match?.idTipo,
+                  });
+                }}
                 className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-semibold text-slate-800 text-xs focus:bg-white focus:border-orange-500 outline-none"
               >
-                {formData.tipoUnidad === 'motriz' ? (
+                {clasificaciones.length > 0 ? (
+                  clasificaciones
+                    .filter((c) =>
+                      formData.tipoUnidad === 'motriz' ? Number(c.idTipo) === 1 : Number(c.idTipo) !== 1
+                    )
+                    .map((c) => (
+                      <option key={c.idClasificacion} value={c.nombreClasificacion}>
+                        {c.nombreClasificacion}
+                      </option>
+                    ))
+                ) : formData.tipoUnidad === 'motriz' ? (
                   <>
+                    <option value="Chuto">Chuto</option>
+                    <option value="Cortinero">Cortinero</option>
                     <option value="Tractocamión 6x2">Tractocamión 6x2</option>
-                    <option value="Tractocamión 6x4">Tractocamión 6x4</option>
-                    <option value="Tractocamión 4x2">Tractocamión 4x2</option>
-                    <option value="Rígido 3 Ejes">Rígido 3 Ejes</option>
                   </>
                 ) : (
                   <>
-                    <option value="Góndola Volquete 3 Ejes">Góndola Volquete 3 Ejes</option>
-                    <option value="Caja Frigorífica 13.6m">Caja Frigorífica 13.6m</option>
-                    <option value="Semirremolque Lona 13.6m">Semirremolque Lona 13.6m</option>
-                    <option value="Plataforma Portacontenedor">Plataforma Portacontenedor</option>
+                    <option value="Camión Volteo">Camión Volteo</option>
+                    <option value="Camion Volteo">Camion Volteo</option>
+                    <option value="Cava">Cava</option>
                   </>
                 )}
               </select>
@@ -1089,7 +1450,7 @@ export default function Vehiculos() {
             {/* Número de Motor */}
             <div>
               <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
-                Número de Motor (Opcional)
+                Número de Motor
               </label>
               <input
                 type="text"
@@ -1113,13 +1474,13 @@ export default function Vehiculos() {
                 className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-semibold text-slate-800 text-xs focus:bg-white focus:border-orange-500 outline-none"
               >
                 <option value="patio">Activo en Patio</option>
-                <option value="en_ruta">En Ruta</option>
-                <option value="taller">Taller Preventivo</option>
-                <option value="inactivo">Inactivo / Reserva</option>
+                <option value="en_ruta">En Tránsito / Ruta</option>
+                <option value="taller">En Taller Preventivo</option>
+                <option value="inactivo">Detenido / Inactivo</option>
               </select>
             </div>
 
-            {/* Ubicación Inicial */}
+            {/* Ubicación */}
             <div>
               <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
                 Ubicación / Muelle
@@ -1128,7 +1489,7 @@ export default function Vehiculos() {
                 type="text"
                 value={formData.ubicacion}
                 onChange={(e) => setFormData({ ...formData, ubicacion: e.target.value })}
-                placeholder="Ej. Patio Central Valencia (Muelle B-02)"
+                placeholder="Ej. Base Logística Valencia"
                 className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-slate-800 text-xs focus:bg-white focus:border-orange-500 outline-none"
               />
             </div>
@@ -1156,7 +1517,7 @@ export default function Vehiculos() {
         </form>
       </Modal>
 
-      {/* ─── MODAL 2: DETALLES DE UNIDAD & TELEMETRÍA ─── */}
+      {/* ─── MODAL 2: FICHA TELEMÁTICA DE LA UNIDAD ─── */}
       <Modal
         isOpen={isDetailModalOpen}
         onClose={() => {
@@ -1166,9 +1527,7 @@ export default function Vehiculos() {
         title={
           activeVehicle ? (
             <div className="flex items-center gap-2.5">
-              <span>
-                {activeVehicle.marca} {activeVehicle.modelo}
-              </span>
+              <span>{activeVehicle.marca} {activeVehicle.modelo}</span>
               <span className="text-xs font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-lg border border-orange-200">
                 {activeVehicle.placa}
               </span>
@@ -1177,41 +1536,42 @@ export default function Vehiculos() {
             'Ficha Telemática de la Unidad'
           )
         }
-        description="Parámetros en tiempo real, especificaciones de tren motriz y telemetría activa."
+        description="Parámetros en tiempo real, bitácora de telemetría y especificaciones de tren motriz."
         size="lg"
       >
         {activeVehicle && (
-          <div className="space-y-5">
+          <div className="space-y-4">
             {activeVehicle.fotoUrl && (
               <ImagenProtegida
                 url={activeVehicle.fotoUrl}
-                alt={`Foto del vehículo ${activeVehicle.placa}`}
-                className="w-full h-56 object-cover rounded-2xl border border-slate-200"
+                alt={activeVehicle.placa}
+                className="w-full h-52 object-cover rounded-2xl border border-slate-200"
               />
             )}
 
-            {/* Status overview banner */}
+            {/* Overview Box */}
             <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <div
-                  className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 border ${
-                    activeVehicle.tipoUnidad === 'motriz'
-                      ? 'bg-amber-100/70 border-amber-300/60 text-amber-800'
-                      : 'bg-emerald-100/70 border-emerald-300/60 text-emerald-800'
-                  }`}
-                >
-                  {activeVehicle.tipoUnidad === 'motriz' ? (
-                    <Truck className="w-6 h-6 stroke-[1.8]" />
-                  ) : (
-                    <Container className="w-6 h-6 stroke-[1.8]" />
-                  )}
+                <div className="w-12 h-12 rounded-xl bg-orange-100/70 border border-orange-200 text-orange-800 flex items-center justify-center font-black text-sm">
+                  {activeVehicle.codigoUnidad}
                 </div>
                 <div>
                   <h4 className="font-extrabold text-sm text-slate-900">
-                    {activeVehicle.codigoUnidad}
+                    {activeVehicle.marca} {activeVehicle.modelo}
                   </h4>
                   <p className="text-[11px] text-slate-500 font-medium">
-                    {activeVehicle.clasificacion} • Fabricación {activeVehicle.anio}
+                    {(() => {
+                      const activeClasif =
+                        clasificaciones.find((c) => Number(c.idClasificacion) === Number(activeVehicle.idClasificacion)) ||
+                        activeVehicle.clasificacionDetalle;
+                      const activeTipo =
+                        tiposVehiculo.find((t) => Number(t.idTipo) === Number(activeClasif?.idTipo)) ||
+                        activeClasif?.tipo;
+                      const activeIdTipo = Number(activeTipo?.idTipo ?? activeClasif?.idTipo ?? activeVehicle.idTipo ?? 1);
+                      const activeTipoNombre = activeTipo?.nombreTipo || (activeIdTipo === 1 ? 'Unidad Motora' : 'Acoplado');
+                      const activeClasifNombre = activeClasif?.nombreClasificacion || activeVehicle.nombreClasificacion || activeVehicle.clasificacion;
+                      return `${activeClasifNombre} (${activeTipoNombre}) • Fabricación ${activeVehicle.anio}`;
+                    })()}
                   </p>
                 </div>
               </div>
@@ -1226,7 +1586,7 @@ export default function Vehiculos() {
               </div>
             </div>
 
-            {/* Telemetry live stats */}
+            {/* Telemetry live cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="bg-white border border-slate-100 rounded-xl p-3 shadow-2xs">
                 <div className="flex items-center gap-1.5 text-slate-400 text-[10px] font-bold uppercase mb-1">
@@ -1244,7 +1604,7 @@ export default function Vehiculos() {
                   <span>Combustible</span>
                 </div>
                 <span className="text-sm font-black text-slate-800">
-                  {activeVehicle.telemetriaDetalle?.nivelCombustible ?? 85}%
+                  {activeVehicle.telemetriaDetalle?.nivelCombustible ?? 78}%
                 </span>
               </div>
 
@@ -1254,7 +1614,7 @@ export default function Vehiculos() {
                   <span>Odómetro</span>
                 </div>
                 <span className="text-sm font-black text-slate-800">
-                  {activeVehicle.telemetriaDetalle?.odometro || '115,200 km'}
+                  {activeVehicle.telemetriaDetalle?.odometro || '184,320 km'}
                 </span>
               </div>
 
@@ -1269,36 +1629,56 @@ export default function Vehiculos() {
               </div>
             </div>
 
-            {/* Detailed specs table */}
+            {/* Technical specs */}
             <div className="border border-slate-100 rounded-2xl overflow-hidden text-xs">
               <div className="bg-slate-50 px-4 py-2.5 font-bold text-slate-700 border-b border-slate-100">
                 Ficha Técnica & Vinculación
               </div>
               <div className="divide-y divide-slate-100 bg-white">
                 <div className="px-4 py-2.5 flex justify-between">
+                  <span className="text-slate-400">Tipo de Unidad:</span>
+                  <span className="font-semibold text-slate-800">
+                    {(() => {
+                      const activeClasif =
+                        clasificaciones.find((c) => Number(c.idClasificacion) === Number(activeVehicle.idClasificacion)) ||
+                        activeVehicle.clasificacionDetalle;
+                      const activeTipo =
+                        tiposVehiculo.find((t) => Number(t.idTipo) === Number(activeClasif?.idTipo)) ||
+                        activeClasif?.tipo;
+                      const activeIdTipo = Number(activeTipo?.idTipo ?? activeClasif?.idTipo ?? activeVehicle.idTipo ?? 1);
+                      return activeTipo?.nombreTipo || (activeIdTipo === 1 ? 'Unidad Motora' : 'Acoplado');
+                    })()}
+                  </span>
+                </div>
+                <div className="px-4 py-2.5 flex justify-between">
+                  <span className="text-slate-400">Clasificación:</span>
+                  <span className="font-bold text-slate-800">
+                    {(() => {
+                      const activeClasif =
+                        clasificaciones.find((c) => Number(c.idClasificacion) === Number(activeVehicle.idClasificacion)) ||
+                        activeVehicle.clasificacionDetalle;
+                      return activeClasif?.nombreClasificacion || activeVehicle.nombreClasificacion || activeVehicle.clasificacion;
+                    })()}
+                  </span>
+                </div>
+                <div className="px-4 py-2.5 flex justify-between">
                   <span className="text-slate-400">Número de Chasis (VIN):</span>
-                  <span className="font-mono font-bold text-slate-800">
-                    {activeVehicle.numeroChasis}
+                  <span className="font-mono font-bold text-slate-800">{activeVehicle.numeroChasis}</span>
+                </div>
+                <div className="px-4 py-2.5 flex justify-between">
+                  <span className="text-slate-400">Número de Motor:</span>
+                  <span className="font-semibold text-slate-800">{activeVehicle.numeroMotor || 'N/A'}</span>
+                </div>
+                <div className="px-4 py-2.5 flex justify-between">
+                  <span className="text-slate-400">Capacidad Carga / Arrastre:</span>
+                  <span className="font-semibold text-slate-800">
+                    {activeVehicle.capacidadCarga.toLocaleString()} kg / {activeVehicle.capacidadArrastre.toLocaleString()} kg
                   </span>
                 </div>
                 <div className="px-4 py-2.5 flex justify-between">
-                  <span className="text-slate-400">Especificación Motor / Frío:</span>
+                  <span className="text-slate-400">Operador Asignado:</span>
                   <span className="font-semibold text-slate-800">
-                    {activeVehicle.especificacionMotor || 'N/A'}
-                  </span>
-                </div>
-                <div className="px-4 py-2.5 flex justify-between">
-                  <span className="text-slate-400">Ubicación GPS:</span>
-                  <span className="font-semibold text-slate-800">
-                    {activeVehicle.telemetriaDetalle?.ubicacion || 'Base Valencia'}
-                  </span>
-                </div>
-                <div className="px-4 py-2.5 flex justify-between">
-                  <span className="text-slate-400">Operador / Acoplado Asignado:</span>
-                  <span className="font-semibold text-slate-800">
-                    {activeVehicle.telemetriaDetalle?.operador ||
-                      activeVehicle.telemetriaDetalle?.acopladoAsignado ||
-                      'Sin asignar'}
+                    {activeVehicle.telemetriaDetalle?.operador || 'Sin operador asignado'}
                   </span>
                 </div>
               </div>
@@ -1356,9 +1736,9 @@ export default function Vehiculos() {
                 className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-semibold text-slate-800 text-xs outline-none"
               >
                 <option value="patio">Activo en Patio</option>
-                <option value="en_ruta">En Ruta</option>
-                <option value="taller">Taller Preventivo</option>
-                <option value="inactivo">Inactivo / Reserva</option>
+                <option value="en_ruta">En Tránsito</option>
+                <option value="taller">En Taller</option>
+                <option value="inactivo">Detenido</option>
               </select>
             </div>
 
@@ -1388,42 +1768,49 @@ export default function Vehiculos() {
 
             <div>
               <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
-                Ubicación Actual
-              </label>
-              <input
-                type="text"
-                value={formData.ubicacion || ''}
-                onChange={(e) => setFormData({ ...formData, ubicacion: e.target.value })}
-                placeholder="Ej. Patio Central Valencia"
-                className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-slate-800 text-xs outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
                 Clasificación
               </label>
               <select
                 value={formData.clasificacion}
-                onChange={(e) => setFormData({ ...formData, clasificacion: e.target.value })}
+                onChange={(e) => {
+                  const nombre = e.target.value;
+                  const match = clasificaciones.find((c) => c.nombreClasificacion === nombre);
+                  setFormData({
+                    ...formData,
+                    clasificacion: nombre,
+                    idClasificacion: match?.idClasificacion,
+                    idTipo: match?.idTipo,
+                  });
+                }}
                 className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-semibold text-slate-800 text-xs outline-none"
               >
-                {formData.tipoUnidad === 'motriz' ? (
-                  <>
-                    <option value="Tractocamión 6x2">Tractocamión 6x2</option>
-                    <option value="Tractocamión 6x4">Tractocamión 6x4</option>
-                    <option value="Tractocamión 4x2">Tractocamión 4x2</option>
-                    <option value="Rígido 3 Ejes">Rígido 3 Ejes</option>
-                  </>
+                {clasificaciones.length > 0 ? (
+                  clasificaciones.map((c) => (
+                    <option key={c.idClasificacion} value={c.nombreClasificacion}>
+                      {c.nombreClasificacion} ({Number(c.idTipo) === 1 ? 'Unidad Motora' : 'Acoplado'})
+                    </option>
+                  ))
                 ) : (
                   <>
-                    <option value="Góndola Volquete 3 Ejes">Góndola Volquete 3 Ejes</option>
-                    <option value="Caja Frigorífica 13.6m">Caja Frigorífica 13.6m</option>
-                    <option value="Semirremolque Lona 13.6m">Semirremolque Lona 13.6m</option>
-                    <option value="Plataforma Portacontenedor">Plataforma Portacontenedor</option>
+                    <option value="Chuto">Chuto (Unidad Motora)</option>
+                    <option value="Cortinero">Cortinero (Unidad Motora)</option>
+                    <option value="Camion Volteo">Camion Volteo (Acoplado)</option>
+                    <option value="Cava">Cava (Acoplado)</option>
                   </>
                 )}
               </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
+                Año
+              </label>
+              <input
+                type="number"
+                value={formData.anio}
+                onChange={(e) => setFormData({ ...formData, anio: Number(e.target.value) })}
+                className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-slate-800 text-xs outline-none"
+              />
             </div>
           </div>
 
@@ -1449,24 +1836,24 @@ export default function Vehiculos() {
         </form>
       </Modal>
 
-      {/* ─── MODAL 4: CONFIRMACIÓN DE ELIMINACIÓN ─── */}
+      {/* ─── MODAL 4: CONFIRMAR ELIMINACIÓN ─── */}
       <Modal
         isOpen={isDeleteModalOpen}
         onClose={() => {
           setIsDeleteModalOpen(false);
           setActiveVehicle(null);
         }}
-        title="Confirmar Eliminación"
+        title="Confirmar Baja de Vehículo"
         size="sm"
       >
         <div className="space-y-3">
           <p className="text-xs text-slate-600">
-            ¿Estás seguro de que deseas dar de baja o eliminar el vehículo con placa{' '}
+            ¿Estás seguro de que deseas retirar la unidad con placa{' '}
             <strong className="text-slate-900 font-bold">{activeVehicle?.placa}</strong> (
-            {activeVehicle?.marca} {activeVehicle?.modelo})?
+            {activeVehicle?.marca} {activeVehicle?.modelo}) del sistema?
           </p>
           <p className="text-[11px] text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
-            Esta acción removerá la unidad de la supervisión activa de telemetría.
+            Esta acción removerá el vehículo de la supervisión activa de telemetría.
           </p>
 
           <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
@@ -1479,11 +1866,92 @@ export default function Vehiculos() {
               Cancelar
             </Button>
             <Button variant="danger" size="sm" type="button" onClick={handleDeleteVehicle}>
-              Eliminar
+              Confirmar Baja
             </Button>
           </div>
         </div>
       </Modal>
-    </div>
+
+      {/* ─── MODAL 5: PROGRAMAR INGRESO A TALLER ─── */}
+      <Modal
+        isOpen={isMaintenanceModalOpen}
+        onClose={() => setIsMaintenanceModalOpen(false)}
+        title="Programar Ingreso a Mantenimiento"
+        description="Selecciona una unidad de la flota para registrar su orden de servicio e ingreso a taller."
+        size="md"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
+              Seleccionar Unidad
+            </label>
+            <select
+              className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-semibold text-slate-800 text-xs focus:bg-white focus:border-orange-500 outline-none"
+              onChange={(e) => {
+                const found = vehiculos.find((v) => v.idVehiculo === e.target.value);
+                if (found) setActiveVehicle(found);
+              }}
+              defaultValue=""
+            >
+              <option value="" disabled>Selecciona un vehículo...</option>
+              {vehiculos.map((v) => (
+                <option key={v.idVehiculo} value={v.idVehiculo}>
+                  {v.codigoUnidad} • {v.placa} ({v.marca} {v.modelo})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
+              Tipo de Servicio
+            </label>
+            <select className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-semibold text-slate-800 text-xs focus:bg-white focus:border-orange-500 outline-none">
+              <option>Cambio de Aceite & Filtros Preventivo</option>
+              <option>Inspección de Balatas y Frenos</option>
+              <option>Calibración Sensores de Inyección</option>
+              <option>Revisión Sistema Neumático</option>
+              <option>Mantenimiento Mayor</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
+              Observaciones / Bitácora
+            </label>
+            <textarea
+              rows={3}
+              placeholder="Detalles sobre ruidos, códigos ECU o diagnóstico..."
+              className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-slate-800 text-xs focus:bg-white focus:border-orange-500 outline-none"
+            />
+          </div>
+
+          <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              type="button"
+              onClick={() => setIsMaintenanceModalOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              type="button"
+              onClick={() => {
+                if (activeVehicle) {
+                  handleSetMaintenance(activeVehicle);
+                } else {
+                  setIsMaintenanceModalOpen(false);
+                }
+              }}
+            >
+              Programar Ingreso
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </div >
   );
 }

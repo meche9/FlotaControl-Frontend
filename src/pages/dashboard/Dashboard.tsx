@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
   Truck,
   Users,
@@ -11,9 +11,7 @@ import {
   Calendar,
   TrendingUp,
   Trophy,
-  ChevronDown,
   ChevronRight,
-  Plus,
   CheckCircle2,
   ArrowUpRight,
   Wrench,
