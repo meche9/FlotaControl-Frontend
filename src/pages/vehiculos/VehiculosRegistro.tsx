@@ -115,13 +115,16 @@ export default function VehiculosRegistro() {
 
                 if (tipos.length > 0) {
                     setTiposVehiculo(tipos);
-                    const primerTipoId = tipos[0].idTipo;
-                    setIdTipoSeleccionado(primerTipoId);
+                    const motora = tipos.find(
+                        (t) => t.nombreTipo.toLowerCase().includes('motor') || Number(t.idTipo) === 1
+                    );
+                    const primerTipoId = motora ? Number(motora.idTipo) : Number(tipos[0].idTipo);
+                    setIdTipoSeleccionado((prev) => (prev ? prev : primerTipoId));
 
                     // Buscar clasificación correspondiente
                     const matchingClasif = clasifs.find((c) => Number(c.idTipo) === Number(primerTipoId));
                     if (matchingClasif) {
-                        setIdClasificacion(matchingClasif.idClasificacion);
+                        setIdClasificacion((prev) => (prev ? prev : matchingClasif.idClasificacion));
                     }
                 }
 
@@ -185,14 +188,32 @@ export default function VehiculosRegistro() {
         return vehiculosExistentes.find((v) => v.numeroChasis.trim().toUpperCase() === c) ?? null;
     }, [numeroChasis, vehiculosExistentes]);
 
-    // Es unidad motora si el idTipo es 1 o su nombre contiene "Motor"
+    // Identificar dinámicamente los IDs de tipo según el catálogo maestro (por defecto 1 y 2)
+    const idTipoMotora = useMemo(() => {
+        const t = tiposVehiculo.find(
+            (item) => item.nombreTipo.toLowerCase().includes('motor') || Number(item.idTipo) === 1
+        );
+        return t ? Number(t.idTipo) : 1;
+    }, [tiposVehiculo]);
+
+    const idTipoAcoplado = useMemo(() => {
+        const t = tiposVehiculo.find(
+            (item) =>
+                item.nombreTipo.toLowerCase().includes('acopl') ||
+                item.nombreTipo.toLowerCase().includes('remolque') ||
+                Number(item.idTipo) === 2
+        );
+        return t ? Number(t.idTipo) : 2;
+    }, [tiposVehiculo]);
+
+    // Es unidad motora si el idTipo coincide con unidad motora o su nombre contiene "Motor"
     const esUnidadMotora = useMemo(() => {
         const tipo = tiposVehiculo.find((t) => Number(t.idTipo) === Number(idTipoSeleccionado));
         if (tipo) {
-            return tipo.nombreTipo.toLowerCase().includes('motor') || tipo.idTipo === 1;
+            return tipo.nombreTipo.toLowerCase().includes('motor') || Number(tipo.idTipo) === Number(idTipoMotora);
         }
-        return idTipoSeleccionado === 1;
-    }, [tiposVehiculo, idTipoSeleccionado]);
+        return Number(idTipoSeleccionado) === Number(idTipoMotora);
+    }, [tiposVehiculo, idTipoSeleccionado, idTipoMotora]);
 
     // Clasificaciones filtradas según el tipo seleccionado
     const clasificacionesFiltradas = useMemo(() => {
@@ -211,7 +232,9 @@ export default function VehiculosRegistro() {
         }
 
         // Si cambia a acoplado, limpiar número de motor y acoplado asociado
-        const nuevoEsMotora = tiposVehiculo.find((t) => Number(t.idTipo) === Number(idTipo))?.nombreTipo.toLowerCase().includes('motor') || idTipo === 1;
+        const nuevoEsMotora =
+            tiposVehiculo.find((t) => Number(t.idTipo) === Number(idTipo))?.nombreTipo.toLowerCase().includes('motor') ||
+            Number(idTipo) === Number(idTipoMotora);
         if (!nuevoEsMotora) {
             setIdAcopladoActual('');
         }
@@ -399,10 +422,10 @@ export default function VehiculosRegistro() {
                                 </label>
 
                                 <div className="space-y-3">
-                                    {/* Card: Unidad Motora */}
+                                    {/* Card: Unidad Motora (Naranja) */}
                                     <div
-                                        onClick={() => handleSeleccionarTipo(1)}
-                                        className={`p-3.5 rounded-2xl border-2 cursor-pointer transition-all flex items-center gap-3.5 select-none ${idTipoSeleccionado === 1
+                                        onClick={() => handleSeleccionarTipo(idTipoMotora)}
+                                        className={`p-3.5 rounded-2xl border-2 cursor-pointer transition-all flex items-center gap-3.5 select-none ${Number(idTipoSeleccionado) === Number(idTipoMotora)
                                                 ? 'border-orange-500 bg-orange-50/20 shadow-sm ring-2 ring-orange-500/10'
                                                 : 'border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50/50'
                                             }`}
@@ -419,21 +442,21 @@ export default function VehiculosRegistro() {
                                             </p>
                                         </div>
                                         <div
-                                            className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition ${idTipoSeleccionado === 1
+                                            className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition ${Number(idTipoSeleccionado) === Number(idTipoMotora)
                                                     ? 'border-orange-500'
                                                     : 'border-slate-300'
                                                 }`}
                                         >
-                                            {idTipoSeleccionado === 1 && (
+                                            {Number(idTipoSeleccionado) === Number(idTipoMotora) && (
                                                 <div className="w-2.5 h-2.5 rounded-full bg-orange-500" />
                                             )}
                                         </div>
                                     </div>
 
-                                    {/* Card: Acoplado / Remolque */}
+                                    {/* Card: Acoplado / Remolque (Verde) */}
                                     <div
-                                        onClick={() => handleSeleccionarTipo(2)}
-                                        className={`p-3.5 rounded-2xl border-2 cursor-pointer transition-all flex items-center gap-3.5 select-none ${idTipoSeleccionado === 2
+                                        onClick={() => handleSeleccionarTipo(idTipoAcoplado)}
+                                        className={`p-3.5 rounded-2xl border-2 cursor-pointer transition-all flex items-center gap-3.5 select-none ${Number(idTipoSeleccionado) === Number(idTipoAcoplado)
                                                 ? 'border-emerald-500 bg-emerald-50/20 shadow-sm ring-2 ring-emerald-500/10'
                                                 : 'border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50/50'
                                             }`}
@@ -450,51 +473,16 @@ export default function VehiculosRegistro() {
                                             </p>
                                         </div>
                                         <div
-                                            className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition ${idTipoSeleccionado === 2
+                                            className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition ${Number(idTipoSeleccionado) === Number(idTipoAcoplado)
                                                     ? 'border-emerald-500'
                                                     : 'border-slate-300'
                                                 }`}
                                         >
-                                            {idTipoSeleccionado === 2 && (
+                                            {Number(idTipoSeleccionado) === Number(idTipoAcoplado) && (
                                                 <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
                                             )}
                                         </div>
                                     </div>
-
-                                    {/* Tipos adicionales si existen en la BD */}
-                                    {tiposVehiculo
-                                        .filter((t) => t.idTipo !== 1 && t.idTipo !== 2)
-                                        .map((tipo) => {
-                                            const activo = idTipoSeleccionado === tipo.idTipo;
-                                            return (
-                                                <div
-                                                    key={tipo.idTipo}
-                                                    onClick={() => handleSeleccionarTipo(tipo.idTipo)}
-                                                    className={`p-3.5 rounded-2xl border-2 cursor-pointer transition-all flex items-center gap-3.5 select-none ${activo
-                                                            ? 'border-orange-500 bg-orange-50/20 shadow-sm ring-2 ring-orange-500/10'
-                                                            : 'border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50/50'
-                                                        }`}
-                                                >
-                                                    <div className="w-12 h-12 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
-                                                        <Truck className="w-6 h-6" />
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <h4 className="text-sm font-bold text-slate-900 leading-tight">
-                                                            {tipo.nombreTipo}
-                                                        </h4>
-                                                        <p className="text-[11px] text-slate-500 font-normal leading-snug mt-0.5">
-                                                            Categoría homologada en catálogo de vehículos.
-                                                        </p>
-                                                    </div>
-                                                    <div
-                                                        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition ${activo ? 'border-orange-500' : 'border-slate-300'
-                                                            }`}
-                                                    >
-                                                        {activo && <div className="w-2.5 h-2.5 rounded-full bg-orange-500" />}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
                                 </div>
                             </div>
 

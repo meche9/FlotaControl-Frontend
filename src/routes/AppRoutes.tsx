@@ -8,6 +8,8 @@ import AdminLayout from '../componentes/layout/AdminLayout';
 import Dashboard from '../pages/dashboard/Dashboard';
 import Vehiculos from '../pages/vehiculos/Vehiculos';
 import VehiculosRegistro from '../pages/vehiculos/VehiculosRegistro';
+import Conductores from '../pages/conductores/Conductores';
+import ConductoresRegistroCompleto from '../pages/conductores/ConductoresRegistroCompleto';
 import PaginaEnConstruccion from '../componentes/common/PaginaEnConstruccion';
 
 export default function AppRoutes() {
@@ -32,7 +34,11 @@ export default function AppRoutes() {
                         <Route path="/vehiculos/registro" element={<VehiculosRegistro />} />
 
                         {/* Operativo */}
-                        <Route path="/drivers" element={<PaginaEnConstruccion titulo="Conductores" descripcion="Gestión de conductores, licencias y asignaciones de vehículos." />} />
+                        <Route path="/conductores" element={<Conductores />} />
+                        <Route path="/conductores/nuevo" element={<ConductoresRegistroCompleto />} />
+                        <Route path="/conductores/registro" element={<ConductoresRegistroCompleto />} />
+                        <Route path="/conductores/editar/:id" element={<ConductoresRegistroCompleto />} />
+                        <Route path="/drivers" element={<Conductores />} />
                         <Route path="/maintenance" element={<PaginaEnConstruccion titulo="Mantenimiento" descripcion="Control de mantenimientos preventivos y correctivos de la flota." />} />
 
                         {/* Logístico */}

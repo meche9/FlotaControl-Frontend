@@ -5,3 +5,4 @@ export * from './Modal';
 export * from './Table';
 export * from './ImagenProtegida';
 export * from './SelectorImagen';
+export * from './DateInput';

@@ -94,8 +94,8 @@ export default function Sidebar() {
             </Link>
 
             <Link
-              to="/drivers"
-              className={`flex items-center space-x-3 px-3 py-1.5 rounded-xl font-medium transition ${isActive('/drivers')
+              to="/conductores"
+              className={`flex items-center space-x-3 px-3 py-1.5 rounded-xl font-medium transition ${isActive('/drivers') || isActive('/conductores') || location.pathname.startsWith('/conductores')
                 ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20'
                 : 'text-gray-700 hover:bg-gray-100'
                 }`}
