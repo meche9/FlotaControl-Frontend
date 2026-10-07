@@ -7,6 +7,7 @@ import PublicOnlyRoute from './PublicOnlyRoute';
 import AdminLayout from '../componentes/layout/AdminLayout';
 import Dashboard from '../pages/dashboard/Dashboard';
 import Vehiculos from '../pages/vehiculos/Vehiculos';
+import VehiculosRegistro from '../pages/vehiculos/VehiculosRegistro';
 import PaginaEnConstruccion from '../componentes/common/PaginaEnConstruccion';
 
 export default function AppRoutes() {
@@ -27,6 +28,8 @@ export default function AppRoutes() {
                     <Route element={<AdminLayout />}>
                         <Route path="/dashboard" element={<Dashboard />} />
                         <Route path="/vehiculos" element={<Vehiculos />} />
+                        <Route path="/vehiculos/nuevo" element={<VehiculosRegistro />} />
+                        <Route path="/vehiculos/registro" element={<VehiculosRegistro />} />
 
                         {/* Operativo */}
                         <Route path="/drivers" element={<PaginaEnConstruccion titulo="Conductores" descripcion="Gestión de conductores, licencias y asignaciones de vehículos." />} />

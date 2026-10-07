@@ -84,7 +84,9 @@ export interface VehiculoFormData {
   capacidadCarga: number;
   capacidadArrastre: number;
   estadoTipo: EstadoUnidad;
+  estado?: EstadoApi;
   ubicacion?: string;
+  idAcopladoActual?: string | null;
 }
 
 interface VehiculoApi {
@@ -201,19 +203,27 @@ function generarTelemetria(raw: VehiculoApi, estadoTipo: EstadoUnidad): Telemetr
 }
 
 function aPayload(form: VehiculoFormData) {
-  const idClasificacion = form.idClasificacion ?? CLASIFICACIONES[form.clasificacion] ?? 1;
+  const idClasificacion = Number(form.idClasificacion ?? CLASIFICACIONES[form.clasificacion] ?? 1);
+  const estadoFinal: EstadoApi = form.estado ?? (form.estadoTipo ? ESTADO_A_API[form.estadoTipo] : 'Activo');
 
   return {
     idClasificacion,
-    placa: form.placa.trim(),
+    placa: form.placa.trim().toUpperCase(),
     marca: form.marca.trim(),
-    modelo: form.modelo.trim() || undefined,
-    anio: form.anio,
-    numeroChasis: form.numeroChasis.trim(),
-    numeroMotor: form.numeroMotor?.trim() || undefined,
-    capacidadCarga: form.capacidadCarga,
-    capacidadArrastre: form.capacidadArrastre,
-    estado: ESTADO_A_API[form.estadoTipo],
+    modelo: form.modelo?.trim() || undefined,
+    anio: Number(form.anio),
+    numeroChasis: form.numeroChasis.trim().toUpperCase(),
+    numeroMotor: form.numeroMotor?.trim() ? form.numeroMotor.trim().toUpperCase() : undefined,
+    capacidadCarga:
+      form.capacidadCarga !== undefined && form.capacidadCarga !== null && !isNaN(Number(form.capacidadCarga))
+        ? Number(form.capacidadCarga)
+        : undefined,
+    capacidadArrastre:
+      form.capacidadArrastre !== undefined && form.capacidadArrastre !== null && !isNaN(Number(form.capacidadArrastre))
+        ? Number(form.capacidadArrastre)
+        : undefined,
+    estado: estadoFinal,
+    idAcopladoActual: form.idAcopladoActual && form.idAcopladoActual.trim() !== '' ? form.idAcopladoActual.trim() : undefined,
   };
 }
 

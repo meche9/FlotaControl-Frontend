@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Truck,
   Container,
@@ -8,7 +9,6 @@ import {
   Eye,
   Pencil,
   Trash2,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   TrendingUp,
@@ -46,7 +46,6 @@ import {
   type Vehiculo,
   type VehiculoFormData,
   type EstadoUnidad,
-  type TipoUnidad,
   type TipoVehiculo,
   type ClasificacionVehiculo,
 } from '../../services/vehiculosService';
@@ -55,6 +54,7 @@ import { getApiErrorMessage } from '../../services/api';
 type FilterTab = 'todos' | 'en_ruta' | 'patio' | 'taller' | 'inactivo';
 
 export default function Vehiculos() {
+  const navigate = useNavigate();
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
   const [tiposVehiculo, setTiposVehiculo] = useState<TipoVehiculo[]>([]);
   const [clasificaciones, setClasificaciones] = useState<ClasificacionVehiculo[]>([]);
@@ -62,14 +62,13 @@ export default function Vehiculos() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedType, setSelectedType] = useState<'todos' | 'motriz' | 'acoplado'>('todos');
   const [selectedTab, setSelectedTab] = useState<FilterTab>('todos');
-  const [selectedEstadoFilter, setSelectedEstadoFilter] = useState<'todos' | EstadoUnidad>('todos');
+  const [selectedEstadoFilter] = useState<'todos' | EstadoUnidad>('todos');
 
   // Paginación
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 6;
 
   // Modales
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -289,44 +288,6 @@ export default function Vehiculos() {
     setQuitarFoto(true);
   };
 
-  // Crear vehículo
-  const handleCreateVehicle = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.placa || !formData.marca || !formData.modelo) return;
-
-    setGuardando(true);
-    setErrorFormulario(null);
-
-    let nuevo: Vehiculo;
-    try {
-      nuevo = await vehiculosService.createVehiculo(formData);
-    } catch (err) {
-      setErrorFormulario(getApiErrorMessage(err, 'No se pudo registrar el vehículo.'));
-      setGuardando(false);
-      return;
-    }
-
-    setVehiculos((prev) => [nuevo, ...prev]);
-    setIsCreateModalOpen(false);
-
-    const fotoPendiente = fotoArchivo;
-    try {
-      if (fotoPendiente) {
-        reemplazarVehiculo(await vehiculosService.subirFoto(nuevo, fotoPendiente));
-      }
-      setFormData(initialFormData);
-      reiniciarFormulario();
-    } catch (err) {
-      handleOpenEdit(nuevo);
-      setFotoArchivo(fotoPendiente);
-      setErrorFormulario(
-        `El vehículo se registró, pero la foto no se pudo subir. ${getApiErrorMessage(err, '')}`.trim()
-      );
-    } finally {
-      setGuardando(false);
-    }
-  };
-
   // Editar vehículo
   const handleOpenEdit = (v: Vehiculo) => {
     reiniciarFormulario();
@@ -442,11 +403,7 @@ export default function Vehiculos() {
         {/* Botón Primario Naranja */}
         <button
           type="button"
-          onClick={() => {
-            setFormData(initialFormData);
-            reiniciarFormulario();
-            setIsCreateModalOpen(true);
-          }}
+          onClick={() => navigate('/vehiculos/nuevo')}
           className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white text-xs font-bold px-4 py-2 rounded-xl shadow-sm shadow-orange-500/25 transition select-none cursor-pointer"
         >
           <Plus className="w-4 h-4 stroke-[2.5]" />
@@ -793,8 +750,6 @@ export default function Vehiculos() {
                     />
                   ) : (
                     paginatedVehiculos.map((v) => {
-                      const combustible = v.telemetriaDetalle?.nivelCombustible ?? 75;
-                      const isLowFuel = combustible <= 30;
                       const unitNumber = v.codigoUnidad.replace('#TR-', '').replace('#AC-', '');
                       const assignedDriver =
                         v.telemetriaDetalle?.operador ||
@@ -1273,248 +1228,6 @@ export default function Vehiculos() {
           </Card>
         </div>
       </div>
-
-      {/* ─── MODAL 1: REGISTRAR NUEVO VEHÍCULO ─── */}
-      <Modal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        title="Registrar Nuevo Vehículo en la Flota"
-        description="Ingresa las especificaciones del nuevo vehículo o unidad de arrastre para habilitar su seguimiento."
-        size="lg"
-      >
-        <form onSubmit={handleCreateVehicle} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="sm:col-span-2">
-              <SelectorImagen
-                etiqueta="Foto del vehículo (opcional)"
-                archivo={fotoArchivo}
-                quitada={quitarFoto}
-                onSeleccionar={seleccionarFoto}
-                onQuitar={quitarFotoSeleccionada}
-              />
-            </div>
-
-            {/* Placa */}
-            <div>
-              <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
-                Placa / Matrícula *
-              </label>
-              <input
-                type="text"
-                required
-                value={formData.placa}
-                onChange={(e) => setFormData({ ...formData, placa: e.target.value.toUpperCase() })}
-                placeholder="Ej. 872-AJ-4 o 6482-KPL"
-                className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-bold text-slate-800 text-xs focus:bg-white focus:border-orange-500 outline-none"
-              />
-            </div>
-
-            {/* Tipo de Unidad */}
-            <div>
-              <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
-                Tipo de Unidad *
-              </label>
-              <select
-                value={formData.tipoUnidad}
-                onChange={(e) => {
-                  const t = e.target.value as TipoUnidad;
-                  const isMotriz = t === 'motriz';
-                  const targetTipoId = isMotriz ? 1 : 2;
-                  const match = clasificaciones.find((c) => Number(c.idTipo) === targetTipoId);
-                  const defaultClasif = match?.nombreClasificacion || (isMotriz ? 'Chuto' : 'Camion Volteo');
-                  setFormData({
-                    ...formData,
-                    tipoUnidad: t,
-                    pais: t === 'acoplado' ? 'ES-R' : 'ES',
-                    clasificacion: defaultClasif,
-                    idClasificacion: match?.idClasificacion ?? targetTipoId,
-                    idTipo: targetTipoId,
-                  });
-                }}
-                className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-semibold text-slate-800 text-xs focus:bg-white focus:border-orange-500 outline-none"
-              >
-                <option value="motriz">Unidad Motora (Cabezal Tractor)</option>
-                <option value="acoplado">Acoplado (Remolque / Semirremolque)</option>
-              </select>
-            </div>
-
-            {/* Marca */}
-            <div>
-              <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
-                Marca *
-              </label>
-              <input
-                type="text"
-                required
-                value={formData.marca}
-                onChange={(e) => setFormData({ ...formData, marca: e.target.value })}
-                placeholder="Ej. Volvo, Scania, Kenworth"
-                className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-slate-800 text-xs focus:bg-white focus:border-orange-500 outline-none"
-              />
-            </div>
-
-            {/* Modelo */}
-            <div>
-              <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
-                Modelo *
-              </label>
-              <input
-                type="text"
-                required
-                value={formData.modelo}
-                onChange={(e) => setFormData({ ...formData, modelo: e.target.value })}
-                placeholder="Ej. FH 540 Globetrotter"
-                className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-slate-800 text-xs focus:bg-white focus:border-orange-500 outline-none"
-              />
-            </div>
-
-            {/* Año */}
-            <div>
-              <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
-                Año de Fabricación *
-              </label>
-              <input
-                type="number"
-                required
-                min={1990}
-                max={2030}
-                value={formData.anio}
-                onChange={(e) => setFormData({ ...formData, anio: Number(e.target.value) })}
-                className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-slate-800 text-xs focus:bg-white focus:border-orange-500 outline-none"
-              />
-            </div>
-
-            {/* Clasificación */}
-            <div>
-              <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
-                Clasificación *
-              </label>
-              <select
-                value={formData.clasificacion}
-                onChange={(e) => {
-                  const nombre = e.target.value;
-                  const match = clasificaciones.find((c) => c.nombreClasificacion === nombre);
-                  setFormData({
-                    ...formData,
-                    clasificacion: nombre,
-                    idClasificacion: match?.idClasificacion,
-                    idTipo: match?.idTipo,
-                  });
-                }}
-                className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-semibold text-slate-800 text-xs focus:bg-white focus:border-orange-500 outline-none"
-              >
-                {clasificaciones.length > 0 ? (
-                  clasificaciones
-                    .filter((c) =>
-                      formData.tipoUnidad === 'motriz' ? Number(c.idTipo) === 1 : Number(c.idTipo) !== 1
-                    )
-                    .map((c) => (
-                      <option key={c.idClasificacion} value={c.nombreClasificacion}>
-                        {c.nombreClasificacion}
-                      </option>
-                    ))
-                ) : formData.tipoUnidad === 'motriz' ? (
-                  <>
-                    <option value="Chuto">Chuto</option>
-                    <option value="Cortinero">Cortinero</option>
-                    <option value="Tractocamión 6x2">Tractocamión 6x2</option>
-                  </>
-                ) : (
-                  <>
-                    <option value="Camión Volteo">Camión Volteo</option>
-                    <option value="Camion Volteo">Camion Volteo</option>
-                    <option value="Cava">Cava</option>
-                  </>
-                )}
-              </select>
-            </div>
-
-            {/* Chasis / VIN */}
-            <div>
-              <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
-                Número de Chasis (VIN) *
-              </label>
-              <input
-                type="text"
-                required
-                value={formData.numeroChasis}
-                onChange={(e) =>
-                  setFormData({ ...formData, numeroChasis: e.target.value.toUpperCase() })
-                }
-                placeholder="Ej. YV2RT40A8PA109284"
-                className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-mono text-slate-800 text-xs focus:bg-white focus:border-orange-500 outline-none"
-              />
-            </div>
-
-            {/* Número de Motor */}
-            <div>
-              <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
-                Número de Motor
-              </label>
-              <input
-                type="text"
-                value={formData.numeroMotor || ''}
-                onChange={(e) => setFormData({ ...formData, numeroMotor: e.target.value })}
-                placeholder="Ej. D13TC-1049281"
-                className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-slate-800 text-xs focus:bg-white focus:border-orange-500 outline-none"
-              />
-            </div>
-
-            {/* Estado Inicial */}
-            <div>
-              <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
-                Estado Inicial *
-              </label>
-              <select
-                value={formData.estadoTipo}
-                onChange={(e) =>
-                  setFormData({ ...formData, estadoTipo: e.target.value as EstadoUnidad })
-                }
-                className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-semibold text-slate-800 text-xs focus:bg-white focus:border-orange-500 outline-none"
-              >
-                <option value="patio">Activo en Patio</option>
-                <option value="en_ruta">En Tránsito / Ruta</option>
-                <option value="taller">En Taller Preventivo</option>
-                <option value="inactivo">Detenido / Inactivo</option>
-              </select>
-            </div>
-
-            {/* Ubicación */}
-            <div>
-              <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
-                Ubicación / Muelle
-              </label>
-              <input
-                type="text"
-                value={formData.ubicacion}
-                onChange={(e) => setFormData({ ...formData, ubicacion: e.target.value })}
-                placeholder="Ej. Base Logística Valencia"
-                className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-slate-800 text-xs focus:bg-white focus:border-orange-500 outline-none"
-              />
-            </div>
-          </div>
-
-          {errorFormulario && (
-            <p className="text-[11px] font-semibold text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
-              {errorFormulario}
-            </p>
-          )}
-
-          <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2.5">
-            <Button
-              variant="outline"
-              size="md"
-              type="button"
-              onClick={() => setIsCreateModalOpen(false)}
-            >
-              Cancelar
-            </Button>
-            <Button variant="primary" size="md" type="submit" disabled={guardando}>
-              {guardando ? 'Guardando...' : 'Guardar Unidad'}
-            </Button>
-          </div>
-        </form>
-      </Modal>
 
       {/* ─── MODAL 2: FICHA TELEMÁTICA DE LA UNIDAD ─── */}
       <Modal
