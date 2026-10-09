@@ -1,4 +1,4 @@
-import api, { getApiErrorMessage } from './api';
+import api from './api';
 
 export type ConductorSexo = 'M' | 'F';
 

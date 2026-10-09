@@ -65,6 +65,7 @@ export interface Vehiculo {
   conductoresHabituales?: ConductorHabitual[];
   foto: string | null;
   fotoUrl: string | null;
+  idAcopladoActual?: string | null;
 }
 
 export interface VehiculoFormData {
@@ -122,19 +123,19 @@ interface VehiculoApi {
 }
 
 const CLASIFICACIONES: Record<string, number> = {
-  Chuto: 1,
-  'Camion Volteo': 2,
-  'Camión Volteo': 2,
-  Cortinero: 3,
-  Cava: 4,
-  'Tractocamión 6x2': 1,
-  'Tractocamión 6x4': 1,
-  'Tractocamión 4x2': 1,
-  'Rígido 3 Ejes': 1,
-  'Góndola Volquete 3 Ejes': 2,
-  'Caja Frigorífica 13.6m': 4,
-  'Semirremolque Lona 13.6m': 3,
-  'Plataforma Portacontenedor': 3,
+  Chuto: 5,
+  'Camion Volteo': 6,
+  'Camión Volteo': 6,
+  Cortinero: 7,
+  Cava: 8,
+  'Tractocamión 6x2': 5,
+  'Tractocamión 6x4': 5,
+  'Tractocamión 4x2': 5,
+  'Rígido 3 Ejes': 5,
+  'Góndola Volquete 3 Ejes': 6,
+  'Caja Frigorífica 13.6m': 8,
+  'Semirremolque Lona 13.6m': 7,
+  'Plataforma Portacontenedor': 7,
 };
 
 const ESTADO_A_API: Record<EstadoUnidad, EstadoApi> = {
@@ -203,7 +204,10 @@ function generarTelemetria(raw: VehiculoApi, estadoTipo: EstadoUnidad): Telemetr
 }
 
 function aPayload(form: VehiculoFormData) {
-  const idClasificacion = Number(form.idClasificacion ?? CLASIFICACIONES[form.clasificacion] ?? 1);
+  let idClasificacion = Number(form.idClasificacion);
+  if (!idClasificacion || isNaN(idClasificacion) || idClasificacion < 5) {
+    idClasificacion = CLASIFICACIONES[form.clasificacion] ?? 5;
+  }
   const estadoFinal: EstadoApi = form.estado ?? (form.estadoTipo ? ESTADO_A_API[form.estadoTipo] : 'Activo');
 
   return {
@@ -223,7 +227,12 @@ function aPayload(form: VehiculoFormData) {
         ? Number(form.capacidadArrastre)
         : undefined,
     estado: estadoFinal,
-    idAcopladoActual: form.idAcopladoActual && form.idAcopladoActual.trim() !== '' ? form.idAcopladoActual.trim() : undefined,
+    idAcopladoActual:
+      form.idAcopladoActual !== undefined
+        ? form.idAcopladoActual && form.idAcopladoActual.trim() !== ''
+          ? form.idAcopladoActual.trim()
+          : null
+        : undefined,
   };
 }
 
@@ -257,7 +266,7 @@ function aVehiculo(raw: VehiculoApi, form?: VehiculoFormData): Vehiculo {
     modelo: raw.modelo ?? '',
     especificacionMotor: form?.especificacionMotor || undefined,
     anio: raw.anio,
-    idClasificacion: Number(raw.idClasificacion || raw.clasificacion?.idClasificacion || 1),
+    idClasificacion: Number(raw.idClasificacion || raw.clasificacion?.idClasificacion || 5),
     clasificacion: nombreClasificacion,
     nombreClasificacion,
     idTipo: idTipoNum,
@@ -289,6 +298,7 @@ function aVehiculo(raw: VehiculoApi, form?: VehiculoFormData): Vehiculo {
     conductoresHabituales: raw.conductoresHabituales,
     foto: raw.foto ?? null,
     fotoUrl: urlFoto(raw.idVehiculo, raw.foto ?? null),
+    idAcopladoActual: raw.idAcopladoActual ?? form?.idAcopladoActual ?? null,
   };
 }
 

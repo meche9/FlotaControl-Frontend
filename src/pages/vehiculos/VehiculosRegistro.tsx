@@ -68,7 +68,7 @@ export default function VehiculosRegistro() {
 
     // Estado del formulario
     const [idTipoSeleccionado, setIdTipoSeleccionado] = useState<number>(1); // 1 = Unidad Motora por defecto
-    const [idClasificacion, setIdClasificacion] = useState<number>(1);
+    const [idClasificacion, setIdClasificacion] = useState<number>(5);
     const [placa, setPlaca] = useState('');
     const [anio, setAnio] = useState<number>(new Date().getFullYear());
     const [marca, setMarca] = useState('');
@@ -121,10 +121,12 @@ export default function VehiculosRegistro() {
                     const primerTipoId = motora ? Number(motora.idTipo) : Number(tipos[0].idTipo);
                     setIdTipoSeleccionado((prev) => (prev ? prev : primerTipoId));
 
-                    // Buscar clasificación correspondiente
-                    const matchingClasif = clasifs.find((c) => Number(c.idTipo) === Number(primerTipoId));
+                    // Buscar clasificación correspondiente válida
+                    const matchingClasif = clasifs.find(
+                        (c) => Number(c.idTipo) === Number(primerTipoId) && c.activo !== false
+                    ) || clasifs[0];
                     if (matchingClasif) {
-                        setIdClasificacion((prev) => (prev ? prev : matchingClasif.idClasificacion));
+                        setIdClasificacion(matchingClasif.idClasificacion);
                     }
                 }
 
@@ -148,7 +150,9 @@ export default function VehiculosRegistro() {
                     if (draftRaw) {
                         const draft = JSON.parse(draftRaw);
                         if (draft.idTipoSeleccionado) setIdTipoSeleccionado(draft.idTipoSeleccionado);
-                        if (draft.idClasificacion) setIdClasificacion(draft.idClasificacion);
+                        if (draft.idClasificacion && clasifs.some((c) => Number(c.idClasificacion) === Number(draft.idClasificacion))) {
+                            setIdClasificacion(Number(draft.idClasificacion));
+                        }
                         if (draft.placa) setPlaca(draft.placa);
                         if (draft.anio) setAnio(draft.anio);
                         if (draft.marca) setMarca(draft.marca);
@@ -219,6 +223,18 @@ export default function VehiculosRegistro() {
     const clasificacionesFiltradas = useMemo(() => {
         return clasificaciones.filter((c) => Number(c.idTipo) === Number(idTipoSeleccionado) && c.activo !== false);
     }, [clasificaciones, idTipoSeleccionado]);
+
+    // Mantener siempre idClasificacion sincronizado con una opción válida de la base de datos
+    useEffect(() => {
+        if (clasificacionesFiltradas.length > 0) {
+            const existe = clasificacionesFiltradas.some(
+                (c) => Number(c.idClasificacion) === Number(idClasificacion)
+            );
+            if (!existe) {
+                setIdClasificacion(clasificacionesFiltradas[0].idClasificacion);
+            }
+        }
+    }, [clasificacionesFiltradas, idClasificacion]);
 
     // Cambiar tipo de vehículo (Unidad Motora vs Acoplado)
     const handleSeleccionarTipo = (idTipo: number) => {
@@ -313,7 +329,7 @@ export default function VehiculosRegistro() {
                 modelo: modelo.trim(),
                 anio: Number(anio) || new Date().getFullYear(),
                 clasificacion: clasifActual?.nombreClasificacion || (esUnidadMotora ? 'Chuto' : 'Cortinero'),
-                idClasificacion: Number(idClasificacion),
+                idClasificacion: Number(idClasificacion || clasifActual?.idClasificacion || (esUnidadMotora ? 5 : 7)),
                 idTipo: Number(idTipoSeleccionado),
                 numeroChasis: numeroChasis.trim().toUpperCase(),
                 numeroMotor: esUnidadMotora && numeroMotor.trim() ? numeroMotor.trim().toUpperCase() : undefined,

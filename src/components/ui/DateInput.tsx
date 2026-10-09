@@ -143,14 +143,16 @@ export const DateInput = forwardRef<HTMLInputElement, DateInputProps>(
         };
 
         const handleOpenPicker = () => {
+            const el = pickerRef.current;
+            if (!el) return;
             try {
-                if (pickerRef.current && 'showPicker' in pickerRef.current) {
-                    pickerRef.current.showPicker();
+                if (typeof (el as HTMLInputElement & { showPicker?: () => void }).showPicker === 'function') {
+                    (el as HTMLInputElement & { showPicker: () => void }).showPicker();
                 } else {
-                    pickerRef.current?.focus();
+                    el.focus();
                 }
             } catch {
-                pickerRef.current?.focus();
+                el.focus();
             }
         };
 

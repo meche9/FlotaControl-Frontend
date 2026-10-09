@@ -128,7 +128,7 @@ export default function Sidebar() {
           <nav className="space-y-1">
             <Link
               to="/clients"
-              className={`flex items-center space-x-3 px-3 py-1.5 rounded-xl font-medium transition ${isActive('/clients')
+              className={`flex items-center space-x-3 px-3 py-1.5 rounded-xl font-medium transition ${isActive('/clients') || isActive('/clientes')
                 ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20'
                 : 'text-gray-700 hover:bg-gray-100'
                 }`}

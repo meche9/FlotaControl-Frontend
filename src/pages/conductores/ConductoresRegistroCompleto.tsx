@@ -3,31 +3,22 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
     IdCard,
     User,
-    FolderPlus,
-    Calendar,
-    Heart,
     Droplets,
     Phone,
-    Mail,
     MapPin,
-    Home,
     AlertTriangle,
     Shirt,
     Building2,
-    CreditCard,
-    Smartphone,
     Truck,
     CheckCircle2,
     Save,
     X,
     ArrowLeft,
     ChevronDown,
-    Sparkles,
     PhoneCall,
     ShieldAlert,
     ShieldCheck,
     Check,
-    Activity,
 } from 'lucide-react';
 import { SelectorImagen, ImagenProtegida, DateInput } from '../../components/ui';
 import {
@@ -38,7 +29,6 @@ import {
     type ConductorSexo,
     type ConductorFormData,
     ESTADO_CONDUCTOR_LABELS,
-    ESTADO_CIVIL_LABELS,
 } from '../../services/conductoresService';
 import { vehiculosService, type Vehiculo } from '../../services/vehiculosService';
 import { getApiErrorMessage } from '../../services/api';
@@ -82,6 +72,7 @@ export default function ConductoresRegistroCompleto() {
 
     // Estados de datos maestros
     const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
+    const [conductoresExistentes, setConductoresExistentes] = useState<Conductor[]>([]);
     const [loading, setLoading] = useState(true);
     const [guardando, setGuardando] = useState(false);
     const [errorGlobal, setErrorGlobal] = useState<string | null>(null);
@@ -198,13 +189,18 @@ export default function ConductoresRegistroCompleto() {
             setLoading(true);
             setErrorGlobal(null);
             try {
-                const [listaVehiculos] = await Promise.all([
+                const [listaVehiculos, listaConductores] = await Promise.all([
                     vehiculosService.getVehiculos().catch((err) => {
                         console.warn('Error cargando vehículos:', err);
                         return [] as Vehiculo[];
                     }),
+                    conductoresService.getConductores().catch((err) => {
+                        console.warn('Error cargando conductores:', err);
+                        return [] as Conductor[];
+                    }),
                 ]);
                 setVehiculos(listaVehiculos);
+                setConductoresExistentes(listaConductores);
 
                 if (id) {
                     const c = await conductoresService.getConductor(id);
@@ -267,6 +263,56 @@ export default function ConductoresRegistroCompleto() {
 
         cargarDatos();
     }, [id]);
+
+    // Helper para verificar si un vehículo pertenece a la clasificación de motores (unidad motora / motriz)
+    const esClasificacionMotor = (v: Vehiculo): boolean => {
+        // Excluir si es explícitamente acoplado
+        if (v.tipoUnidad === 'acoplado') return false;
+        if (Number(v.idTipo) === 2) return false;
+        if (Number(v.clasificacionDetalle?.idTipo) === 2) return false;
+        if (Number(v.clasificacionDetalle?.tipo?.idTipo) === 2) return false;
+
+        // Validar si es unidad motora
+        if (v.tipoUnidad === 'motriz') return true;
+        if (Number(v.idTipo) === 1) return true;
+        if (Number(v.clasificacionDetalle?.idTipo) === 1) return true;
+        if (Number(v.clasificacionDetalle?.tipo?.idTipo) === 1) return true;
+
+        const nombreTipo = (v.nombreTipo || v.clasificacionDetalle?.tipo?.nombreTipo || '').toLowerCase();
+        return nombreTipo.includes('motor');
+    };
+
+    // Vehículos disponibles: solo de clasificación motores y que no estén asignados a ningún otro chofer
+    const vehiculosDisponibles = useMemo(() => {
+        return vehiculos.filter((v) => {
+            // 1. Debe ser de clasificación motores
+            if (!esClasificacionMotor(v)) return false;
+
+            // Si es el vehículo ya asignado a este conductor (modo edición), permitirlo
+            const esVehiculoDeEsteConductor =
+                Boolean(id) &&
+                (v.idVehiculo === conductorOriginal?.idVehiculoHabitual ||
+                    v.idVehiculo === idVehiculoHabitual);
+
+            if (esVehiculoDeEsteConductor) {
+                return true;
+            }
+
+            // 2. No debe estar asignado a ningún otro conductor en la tabla conductores
+            const asignadoEnTablaConductores = conductoresExistentes.some(
+                (c) => c.idVehiculoHabitual === v.idVehiculo && (!id || c.idConductor !== id)
+            );
+            if (asignadoEnTablaConductores) return false;
+
+            // 3. No debe tener conductores habituales asignados en el objeto vehículo
+            const asignadoEnVehiculo = (v.conductoresHabituales ?? []).some(
+                (c) => !id || c.idConductor !== id
+            );
+            if (asignadoEnVehiculo) return false;
+
+            return true;
+        });
+    }, [vehiculos, conductoresExistentes, id, conductorOriginal?.idVehiculoHabitual, idVehiculoHabitual]);
 
     // Vehículo seleccionado actualmente para la credencial en vivo
     const vehiculoSeleccionado = useMemo(() => {
@@ -1145,11 +1191,22 @@ export default function ConductoresRegistroCompleto() {
                                             className="w-full appearance-none px-3.5 py-2.5 pr-8 bg-[#f8fafc] hover:bg-slate-50 focus:bg-white border border-slate-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/10 rounded-xl text-xs font-semibold text-slate-800 outline-none transition cursor-pointer truncate"
                                         >
                                             <option value="">Sin Asignar / Reserva</option>
-                                            {vehiculos.map((v) => (
-                                                <option key={v.idVehiculo} value={v.idVehiculo}>
-                                                    {v.placa} - {v.marca} {v.modelo || ''}
+                                            {vehiculosDisponibles.length === 0 && (
+                                                <option value="" disabled>
+                                                    (No hay tractocamiones disponibles sin asignar)
                                                 </option>
-                                            ))}
+                                            )}
+                                            {vehiculosDisponibles.map((v) => {
+                                                const esActual =
+                                                    Boolean(id) &&
+                                                    v.idVehiculo === conductorOriginal?.idVehiculoHabitual;
+                                                return (
+                                                    <option key={v.idVehiculo} value={v.idVehiculo}>
+                                                        {v.placa} - {v.marca} {v.modelo || ''}
+                                                        {esActual ? ' (Asignado actualmente)' : ''}
+                                                    </option>
+                                                );
+                                            })}
                                         </select>
                                         <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                                     </div>

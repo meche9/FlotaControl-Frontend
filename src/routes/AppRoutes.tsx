@@ -10,6 +10,9 @@ import Vehiculos from '../pages/vehiculos/Vehiculos';
 import VehiculosRegistro from '../pages/vehiculos/VehiculosRegistro';
 import Conductores from '../pages/conductores/Conductores';
 import ConductoresRegistroCompleto from '../pages/conductores/ConductoresRegistroCompleto';
+import Clientes from '../pages/clientes/Clientes';
+import PuntosCargaDescarga from '../pages/clientes/PuntosCargaDescarga';
+import PuntosRegistrar from '../pages/clientes/PuntosRegistrar';
 import PaginaEnConstruccion from '../componentes/common/PaginaEnConstruccion';
 
 export default function AppRoutes() {
@@ -42,7 +45,14 @@ export default function AppRoutes() {
                         <Route path="/maintenance" element={<PaginaEnConstruccion titulo="Mantenimiento" descripcion="Control de mantenimientos preventivos y correctivos de la flota." />} />
 
                         {/* Logístico */}
-                        <Route path="/clients" element={<PaginaEnConstruccion titulo="Clientes" descripcion="Directorio de clientes, contratos y puntos de carga/descarga." />} />
+                        <Route path="/clients" element={<Clientes />} />
+                        <Route path="/clientes" element={<Clientes />} />
+                        <Route path="/clientes/puntos-carga-descarga" element={<PuntosCargaDescarga />} />
+                        <Route path="/puntos-carga-descarga" element={<PuntosCargaDescarga />} />
+                        <Route path="/clientes/puntos-carga-descarga/nuevo" element={<PuntosRegistrar />} />
+                        <Route path="/clientes/puntos-carga-descarga/editar/:id" element={<PuntosRegistrar />} />
+                        <Route path="/puntos-carga-descarga/nuevo" element={<PuntosRegistrar />} />
+                        <Route path="/puntos-carga-descarga/editar/:id" element={<PuntosRegistrar />} />
                         <Route path="/routes" element={<PaginaEnConstruccion titulo="Rutas" descripcion="Configuración de rutas, tarifas y matrices de recargos." />} />
                         <Route path="/scheduling" element={<PaginaEnConstruccion titulo="Programación" descripcion="Programación de viajes y asignación de gandolas." />} />
 

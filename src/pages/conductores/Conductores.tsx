@@ -26,7 +26,6 @@ import {
   Copy,
   FileText,
   Lock,
-  HeartPulse,
   IdCard,
 } from 'lucide-react';
 import {
@@ -41,9 +40,6 @@ import {
   conductoresService,
   type Conductor,
   type ConductorEstado,
-  type ConductorEstadoCivil,
-  type ConductorSexo,
-  type ConductorFormData,
   type RegistroRapidoFormData,
   ESTADO_CONDUCTOR_LABELS,
   ESTADO_CIVIL_LABELS,
@@ -215,6 +211,41 @@ export default function Conductores() {
       pctInactivos,
     };
   }, [conductores]);
+
+  // Vehículos disponibles para registro (solo clasificación motores y no asignados en conductores)
+  const vehiculosDisponiblesRegistro = useMemo(() => {
+    return vehiculos.filter((v) => {
+      // Excluir si es explícitamente acoplado
+      if (v.tipoUnidad === 'acoplado') return false;
+      if (Number(v.idTipo) === 2) return false;
+      if (Number(v.clasificacionDetalle?.idTipo) === 2) return false;
+      if (Number(v.clasificacionDetalle?.tipo?.idTipo) === 2) return false;
+
+      // Confirmar que sea unidad motora
+      const esMotor =
+        v.tipoUnidad === 'motriz' ||
+        Number(v.idTipo) === 1 ||
+        Number(v.clasificacionDetalle?.idTipo) === 1 ||
+        Number(v.clasificacionDetalle?.tipo?.idTipo) === 1 ||
+        (v.nombreTipo && v.nombreTipo.toLowerCase().includes('motor')) ||
+        (v.clasificacionDetalle?.tipo?.nombreTipo &&
+          v.clasificacionDetalle.tipo.nombreTipo.toLowerCase().includes('motor'));
+      if (!esMotor) return false;
+
+      // Verificar que no esté en la tabla de conductores
+      const asignadoEnConductores = conductores.some(
+        (c) => c.idVehiculoHabitual === v.idVehiculo
+      );
+      if (asignadoEnConductores) return false;
+
+      // Verificar que no tenga conductores asignados en el objeto vehículo
+      if (v.conductoresHabituales && v.conductoresHabituales.length > 0) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [vehiculos, conductores]);
 
   // Filtrado reactivo de la tabla
   const filteredConductores = useMemo(() => {
@@ -531,7 +562,8 @@ export default function Conductores() {
         <div>
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-              Gestión de Conductores
+              <span className="text-teal-900"> Gestión de Conductores</span>
+
             </h1>
             <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/70">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -1342,7 +1374,12 @@ export default function Conductores() {
                   className="w-full appearance-none px-3.5 py-2.5 pr-8 bg-slate-50 focus:bg-white border border-slate-200 rounded-xl text-xs text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition cursor-pointer"
                 >
                   <option value="">Sin Asignar / Reserva</option>
-                  {vehiculos.map((v) => (
+                  {vehiculosDisponiblesRegistro.length === 0 && (
+                    <option value="" disabled>
+                      (No hay unidades motoras disponibles)
+                    </option>
+                  )}
+                  {vehiculosDisponiblesRegistro.map((v) => (
                     <option key={v.idVehiculo} value={v.idVehiculo}>
                       {v.placa} ({v.marca} {v.modelo || ''})
                     </option>

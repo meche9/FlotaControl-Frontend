@@ -96,7 +96,7 @@ export default function Vehiculos() {
     especificacionMotor: '',
     anio: new Date().getFullYear(),
     clasificacion: 'Chuto',
-    idClasificacion: 1,
+    idClasificacion: 5,
     idTipo: 1,
     numeroChasis: '',
     numeroMotor: '',
@@ -104,6 +104,7 @@ export default function Vehiculos() {
     capacidadArrastre: 44000,
     estadoTipo: 'patio',
     ubicacion: 'Patio Central Valencia (P-01)',
+    idAcopladoActual: '',
   };
 
   const [formData, setFormData] = useState<VehiculoFormData>(initialFormData);
@@ -176,6 +177,33 @@ export default function Vehiculos() {
       unidadesActivas: patio + enRuta || 42,
     };
   }, [vehiculos, clasificaciones, tiposVehiculo]);
+
+  // Lista de vehículos clasificados como acoplados
+  const acopladosExistentes = useMemo(() => {
+    return vehiculos.filter((v) => {
+      const c = clasificaciones.find((cl) => Number(cl.idClasificacion) === Number(v.idClasificacion));
+      const t = tiposVehiculo.find((tp) => Number(tp.idTipo) === Number(c?.idTipo)) || c?.tipo;
+      const tId = Number(t?.idTipo ?? c?.idTipo ?? v.idTipo ?? 1);
+      return tId === 2 || v.tipoUnidad === 'acoplado';
+    });
+  }, [vehiculos, clasificaciones, tiposVehiculo]);
+
+  // Si la unidad que se está editando es unidad motora (permite vincular acoplado)
+  const esUnidadMotoraEditando = useMemo(() => {
+    if (!activeVehicle) return true;
+    const c = clasificaciones.find(
+      (cl) => Number(cl.idClasificacion) === Number(formData.idClasificacion || activeVehicle.idClasificacion)
+    );
+    const t = tiposVehiculo.find((tp) => Number(tp.idTipo) === Number(c?.idTipo)) || c?.tipo;
+    const tId = Number(t?.idTipo ?? formData.idTipo ?? activeVehicle.idTipo ?? 1);
+    return tId === 1 || activeVehicle.tipoUnidad === 'motriz';
+  }, [activeVehicle, formData.idClasificacion, formData.idTipo, clasificaciones, tiposVehiculo]);
+
+  // Acoplado actualmente seleccionado en el formulario de edición
+  const acopladoSeleccionadoEnForm = useMemo(() => {
+    if (!formData.idAcopladoActual) return null;
+    return vehiculos.find((v) => v.idVehiculo === formData.idAcopladoActual) || null;
+  }, [formData.idAcopladoActual, vehiculos]);
 
   // Filtrado reactivo
   const filteredVehiculos = useMemo(() => {
@@ -310,6 +338,7 @@ export default function Vehiculos() {
       capacidadArrastre: v.capacidadArrastre,
       estadoTipo: v.estadoTipo,
       ubicacion: v.telemetriaDetalle?.ubicacion || '',
+      idAcopladoActual: v.idAcopladoActual || '',
     });
     setOpenActionMenuId(null);
     setIsEditModalOpen(true);
@@ -329,6 +358,15 @@ export default function Vehiculos() {
         actualizado = await vehiculosService.eliminarFoto(actualizado);
       }
       reemplazarVehiculo(actualizado);
+
+      // Recargar lista completa para mantener sincronizadas las relaciones de acoplamiento en tiempo real
+      try {
+        const refreshed = await vehiculosService.getVehiculos();
+        setVehiculos(refreshed);
+      } catch {
+        // En caso de corte de red, el estado local ya fue actualizado
+      }
+
       setIsEditModalOpen(false);
       setActiveVehicle(null);
       reiniciarFormulario();
@@ -383,16 +421,10 @@ export default function Vehiculos() {
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           {/* Header pill / badge */}
-          <div className="flex items-center gap-1.5 mb-1">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
-            <span className="text-[11px] font-black uppercase tracking-wider text-teal-800">
-              TELEMETRÍA Y CONTROL ACTIVO
-            </span>
-          </div>
 
           {/* Main Title */}
           <h1 className="text-2xl lg:text-3xl font-black text-slate-900 tracking-tight">
-            Centro de Control Operativo
+            <span className="text-teal-900">Gestion de Flota  Operativa</span>
           </h1>
           <p className="text-xs text-slate-500 font-normal mt-0.5">
             Supervisión en tiempo real de unidades activas, conductores, telemetría y mantenimiento preventivo.
@@ -579,15 +611,6 @@ export default function Vehiculos() {
           <Card className="rounded-3xl border border-slate-100 p-5 sm:p-6 shadow-xs bg-white">
             {/* Header del bloque */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4">
-              <div>
-                <h2 className="text-lg font-black text-orange-900 tracking-tight">
-                  Gestión de Unidades y Flota
-                </h2>
-                <p className="text-xs text-slate-400 font-normal mt-0.5">
-                  Monitoreo detallado de bitácora, odómetro y telemetría por vehículo
-                </p>
-              </div>
-
               {/* Status Pill Filter Tabs */}
               <div className="flex flex-wrap items-center gap-1.5">
                 {/* Tab: Todos */}
@@ -776,6 +799,13 @@ export default function Vehiculos() {
                       const nombreClasifVehiculo =
                         clasifInfo?.nombreClasificacion || v.nombreClasificacion || v.clasificacion || 'Sin clasificar';
 
+                      const acopladoDeFila = v.idAcopladoActual
+                        ? vehiculos.find((a) => a.idVehiculo === v.idAcopladoActual)
+                        : null;
+                      const motrizDeFila = !esUnidadMotriz
+                        ? vehiculos.find((m) => m.idAcopladoActual === v.idVehiculo)
+                        : null;
+
                       return (
                         <TableRow
                           key={v.idVehiculo}
@@ -805,6 +835,36 @@ export default function Vehiculos() {
                                 <span className="text-[11px] text-slate-500 font-medium block">
                                   {v.marca} {v.modelo || ''}
                                 </span>
+                                {acopladoDeFila && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenEdit(acopladoDeFila);
+                                    }}
+                                    className="inline-flex items-center gap-1 text-[10px] font-bold text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200/80 px-1.5 py-0.5 rounded-md mt-1 transition cursor-pointer"
+                                    title={`Acoplado asignado: ${acopladoDeFila.placa} (${acopladoDeFila.marca} ${acopladoDeFila.modelo}). Clic para editar.`}
+                                  >
+                                    <Container className="w-3 h-3 text-orange-500" />
+                                    <span>{acopladoDeFila.placa}</span>
+                                    <Pencil className="w-2.5 h-2.5 opacity-60 ml-0.5" />
+                                  </button>
+                                )}
+                                {motrizDeFila && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenEdit(motrizDeFila);
+                                    }}
+                                    className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 px-1.5 py-0.5 rounded-md mt-1 transition cursor-pointer"
+                                    title={`Acoplado a unidad motora: ${motrizDeFila.placa}. Clic para editar.`}
+                                  >
+                                    <Truck className="w-3 h-3 text-emerald-600" />
+                                    <span>{motrizDeFila.placa}</span>
+                                    <Pencil className="w-2.5 h-2.5 opacity-60 ml-0.5" />
+                                  </button>
+                                )}
                               </div>
                             </div>
                           </TableCell>
@@ -961,6 +1021,34 @@ export default function Vehiculos() {
                                   <Pencil className="w-3.5 h-3.5 text-orange-500" />
                                   <span>Editar Unidad</span>
                                 </button>
+
+                                {acopladoDeFila && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      handleOpenEdit(acopladoDeFila);
+                                      setOpenActionMenuId(null);
+                                    }}
+                                    className="w-full px-3 py-1.5 text-xs text-orange-700 hover:bg-orange-50 flex items-center gap-2 transition"
+                                  >
+                                    <Container className="w-3.5 h-3.5 text-orange-500" />
+                                    <span>Editar Acoplado ({acopladoDeFila.placa})</span>
+                                  </button>
+                                )}
+
+                                {motrizDeFila && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      handleOpenEdit(motrizDeFila);
+                                      setOpenActionMenuId(null);
+                                    }}
+                                    className="w-full px-3 py-1.5 text-xs text-emerald-700 hover:bg-emerald-50 flex items-center gap-2 transition"
+                                  >
+                                    <Truck className="w-3.5 h-3.5 text-emerald-600" />
+                                    <span>Editar Motora ({motrizDeFila.placa})</span>
+                                  </button>
+                                )}
 
                                 <button
                                   type="button"
@@ -1393,6 +1481,77 @@ export default function Vehiculos() {
                     {activeVehicle.telemetriaDetalle?.operador || 'Sin operador asignado'}
                   </span>
                 </div>
+                <div className="px-4 py-2.5 flex justify-between items-center">
+                  <span className="text-slate-400">
+                    {(() => {
+                      const activeClasif =
+                        clasificaciones.find((c) => Number(c.idClasificacion) === Number(activeVehicle.idClasificacion)) ||
+                        activeVehicle.clasificacionDetalle;
+                      const activeTipo =
+                        tiposVehiculo.find((t) => Number(t.idTipo) === Number(activeClasif?.idTipo)) ||
+                        activeClasif?.tipo;
+                      const activeIdTipo = Number(activeTipo?.idTipo ?? activeClasif?.idTipo ?? activeVehicle.idTipo ?? 1);
+                      return activeIdTipo === 1 ? 'Acoplado Asociado:' : 'Unidad Motora:';
+                    })()}
+                  </span>
+                  {(() => {
+                    const activeClasif =
+                      clasificaciones.find((c) => Number(c.idClasificacion) === Number(activeVehicle.idClasificacion)) ||
+                      activeVehicle.clasificacionDetalle;
+                    const activeTipo =
+                      tiposVehiculo.find((t) => Number(t.idTipo) === Number(activeClasif?.idTipo)) ||
+                      activeClasif?.tipo;
+                    const activeIdTipo = Number(activeTipo?.idTipo ?? activeClasif?.idTipo ?? activeVehicle.idTipo ?? 1);
+
+                    if (activeIdTipo === 1) {
+                      const acoplado = activeVehicle.idAcopladoActual
+                        ? vehiculos.find((v) => v.idVehiculo === activeVehicle.idAcopladoActual)
+                        : null;
+                      return acoplado ? (
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-800">
+                            {acoplado.placa} ({acoplado.marca} {acoplado.modelo})
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsDetailModalOpen(false);
+                              handleOpenEdit(acoplado);
+                            }}
+                            className="px-2 py-0.5 text-[10px] font-bold text-orange-600 hover:text-white bg-orange-50 hover:bg-orange-500 border border-orange-200 rounded-md transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                          >
+                            <Pencil className="w-2.5 h-2.5" />
+                            <span>Editar</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="font-semibold text-slate-400 italic">Desacoplado / Ninguno</span>
+                      );
+                    } else {
+                      const motriz = vehiculos.find((v) => v.idAcopladoActual === activeVehicle.idVehiculo);
+                      return motriz ? (
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-800">
+                            {motriz.placa} ({motriz.marca} {motriz.modelo})
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsDetailModalOpen(false);
+                              handleOpenEdit(motriz);
+                            }}
+                            className="px-2 py-0.5 text-[10px] font-bold text-emerald-700 hover:text-white bg-emerald-50 hover:bg-emerald-600 border border-emerald-200 rounded-md transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                          >
+                            <Pencil className="w-2.5 h-2.5" />
+                            <span>Editar</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="font-semibold text-slate-400 italic">Libre en Patio</span>
+                      );
+                    }
+                  })()}
+                </div>
               </div>
             </div>
           </div>
@@ -1490,8 +1649,8 @@ export default function Vehiculos() {
                   setFormData({
                     ...formData,
                     clasificacion: nombre,
-                    idClasificacion: match?.idClasificacion,
-                    idTipo: match?.idTipo,
+                    idClasificacion: match?.idClasificacion ?? 5,
+                    idTipo: match?.idTipo ?? 1,
                   });
                 }}
                 className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-semibold text-slate-800 text-xs outline-none"
@@ -1505,8 +1664,8 @@ export default function Vehiculos() {
                 ) : (
                   <>
                     <option value="Chuto">Chuto (Unidad Motora)</option>
-                    <option value="Cortinero">Cortinero (Unidad Motora)</option>
-                    <option value="Camion Volteo">Camion Volteo (Acoplado)</option>
+                    <option value="Camion Volteo">Camion Volteo (Unidad Motora)</option>
+                    <option value="Cortinero">Cortinero (Acoplado)</option>
                     <option value="Cava">Cava (Acoplado)</option>
                   </>
                 )}
@@ -1524,6 +1683,161 @@ export default function Vehiculos() {
                 className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-slate-800 text-xs outline-none"
               />
             </div>
+
+            {/* ─── ACOPLADO ASOCIADO / VINCULACIÓN ─── */}
+            {esUnidadMotoraEditando ? (
+              <div className="sm:col-span-2 pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-[11px] font-bold uppercase text-slate-600">
+                    Vehículo Acoplado Asociado
+                  </label>
+                  {formData.idAcopladoActual && (
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, idAcopladoActual: '' })}
+                      className="text-[11px] font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 hover:underline cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                      <span>Desacoplar unidad</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="relative">
+                  <select
+                    value={formData.idAcopladoActual || ''}
+                    onChange={(e) => setFormData({ ...formData, idAcopladoActual: e.target.value })}
+                    className="w-full px-3 py-2.5 bg-slate-50 hover:bg-white rounded-xl border border-slate-200 font-semibold text-slate-800 text-xs outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/10 transition cursor-pointer"
+                  >
+                    <option value="">-- Ninguno / Desacoplado --</option>
+                    {acopladosExistentes.map((acoplado) => {
+                      const otraMotriz = vehiculos.find(
+                        (v) =>
+                          v.idVehiculo !== activeVehicle?.idVehiculo &&
+                          v.idAcopladoActual === acoplado.idVehiculo
+                      );
+                      const estaAsignadoAEsta = activeVehicle?.idAcopladoActual === acoplado.idVehiculo;
+
+                      return (
+                        <option
+                          key={acoplado.idVehiculo}
+                          value={acoplado.idVehiculo}
+                          disabled={Boolean(otraMotriz && !estaAsignadoAEsta)}
+                        >
+                          {acoplado.placa} • {acoplado.marca} {acoplado.modelo} ({acoplado.nombreClasificacion || 'Acoplado'})
+                          {otraMotriz && !estaAsignadoAEsta ? ` [Asignado a ${otraMotriz.placa}]` : ''}
+                          {estaAsignadoAEsta ? ' (Actualmente acoplado)' : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+
+                {/* Banner con detalles del acoplado y botón para editarlo */}
+                {acopladoSeleccionadoEnForm && (
+                  <div className="mt-2.5 p-3 bg-gradient-to-r from-orange-50/80 to-amber-50/40 border border-orange-200/90 rounded-xl flex items-center justify-between gap-3 shadow-2xs">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-orange-100 border border-orange-200 text-orange-600 flex items-center justify-center shrink-0">
+                        <Container className="w-4 h-4 stroke-[2]" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-black text-slate-900">
+                            {acopladoSeleccionadoEnForm.placa}
+                          </span>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-white border border-orange-200 text-orange-700">
+                            {acopladoSeleccionadoEnForm.nombreClasificacion || 'Acoplado'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 font-medium truncate">
+                          {acopladoSeleccionadoEnForm.marca} {acopladoSeleccionadoEnForm.modelo} • Capacidad:{' '}
+                          {acopladoSeleccionadoEnForm.capacidadCarga
+                            ? `${acopladoSeleccionadoEnForm.capacidadCarga.toLocaleString()} kg`
+                            : 'N/A'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      title="Editar datos técnicos de este vehículo acoplado"
+                      onClick={() => handleOpenEdit(acopladoSeleccionadoEnForm)}
+                      className="shrink-0 px-2.5 py-1.5 text-[11px] font-bold text-orange-700 hover:text-white bg-white hover:bg-orange-500 border border-orange-300 rounded-lg flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
+                    >
+                      <Pencil className="w-3 h-3" />
+                      <span>Editar este acoplado</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Si el vehículo que se está editando ES un acoplado */
+              (() => {
+                const motrizAsignada = vehiculos.find(
+                  (v) => v.idAcopladoActual === activeVehicle?.idVehiculo
+                );
+                return (
+                  <div className="sm:col-span-2 pt-2 border-t border-slate-100">
+                    <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1.5">
+                      Vinculación con Unidad Motora
+                    </label>
+                    {motrizAsignada ? (
+                      <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl flex items-center justify-between gap-3 shadow-2xs">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-8 h-8 rounded-lg bg-emerald-100 border border-emerald-200 text-emerald-600 flex items-center justify-center shrink-0">
+                            <Truck className="w-4 h-4 stroke-[2]" />
+                          </div>
+                          <div className="min-w-0">
+                            <span className="text-xs font-black text-slate-900 block">
+                              Acoplado a: {motrizAsignada.placa}
+                            </span>
+                            <span className="text-[11px] text-slate-500 font-medium block truncate">
+                              {motrizAsignada.marca} {motrizAsignada.modelo} ({motrizAsignada.nombreClasificacion || 'Unidad Motora'})
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            title="Editar los datos de la unidad motora asignada"
+                            onClick={() => handleOpenEdit(motrizAsignada)}
+                            className="px-2.5 py-1.5 text-[11px] font-bold text-emerald-700 hover:text-white bg-white hover:bg-emerald-600 border border-emerald-300 rounded-lg flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
+                          >
+                            <Pencil className="w-3 h-3" />
+                            <span>Editar motora</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await vehiculosService.updateVehiculo(motrizAsignada.idVehiculo, {
+                                  ...motrizAsignada,
+                                  idAcopladoActual: null,
+                                });
+                                const refreshed = await vehiculosService.getVehiculos();
+                                setVehiculos(refreshed);
+                              } catch {
+                                setErrorFormulario('No se pudo desacoplar de la unidad motora.');
+                              }
+                            }}
+                            className="px-2.5 py-1.5 text-[11px] font-bold text-rose-600 hover:text-white bg-white hover:bg-rose-500 border border-rose-200 rounded-lg flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                          >
+                            <X className="w-3 h-3" />
+                            <span>Desacoplar</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-2 text-xs text-slate-500">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                        <span>Acoplado disponible en base (sin unidad motora asignada).</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()
+            )}
           </div>
 
           {errorFormulario && (
