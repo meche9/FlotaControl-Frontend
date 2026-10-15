@@ -139,7 +139,7 @@ export default function Sidebar() {
 
             <Link
               to="/routes"
-              className={`flex items-center space-x-3 px-3 py-1.5 rounded-xl font-medium transition ${isActive('/routes')
+              className={`flex items-center space-x-3 px-3 py-1.5 rounded-xl font-medium transition ${isActive('/routes') || isActive('/rutas') || location.pathname.startsWith('/routes') || location.pathname.startsWith('/rutas')
                 ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20'
                 : 'text-gray-700 hover:bg-gray-100'
                 }`}
