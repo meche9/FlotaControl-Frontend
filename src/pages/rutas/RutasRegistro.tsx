@@ -25,6 +25,8 @@ import {
   MapPin,
   Warehouse,
   ChevronDown,
+  Trash2,
+  Search,
 } from 'lucide-react';
 import {
   Button,
@@ -46,25 +48,23 @@ import {
   type CreateRutaDto,
   type UpdateRutaDto,
   type RutaTipoCobro,
+  type PeajeVzla,
+  type RutaPeaje,
+  type ItemRutaPeajeDto,
 } from '../../services/rutasService';
 import { getApiErrorMessage } from '../../services/api';
 
-
-// Modal de Peajes Venvías preconfigurados para demostración y cálculo
-interface PeajeDemo {
-  id: string;
-  nombre: string;
-  estado: string;
-  montoUsd: number;
+// Elemento interactivo en el modal de peajes
+interface PeajeModalItem {
+  idPeaje: number;
+  nombrePeaje: string;
+  estadoUbicacion: string;
+  ubicacionDetallada: string;
+  selected: boolean;
+  orden: number;
+  costo: string;
   activo: boolean;
 }
-
-const PEAJES_DEFAULT: PeajeDemo[] = [
-  { id: '1', nombre: 'Peaje Guacara', estado: 'Carabobo', montoUsd: 2.50, activo: true },
-  { id: '2', nombre: 'Peaje La Cabrera', estado: 'Aragua', montoUsd: 2.50, activo: true },
-  { id: '3', nombre: 'Peaje Las Tejerías', estado: 'Aragua', montoUsd: 2.50, activo: true },
-  { id: '4', nombre: 'Peaje Hoyo de la Puerta', estado: 'Miranda / Caracas', montoUsd: 2.50, activo: true },
-];
 
 export default function RutasRegistro() {
   const [searchParams] = useSearchParams();
@@ -129,7 +129,13 @@ export default function RutasRegistro() {
     montoTarifa: '0.00',
     moneda: 'USD',
   });
-  const [peajesList, setPeajesList] = useState<PeajeDemo[]>(PEAJES_DEFAULT);
+
+  // Estados locales para peajes de Venezuela y asignación a rutas
+  const [catalogoPeajesVzla, setCatalogoPeajesVzla] = useState<PeajeVzla[]>([]);
+  const [peajesModalItems, setPeajesModalItems] = useState<PeajeModalItem[]>([]);
+  const [peajesLoading, setPeajesLoading] = useState<boolean>(false);
+  const [peajesSaving, setPeajesSaving] = useState<boolean>(false);
+  const [peajesFiltroTexto, setPeajesFiltroTexto] = useState<string>('');
 
   // Formulario Ficha Paramétrica de la Ruta
   const [formData, setFormData] = useState({
@@ -180,6 +186,19 @@ export default function RutasRegistro() {
     loadInitial();
   }, [searchParams]);
 
+  // Cargar catálogo nacional de peajes (peajes_vzla)
+  useEffect(() => {
+    async function fetchCatalogoPeajes() {
+      try {
+        const vzla = await rutasService.getPeajesVzla();
+        setCatalogoPeajesVzla(vzla);
+      } catch (err) {
+        console.error('Error al cargar catálogo de peajes vzla:', err);
+      }
+    }
+    fetchCatalogoPeajes();
+  }, []);
+
   // 2. Al cambiar el cliente seleccionado, cargar sus puntos y rutas
   useEffect(() => {
     if (!selectedClienteId) return;
@@ -194,11 +213,11 @@ export default function RutasRegistro() {
         setPuntosCliente(puntos);
         setRutas(rutasData);
 
-        // Si hay rutas para este cliente, cargar la primera por defecto o la que coincida con searchParams
+        // Si se especificó una ruta en la URL, cargarla; de lo contrario iniciar formulario de nueva ruta
         const urlRutaId = searchParams.get('rutaId');
         const rutaEncontrada = urlRutaId
           ? rutasData.find((r) => r.idRuta === urlRutaId)
-          : rutasData[0];
+          : null;
 
         if (rutaEncontrada) {
           cargarRutaEnFormulario(rutaEncontrada);
@@ -207,6 +226,10 @@ export default function RutasRegistro() {
         }
       } catch (err) {
         console.error('Error al cargar datos del cliente:', err);
+        setFeedbackMsg({
+          tipo: 'error',
+          texto: getApiErrorMessage(err, 'No se pudieron cargar las rutas y sedes del cliente seleccionado.'),
+        });
       }
     }
 
@@ -262,24 +285,15 @@ export default function RutasRegistro() {
       const tipo = ((p.tipoPunto || (p as any).tipo_punto || '') as string).toLowerCase().trim();
       return tipo !== 'descarga' && tipo !== 'destino';
     });
-    const validosDestino = puntos.filter((p) => {
-      const tipo = ((p.tipoPunto || (p as any).tipo_punto || '') as string).toLowerCase().trim();
-      return tipo !== 'carga' && tipo !== 'origen';
-    });
 
     const pOrigen = validosOrigen[0] || puntos[0];
-    const pDestino =
-      validosDestino.find((p) => p.idPunto !== pOrigen?.idPunto) ||
-      validosDestino[0] ||
-      puntos[1] ||
-      puntos[0];
 
     setFormData({
       nombreRuta: '',
       idPuntoOrigen: pOrigen ? pOrigen.idPunto : '',
-      idPuntoDestino: pDestino ? pDestino.idPunto : '',
+      idPuntoDestino: '',
       ciudadOrigen: pOrigen ? `${pOrigen.ciudad}, ${pOrigen.estado}` : '',
-      ciudadDestino: pDestino ? `${pDestino.ciudad}, ${pDestino.estado}` : '',
+      ciudadDestino: '',
       distanciaKm: '100.00',
       tiempoEstimadoHoras: '2.0',
       consumoEstimadoGasoil: '42.000000',
@@ -372,6 +386,257 @@ export default function RutasRegistro() {
     }
   };
 
+  // Abrir modal de asignación de peajes para una ruta
+  const abrirModalPeajes = async (ruta: Ruta) => {
+    setActiveModalRuta(ruta);
+    setPeajesLoading(true);
+    setPeajesFiltroTexto('');
+    setModalPeajesOpen(true);
+
+    try {
+      // 1. Obtener catálogo nacional de peajes (peajes_vzla)
+      let vzla = catalogoPeajesVzla;
+      if (vzla.length === 0) {
+        vzla = await rutasService.getPeajesVzla();
+        setCatalogoPeajesVzla(vzla);
+      }
+
+      // 2. Obtener peajes ya asignados a esta ruta (rutas_peajes)
+      const asignados = await rutasService.getPeajesByRuta(ruta.idRuta);
+
+      // Mapa de peajes asignados indexados por nombre normalizado
+      const asignadosMap = new Map<string, RutaPeaje>();
+      asignados.forEach((a) => {
+        asignadosMap.set(a.nombrePeaje.trim().toLowerCase(), a);
+      });
+
+      let maxOrden = 0;
+      asignados.forEach((a) => {
+        if (a.orden > maxOrden) maxOrden = a.orden;
+      });
+
+      // 3. Cruzar catálogo con peajes asignados
+      const items: PeajeModalItem[] = vzla.map((p) => {
+        const asignado = asignadosMap.get(p.nombrePeaje.trim().toLowerCase());
+        if (asignado) {
+          return {
+            idPeaje: p.idPeaje,
+            nombrePeaje: p.nombrePeaje,
+            estadoUbicacion: p.estadoUbicacion,
+            ubicacionDetallada: p.ubicacionDetallada || '',
+            selected: true,
+            orden: asignado.orden,
+            costo: String(Number(asignado.costo).toFixed(2)),
+            activo: Boolean(asignado.activo),
+          };
+        } else {
+          return {
+            idPeaje: p.idPeaje,
+            nombrePeaje: p.nombrePeaje,
+            estadoUbicacion: p.estadoUbicacion,
+            ubicacionDetallada: p.ubicacionDetallada || '',
+            selected: false,
+            orden: maxOrden + 1,
+            costo: '2.50',
+            activo: true,
+          };
+        }
+      });
+
+      // Ordenar: primero los peajes asignados por su orden, luego el resto alfabéticamente
+      items.sort((a, b) => {
+        if (a.selected && !b.selected) return -1;
+        if (!a.selected && b.selected) return 1;
+        if (a.selected && b.selected) return a.orden - b.orden;
+        return a.nombrePeaje.localeCompare(b.nombrePeaje);
+      });
+
+      setPeajesModalItems(items);
+    } catch (err) {
+      setFeedbackMsg({
+        tipo: 'error',
+        texto: getApiErrorMessage(err, 'No se pudieron cargar los peajes de la ruta.'),
+      });
+    } finally {
+      setPeajesLoading(false);
+    }
+  };
+
+  // Alternar selección de un peaje en el modal
+  const handleTogglePeaje = (idPeaje: number, selected: boolean) => {
+    setPeajesModalItems((prev) => {
+      const nextOrden = Math.max(0, ...prev.filter((p) => p.selected).map((p) => p.orden)) + 1;
+      return prev.map((p) => {
+        if (p.idPeaje === idPeaje) {
+          return {
+            ...p,
+            selected,
+            orden: selected && p.orden === 1 && nextOrden > 1 ? nextOrden : p.orden,
+          };
+        }
+        return p;
+      });
+    });
+  };
+
+  // Modificar campo individual de un peaje en el modal
+  const handleUpdatePeajeField = (
+    idPeaje: number,
+    field: 'orden' | 'costo' | 'activo',
+    value: any
+  ) => {
+    setPeajesModalItems((prev) =>
+      prev.map((p) => (p.idPeaje === idPeaje ? { ...p, [field]: value } : p))
+    );
+  };
+
+  // Renumerar orden de peajes seleccionados correlativamente de 1 a N
+  const handleRenumerarPeajes = () => {
+    setPeajesModalItems((prev) => {
+      const seleccionados = prev.filter((p) => p.selected).sort((a, b) => a.orden - b.orden);
+      const ordenMap = new Map<number, number>();
+      seleccionados.forEach((p, idx) => {
+        ordenMap.set(p.idPeaje, idx + 1);
+      });
+      return prev.map((p) =>
+        ordenMap.has(p.idPeaje) ? { ...p, orden: ordenMap.get(p.idPeaje)! } : p
+      );
+    });
+  };
+
+  // Guardar asignación de peajes para la ruta activa en rutas_peajes
+  const handleGuardarPeajes = async () => {
+    if (!activeModalRuta) return;
+
+    const seleccionados = peajesModalItems.filter((p) => p.selected);
+
+    // Validar costos
+    for (const p of seleccionados) {
+      if (isNaN(Number(p.costo)) || Number(p.costo) < 0) {
+        setFeedbackMsg({
+          tipo: 'error',
+          texto: `El costo del peaje "${p.nombrePeaje}" debe ser un monto numérico válido mayor o igual a 0.`,
+        });
+        return;
+      }
+    }
+
+    setPeajesSaving(true);
+    try {
+      const payload: ItemRutaPeajeDto[] = seleccionados
+        .sort((a, b) => a.orden - b.orden)
+        .map((p) => ({
+          nombrePeaje: p.nombrePeaje,
+          ubicacion: p.ubicacionDetallada || p.estadoUbicacion || null,
+          orden: Number(p.orden) || 1,
+          costo: parseFloat(p.costo) || 0,
+          activo: p.activo,
+        }));
+
+      await rutasService.asignarPeajesRuta(activeModalRuta.idRuta, payload);
+
+      // Actualizar conteo de peajes en memoria para la ruta
+      setRutas((prev) =>
+        prev.map((r) =>
+          r.idRuta === activeModalRuta.idRuta
+            ? {
+              ...r,
+              _count: {
+                ...r._count,
+                rutaPeajes: seleccionados.length,
+              },
+            }
+            : r
+        )
+      );
+
+      setModalPeajesOpen(false);
+      setFeedbackMsg({
+        tipo: 'success',
+        texto: `Se asignaron ${seleccionados.length} estaciones de peaje a la ruta "${activeModalRuta.nombreRuta}".`,
+      });
+    } catch (err) {
+      setFeedbackMsg({
+        tipo: 'error',
+        texto: getApiErrorMessage(err, 'Error al guardar los peajes de la ruta.'),
+      });
+    } finally {
+      setPeajesSaving(false);
+    }
+  };
+
+  // Filtrado de peajes en el modal
+  const peajesFiltradosModal = useMemo(() => {
+    if (!peajesFiltroTexto.trim()) return peajesModalItems;
+    const q = peajesFiltroTexto.toLowerCase().trim();
+    return peajesModalItems.filter(
+      (p) =>
+        p.nombrePeaje.toLowerCase().includes(q) ||
+        p.estadoUbicacion.toLowerCase().includes(q) ||
+        (p.ubicacionDetallada && p.ubicacionDetallada.toLowerCase().includes(q))
+    );
+  }, [peajesModalItems, peajesFiltroTexto]);
+
+  // Totales de peajes seleccionados
+  const peajesSeleccionados = useMemo(() => {
+    return peajesModalItems.filter((p) => p.selected);
+  }, [peajesModalItems]);
+
+  const peajesSeleccionadosActivos = useMemo(() => {
+    return peajesModalItems.filter((p) => p.selected && p.activo);
+  }, [peajesModalItems]);
+
+  const costoTotalPeajes = useMemo(() => {
+    return peajesSeleccionadosActivos.reduce(
+      (acc, p) => acc + (parseFloat(p.costo) || 0),
+      0
+    );
+  }, [peajesSeleccionadosActivos]);
+
+
+  // Verificar si ya existe una ruta para el origen y destino seleccionados
+  const verificarRutaExistente = (
+    idPuntoOrigen: string,
+    idPuntoDestino: string,
+    rutaActualId?: string | null
+  ): Ruta | null => {
+    if (!idPuntoOrigen || !idPuntoDestino) return null;
+
+    return (
+      rutas.find((r) => {
+        // Si estamos editando una ruta específica, ignorar esa misma ruta
+        if (rutaActualId && r.idRuta === rutaActualId) {
+          return false;
+        }
+
+        // 1. Coincidencia directa por idPunto si ambos están presentes
+        if (r.idPuntoOrigen && r.idPuntoDestino) {
+          return (
+            r.idPuntoOrigen === idPuntoOrigen &&
+            r.idPuntoDestino === idPuntoDestino
+          );
+        }
+
+        // 2. Coincidencia complementaria (por puntos o ciudades normalizadas)
+        const pOrigen = puntosCliente.find((p) => p.idPunto === idPuntoOrigen);
+        const pDestino = puntosCliente.find((p) => p.idPunto === idPuntoDestino);
+
+        const origenCoincide =
+          r.idPuntoOrigen === idPuntoOrigen ||
+          (pOrigen &&
+            r.ciudadOrigen?.trim().toLowerCase() ===
+            `${pOrigen.ciudad}, ${pOrigen.estado}`.trim().toLowerCase());
+
+        const destinoCoincide =
+          r.idPuntoDestino === idPuntoDestino ||
+          (pDestino &&
+            r.ciudadDestino?.trim().toLowerCase() ===
+            `${pDestino.ciudad}, ${pDestino.estado}`.trim().toLowerCase());
+
+        return Boolean(origenCoincide && destinoCoincide);
+      }) || null
+    );
+  };
 
   // Autocompletar ciudad y estado al cambiar punto de origen
   const handleSelectOrigen = (idPunto: string) => {
@@ -386,10 +651,12 @@ export default function RutasRegistro() {
   // Autocompletar ciudad y estado al cambiar punto de destino
   const handleSelectDestino = (idPunto: string) => {
     const p = puntosCliente.find((item) => item.idPunto === idPunto);
+    const nuevaCiudadDestino = p ? `${p.ciudad}, ${p.estado}` : '';
+
     setFormData((prev) => ({
       ...prev,
       idPuntoDestino: idPunto,
-      ciudadDestino: p ? `${p.ciudad}, ${p.estado}` : prev.ciudadDestino,
+      ciudadDestino: p ? nuevaCiudadDestino : prev.ciudadDestino,
     }));
   };
 
@@ -401,7 +668,7 @@ export default function RutasRegistro() {
     const origenStr = pOrigen ? pOrigen.nombreSede : formData.ciudadOrigen || 'Origen';
     const destinoStr = pDestino ? pDestino.nombreSede : formData.ciudadDestino || 'Destino';
 
-    const nombreSugerido = `Ruta Troncal ARC: ${origenStr} — ${destinoStr}`;
+    const nombreSugerido = `Ruta Troncal: ${origenStr} — ${destinoStr}`;
     setFormData((prev) => ({ ...prev, nombreRuta: nombreSugerido }));
   };
 
@@ -465,6 +732,22 @@ export default function RutasRegistro() {
 
     try {
       if (selectedRuta) {
+        // Modo Edición: Actualizar la ruta existente seleccionada
+        const duplicada = verificarRutaExistente(
+          formData.idPuntoOrigen,
+          formData.idPuntoDestino,
+          selectedRuta.idRuta
+        );
+
+        if (duplicada) {
+          setFeedbackMsg({
+            tipo: 'error',
+            texto: `Ya existe otra ruta registrada ("${duplicada.nombreRuta}") con este mismo origen y destino.`,
+          });
+          setSaving(false);
+          return;
+        }
+
         const updated = await rutasService.updateRuta(selectedRuta.idRuta, payload);
         setRutas((prev) =>
           prev.map((r) => (r.idRuta === updated.idRuta ? updated : r))
@@ -475,9 +758,28 @@ export default function RutasRegistro() {
           texto: `Ruta "${updated.nombreRuta}" actualizada correctamente.`,
         });
       } else {
+        // Modo Creación: Registrar nueva ruta sin sobreescribir rutas anteriores
+        const duplicada = verificarRutaExistente(
+          formData.idPuntoOrigen,
+          formData.idPuntoDestino,
+          null
+        );
+
+        if (duplicada) {
+          setFeedbackMsg({
+            tipo: 'error',
+            texto: `Ya existe una ruta ("${duplicada.nombreRuta}") para este mismo origen y destino. Puede seleccionarla en la lista para editarla o elegir otro trayecto.`,
+          });
+          setSaving(false);
+          return;
+        }
+
         const created = await rutasService.createRuta(payload);
         setRutas((prev) => [created, ...prev]);
-        setSelectedRuta(created);
+
+        // Mantener el formulario listo para seguir registrando más rutas sin sobreescribir la recién creada
+        iniciarNuevaRuta(selectedClienteId, puntosCliente);
+
         setFeedbackMsg({
           tipo: 'success',
           texto: `Nueva ruta "${created.nombreRuta}" registrada exitosamente.`,
@@ -599,30 +901,31 @@ export default function RutasRegistro() {
           <div className="flex flex-col items-end">
             <span className="text-[10px] font-extrabold text-amber-700 uppercase tracking-wider flex items-center gap-1">
               <RouteIcon className="w-3 h-3" />
-              RUTA EN EDICIÓN
+              {selectedRuta ? 'RUTA EN EDICIÓN' : 'MODO REGISTRO'}
             </span>
             <select
               value={selectedRuta?.idRuta || ''}
               onChange={(e) => {
-                const r = rutas.find((item) => item.idRuta === e.target.value);
-                if (r) cargarRutaEnFormulario(r);
+                if (!e.target.value) {
+                  iniciarNuevaRuta();
+                } else {
+                  const r = rutas.find((item) => item.idRuta === e.target.value);
+                  if (r) cargarRutaEnFormulario(r);
+                }
               }}
               className="text-xs font-bold text-slate-800 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 shadow-2xs focus:ring-2 focus:ring-orange-500 max-w-[280px] truncate"
             >
-              {selectedRuta ? (
-                rutas.map((r) => (
-                  <option key={r.idRuta} value={r.idRuta}>
-                    {getCodigoRuta(r)} | {r.ciudadOrigen.split(',')[0]} → {r.ciudadDestino.split(',')[0]}
-                  </option>
-                ))
-              ) : (
-                <option value="">[Nueva Ruta en Creación]</option>
-              )}
+              <option value="">[+ Nueva Ruta en Creación]</option>
+              {rutas.map((r) => (
+                <option key={r.idRuta} value={r.idRuta}>
+                  {getCodigoRuta(r)} | {r.ciudadOrigen.split(',')[0]} → {r.ciudadDestino.split(',')[0]}
+                </option>
+              ))}
             </select>
           </div>
 
           <Button
-            variant="primary"
+            variant={selectedRuta ? 'primary' : 'outline'}
             size="md"
             iconLeft={<Plus className="w-4 h-4 stroke-[2.5]" />}
             onClick={() => iniciarNuevaRuta()}
@@ -674,12 +977,14 @@ export default function RutasRegistro() {
                   <span className="text-xs font-black text-slate-800">
                     ID: {getCodigoRuta(selectedRuta)}
                   </span>
-                  <Badge variant="emerald" size="sm" dot={false}>
-                    Autogenerado SQL (PK)
+                  <Badge variant={selectedRuta ? 'amber' : 'emerald'} size="sm" dot={false}>
+                    {selectedRuta ? 'Modo Edición' : 'Nueva Ruta'}
                   </Badge>
                 </div>
                 <p className="text-[11px] text-slate-500 font-medium">
-                  Corredor Troncal 01 - Carga Pesada Gandola
+                  {selectedRuta
+                    ? `Editando ficha paramétrica de: ${selectedRuta.nombreRuta}`
+                    : 'Ficha paramétrica para registro de nueva ruta'}
                 </p>
               </div>
             </div>
@@ -748,11 +1053,15 @@ export default function RutasRegistro() {
                     onKeyDown={(e) => handleKeyDownNext(e, puntoOrigenRef)}
                     className="w-full appearance-none text-xs font-bold text-slate-800 bg-white border border-slate-200 hover:border-slate-300 rounded-xl pl-3.5 pr-10 py-2.5 shadow-2xs focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 focus:outline-none transition cursor-pointer"
                   >
-                    {clientes.map((c) => (
-                      <option key={c.idCliente} value={c.idCliente}>
-                        {c.razonSocial} — RIF: {c.rif} ({c._count?.puntosCargaDescarga || c.puntosCargaDescarga?.length || 0} Sedes)
-                      </option>
-                    ))}
+                    {clientes.map((c) => {
+                      const sedesCount = c._count?.puntosCargaDescarga || c.puntosCargaDescarga?.length || 0;
+                      const rutCount = c._count?.rutas ?? (c.rutas?.length || 0);
+                      return (
+                        <option key={c.idCliente} value={c.idCliente}>
+                          {c.razonSocial} — RIF: {c.rif} ({sedesCount} Sedes • {rutCount} Rutas)
+                        </option>
+                      );
+                    })}
                   </select>
                   <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 </div>
@@ -1154,6 +1463,33 @@ export default function RutasRegistro() {
 
             {/* ─── Botones de Acción al pie de la Ficha con Button UI ─── */}
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+              {selectedRuta && (
+                <Button
+                  type="button"
+                  variant="danger"
+                  size="md"
+                  iconLeft={<Trash2 className="w-4 h-4" />}
+                  onClick={() =>
+                    handleEliminarRuta(selectedRuta.idRuta, selectedRuta.nombreRuta)
+                  }
+                  className="mr-auto"
+                >
+                  Eliminar Ruta
+                </Button>
+              )}
+
+              {selectedRuta && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="md"
+                  iconLeft={<Plus className="w-4 h-4" />}
+                  onClick={() => iniciarNuevaRuta()}
+                >
+                  Registrar Nueva Ruta
+                </Button>
+              )}
+
               <Button
                 type="button"
                 variant="ghost"
@@ -1179,7 +1515,7 @@ export default function RutasRegistro() {
                 iconLeft={<Save className="w-4 h-4" />}
                 className="px-6"
               >
-                Guardar Registro Ruta
+                {selectedRuta ? 'Actualizar Ruta' : 'Guardar Nueva Ruta'}
               </Button>
             </div>
           </form>
@@ -1397,12 +1733,13 @@ export default function RutasRegistro() {
                           size="sm"
                           iconLeft={<Ticket className="w-3 h-3 text-amber-600" />}
                           onClick={() => {
-                            setActiveModalRuta(ruta);
-                            setModalPeajesOpen(true);
+                            abrirModalPeajes(ruta);
                           }}
                           className="py-1 px-2 text-[10px]"
                         >
-                          + Asignar Peajes
+                          <span>
+                            Peajes: <span className="text-amber-800 font-bold">{ruta._count?.rutaPeajes ? `${ruta._count.rutaPeajes} Asignados` : '+ Asignar Peajes'}</span>
+                          </span>
                         </Button>
 
                         <Button
@@ -1649,88 +1986,242 @@ export default function RutasRegistro() {
       <Modal
         isOpen={modalPeajesOpen}
         onClose={() => setModalPeajesOpen(false)}
-        title={`Estaciones de Peaje Venvías — ${activeModalRuta?.nombreRuta || ''}`}
-        size="md"
+        title={
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2">
+              <span className="text-amber-800 font-bold text-base sm:text-lg flex items-center gap-1.5">
+                <Ticket className="w-5 h-5 text-amber-600" />
+                Estaciones de Peaje Venvías — Catálogo Nacional
+              </span>
+            </div>
+            {activeModalRuta && (
+              <span className="text-xs text-slate-500 font-medium mt-1 flex items-center gap-2 flex-wrap">
+                <span className="font-bold text-slate-700">{activeModalRuta.nombreRuta}</span>
+                <span>•</span>
+                <span>
+                  {activeModalRuta.ciudadOrigen.split(',')[0]} → {activeModalRuta.ciudadDestino.split(',')[0]}
+                </span>
+                {activeModalRuta.cliente && (
+                  <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px] font-bold">
+                    {activeModalRuta.cliente.razonSocial}
+                  </span>
+                )}
+              </span>
+            )}
+          </div>
+        }
+        size="lg"
         footer={
-          <div className="flex items-center justify-end gap-2 w-full">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setModalPeajesOpen(false)}
-            >
-              Cerrar
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => {
-                setModalPeajesOpen(false);
-                setFeedbackMsg({
-                  tipo: 'success',
-                  texto: 'Asignación de peajes Venvías guardada correctamente.',
-                });
-              }}
-            >
-              Confirmar Peajes
-            </Button>
+          <div className="flex items-center justify-between w-full">
+            <div className="text-xs text-slate-500 font-medium hidden sm:block">
+              <span className="font-bold text-slate-800">{peajesSeleccionados.length}</span> de{' '}
+              {peajesModalItems.length} peajes seleccionados ({peajesSeleccionadosActivos.length} activos)
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setModalPeajesOpen(false)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                isLoading={peajesSaving}
+                onClick={handleGuardarPeajes}
+                iconLeft={<Save className="w-4 h-4" />}
+              >
+                Guardar Peajes en Ruta
+              </Button>
+            </div>
           </div>
         }
       >
         <div className="space-y-4">
-          <p className="text-xs text-slate-500">
-            Estaciones de peaje registradas en el trayecto nacional. Se liquidarán en la proforma según categoría de carga.
+          <p className="text-xs text-slate-500 leading-relaxed">
+            Seleccione las estaciones de peaje de la tabla <span className="font-semibold text-slate-700">peajes_vzla</span> por las que transita esta ruta. Configure el orden de paso y el costo por viaje para registrarlos en <span className="font-semibold text-slate-700">rutas_peajes</span>.
           </p>
 
-          <div className="space-y-2">
-            {peajesList.map((peaje) => (
-              <div
-                key={peaje.id}
-                className="p-3 border border-slate-200 rounded-xl flex items-center justify-between bg-slate-50/50"
-              >
-                <div className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    checked={peaje.activo}
-                    onChange={() =>
-                      setPeajesList((prev) =>
-                        prev.map((p) =>
-                          p.id === peaje.id ? { ...p, activo: !p.activo } : p
-                        )
-                      )
-                    }
-                    className="w-4 h-4 text-orange-600 rounded focus:ring-orange-500"
-                  />
-                  <div>
-                    <div className="text-xs font-black text-slate-800">
-                      {peaje.nombre}
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-medium">
-                      Estado {peaje.estado} • Categoría Gandola 5+ Ejes
-                    </div>
-                  </div>
-                </div>
+          {/* Barra de Búsqueda y Acciones Rápidas */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="relative flex-1">
+              <input
+                type="text"
+                value={peajesFiltroTexto}
+                onChange={(e) => setPeajesFiltroTexto(e.target.value)}
+                placeholder="Buscar peaje por nombre, estado o ubicación..."
+                className="w-full text-xs font-semibold text-slate-800 bg-white border border-slate-200 rounded-xl pl-9 pr-3.5 py-2 shadow-2xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
+              />
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              {peajesFiltroTexto && (
+                <button
+                  type="button"
+                  onClick={() => setPeajesFiltroTexto('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
 
-                <div className="text-right">
-                  <span className="text-xs font-black text-slate-900">
-                    ${peaje.montoUsd.toFixed(2)} USD
-                  </span>
-                </div>
-              </div>
-            ))}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleRenumerarPeajes}
+                className="text-[11px] py-1.5 px-2.5"
+                title="Renumerar orden de 1 a N según el orden actual de selección"
+              >
+                Renumerar (1..N)
+              </Button>
+            </div>
           </div>
 
-          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between text-xs">
-            <span className="font-bold text-amber-900">
-              Total Peajes Activos en la Ruta:
-            </span>
-            <span className="font-black text-amber-950 text-sm">
-              $
-              {peajesList
-                .filter((p) => p.activo)
-                .reduce((acc, p) => acc + p.montoUsd, 0)
-                .toFixed(2)}{' '}
-              USD
-            </span>
+          {/* Listado de Peajes Nacionales */}
+          {peajesLoading ? (
+            <div className="p-8 text-center text-xs text-slate-400">
+              <Ticket className="w-6 h-6 text-amber-500 animate-pulse mx-auto mb-2" />
+              Cargando catálogo de peajes de Venezuela y asignaciones de la ruta...
+            </div>
+          ) : peajesFiltradosModal.length === 0 ? (
+            <div className="p-8 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-xl">
+              No se encontraron estaciones de peaje con el criterio de búsqueda "{peajesFiltroTexto}".
+            </div>
+          ) : (
+            <div className="max-h-[46vh] overflow-y-auto space-y-2 pr-1 divide-y divide-slate-100">
+              {peajesFiltradosModal.map((peaje) => (
+                <div
+                  key={peaje.idPeaje}
+                  className={`p-3 rounded-xl border transition-all ${peaje.selected
+                    ? 'bg-amber-50/50 border-amber-300 shadow-2xs'
+                    : 'bg-white border-slate-200/90 hover:border-slate-300'
+                    }`}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    {/* Checkbox + Datos del Peaje */}
+                    <div className="flex items-start gap-3 flex-1 min-w-0">
+                      <input
+                        type="checkbox"
+                        id={`peaje-${peaje.idPeaje}`}
+                        checked={peaje.selected}
+                        onChange={(e) => handleTogglePeaje(peaje.idPeaje, e.target.checked)}
+                        className="w-4 h-4 mt-1 text-amber-600 rounded focus:ring-amber-500 cursor-pointer"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <label
+                            htmlFor={`peaje-${peaje.idPeaje}`}
+                            className="text-xs font-black text-slate-900 cursor-pointer hover:text-amber-800"
+                          >
+                            {peaje.nombrePeaje}
+                          </label>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
+                            {peaje.estadoUbicacion}
+                          </span>
+                          {peaje.selected && (
+                            <span className="text-[10px] font-mono font-bold text-amber-900 bg-amber-100/90 border border-amber-200 px-1.5 py-0.2 rounded">
+                              Paso #{peaje.orden}
+                            </span>
+                          )}
+                        </div>
+                        {peaje.ubicacionDetallada && (
+                          <p className="text-[11px] text-slate-500 mt-0.5 truncate" title={peaje.ubicacionDetallada}>
+                            {peaje.ubicacionDetallada}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Parámetros para la tabla rutas_peajes si está seleccionado */}
+                    {peaje.selected ? (
+                      <div className="flex items-center gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-amber-200/60">
+                        {/* Orden */}
+                        <div className="flex flex-col items-center">
+                          <span className="text-[9px] font-extrabold text-slate-500 uppercase tracking-wider">
+                            Orden
+                          </span>
+                          <input
+                            type="number"
+                            min="1"
+                            value={peaje.orden}
+                            onChange={(e) =>
+                              handleUpdatePeajeField(peaje.idPeaje, 'orden', parseInt(e.target.value) || 1)
+                            }
+                            className="w-14 text-center text-xs font-bold text-slate-900 bg-white border border-slate-300 rounded-lg py-1 px-1 focus:ring-1 focus:ring-amber-500 shadow-2xs"
+                          />
+                        </div>
+
+                        {/* Costo USD */}
+                        <div className="flex flex-col items-end">
+                          <span className="text-[9px] font-extrabold text-slate-500 uppercase tracking-wider">
+                            Costo USD
+                          </span>
+                          <div className="flex items-center">
+                            <span className="text-xs font-bold text-slate-400 px-1">$</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={peaje.costo}
+                              onChange={(e) => handleUpdatePeajeField(peaje.idPeaje, 'costo', e.target.value)}
+                              className="w-20 text-xs font-black text-slate-900 bg-white border border-slate-300 rounded-lg py-1 px-1.5 focus:ring-1 focus:ring-amber-500 text-right shadow-2xs"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Activo */}
+                        <div className="flex flex-col items-center">
+                          <span className="text-[9px] font-extrabold text-slate-500 uppercase tracking-wider">
+                            Activo
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleUpdatePeajeField(peaje.idPeaje, 'activo', !peaje.activo)}
+                            className="mt-1 cursor-pointer focus:outline-none"
+                            title={peaje.activo ? 'Peaje activo en la ruta' : 'Peaje inactivo en la ruta'}
+                          >
+                            {peaje.activo ? (
+                              <ToggleRight className="w-6 h-6 text-emerald-600" />
+                            ) : (
+                              <ToggleLeft className="w-6 h-6 text-slate-300" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] text-slate-400 italic shrink-0 hidden sm:inline">
+                        No incluido en ruta
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Banner de Resumen y Liquidación */}
+          <div className="p-3.5 bg-gradient-to-r from-amber-50 via-orange-50/50 to-amber-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between text-xs gap-2">
+            <div className="flex items-center gap-2">
+              <Coins className="w-4 h-4 text-amber-600 shrink-0" />
+              <div>
+                <span className="font-bold text-amber-950 block">
+                  Resumen de Peajes en Trayecto:
+                </span>
+                <span className="text-[11px] text-amber-800">
+                  {peajesSeleccionadosActivos.length} activos de {peajesSeleccionados.length} seleccionados para liquidación en proforma
+                </span>
+              </div>
+            </div>
+            <div className="text-right">
+              <span className="font-black text-amber-950 text-base block">
+                ${costoTotalPeajes.toFixed(2)} USD
+              </span>
+              <span className="text-[10px] text-amber-700 font-semibold">
+                Total peajes por viaje
+              </span>
+            </div>
           </div>
         </div>
       </Modal>
@@ -1760,11 +2251,12 @@ export default function RutasRegistro() {
 
           <div className="space-y-2">
             {[
-              { concepto: 'Pernocta en Andén o Patio', tipo: 'Monto Fijo', valor: '$45.00 USD' },
-              { concepto: 'Flete Falso (Cancelación en planta)', tipo: 'Monto Fijo', valor: '$120.00 USD' },
-              { concepto: 'Retorno Vacío no programado', tipo: 'Porcentaje', valor: '50% flete' },
-              { concepto: 'Descarga Multiparada Adicional', tipo: 'Por Parada', valor: '$35.00 USD' },
-              { concepto: 'Viático de Conductor por Trayecto', tipo: 'Diario', valor: '$25.00 USD' },
+              { concepto: 'Pernocta en Hotel', tipo: 'Monto Fijo', valor: '$45.00 USD' },
+              { concepto: 'Tasa Portuaria', tipo: 'Monto Fijo', valor: '$120.00 USD' },
+              { concepto: 'Estacionamiento', tipo: 'Monto Fijo', valor: '$20.00 USD' },
+              { concepto: 'Caleta', tipo: 'Monto Fijo', valor: '$35.00 USD' },
+              { concepto: 'Viático de Conductor por Trayecto', tipo: 'Monto Fijo', valor: '$25.00 USD' },
+              { concepto: 'Otros Gastos', tipo: 'Monto Fijo', valor: '$25.00 USD' },
             ].map((recargo, idx) => (
               <div
                 key={idx}

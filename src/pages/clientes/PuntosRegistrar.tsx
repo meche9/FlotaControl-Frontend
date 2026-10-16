@@ -20,7 +20,6 @@ import { Card } from '../../components/ui';
 import {
   puntosCargaService,
   type CreatePuntoCargaDto,
-  type TipoPunto,
 } from '../../services/puntosCargaService';
 import {
   clientesService,

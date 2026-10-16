@@ -37,12 +37,11 @@ export interface Ruta {
   };
   puntoOrigen?: RutaPuntoResumen | null;
   puntoDestino?: RutaPuntoResumen | null;
-  rutaTarifas?: any[];
   rutaPeajes?: any[];
   _count?: {
     guiasViajes?: number;
-    rutaTarifas?: number;
     rutaPeajes?: number;
+    rutaRecargos?: number;
   };
 }
 
@@ -63,59 +62,6 @@ export interface CreateRutaDto {
 }
 
 export interface UpdateRutaDto extends Partial<CreateRutaDto> {}
-
-export interface RutaTarifa {
-  idTarifa: string;
-  codigoTarifa?: string | null;
-  idCliente?: string | null;
-  idRuta: string;
-  idClasificacionVehiculo?: number | null;
-  tipoCobro: RutaTipoCobro;
-  montoTarifa: number | string;
-  montoMinimo?: number | string | null;
-  moneda: string;
-  fechaInicioVigencia: string;
-  fechaFinVigencia?: string | null;
-  activo?: boolean | null;
-  fechaCreacion?: string;
-  fechaActualizacion?: string;
-  ruta?: {
-    idRuta: string;
-    nombreRuta: string;
-    ciudadOrigen: string;
-    ciudadDestino: string;
-  };
-  cliente?: {
-    idCliente: string;
-    razonSocial: string;
-    nombreComercial?: string | null;
-    rif: string;
-  } | null;
-  clasificacionVehiculo?: {
-    idClasificacion: number;
-    nombreClasificacion: string;
-  } | null;
-  _count?: {
-    guiasViajes?: number;
-    rutaRecargos?: number;
-  };
-}
-
-export interface CreateRutaTarifaDto {
-  idRuta: string;
-  idCliente?: string | null;
-  codigoTarifa?: string | null;
-  idClasificacionVehiculo?: number | null;
-  tipoCobro?: RutaTipoCobro;
-  montoTarifa: number;
-  montoMinimo?: number;
-  moneda?: string;
-  fechaInicioVigencia: string;
-  fechaFinVigencia?: string | null;
-  activo?: boolean;
-}
-
-export interface UpdateRutaTarifaDto extends Partial<CreateRutaTarifaDto> {}
 
 export const rutasService = {
   getRutas: async (params?: { idCliente?: string; activo?: boolean }): Promise<Ruta[]> => {
@@ -152,43 +98,54 @@ export const rutasService = {
     await api.delete(`/rutas/${id}`);
   },
 
-  // Gestión de Tarifas de Rutas
-  getTarifasByRuta: async (idRuta: string): Promise<RutaTarifa[]> => {
-    const response = await api.get<RutaTarifa[]>(`/rutas/tarifas/ruta/${idRuta}`);
+  // Gestión de Peajes de Venezuela y Peajes de Ruta
+  getPeajesVzla: async (): Promise<PeajeVzla[]> => {
+    const response = await api.get<PeajeVzla[]>('/rutas/peajes/catalogo-vzla');
     return response.data;
   },
 
-  getAllTarifas: async (params?: {
-    idRuta?: string;
-    idCliente?: string;
-    activo?: boolean;
-  }): Promise<RutaTarifa[]> => {
-    const response = await api.get<RutaTarifa[]>('/rutas/tarifas', { params });
+  getPeajesByRuta: async (idRuta: string): Promise<RutaPeaje[]> => {
+    const response = await api.get<RutaPeaje[]>(`/rutas/peajes/ruta/${idRuta}`);
     return response.data;
   },
 
-  getTarifaById: async (idTarifa: string): Promise<RutaTarifa> => {
-    const response = await api.get<RutaTarifa>(`/rutas/tarifas/${idTarifa}`);
+  asignarPeajesRuta: async (idRuta: string, peajes: ItemRutaPeajeDto[]): Promise<RutaPeaje[]> => {
+    const response = await api.post<RutaPeaje[]>('/rutas/peajes/asignar', { idRuta, peajes });
     return response.data;
   },
 
-  createTarifa: async (data: CreateRutaTarifaDto): Promise<RutaTarifa> => {
-    const response = await api.post<RutaTarifa>('/rutas/tarifas', data);
-    return response.data;
-  },
-
-  updateTarifa: async (idTarifa: string, data: UpdateRutaTarifaDto): Promise<RutaTarifa> => {
-    const response = await api.patch<RutaTarifa>(`/rutas/tarifas/${idTarifa}`, data);
-    return response.data;
-  },
-
-  toggleEstadoTarifa: async (idTarifa: string): Promise<RutaTarifa> => {
-    const response = await api.patch<RutaTarifa>(`/rutas/tarifas/${idTarifa}/toggle-estado`);
-    return response.data;
-  },
-
-  deleteTarifa: async (idTarifa: string): Promise<void> => {
-    await api.delete(`/rutas/tarifas/${idTarifa}`);
+  deleteRutaPeaje: async (idRutaPeaje: string): Promise<void> => {
+    await api.delete(`/rutas/peajes/${idRutaPeaje}`);
   },
 };
+
+export interface PeajeVzla {
+  idPeaje: number;
+  nombrePeaje: string;
+  estadoUbicacion: string;
+  ubicacionDetallada?: string | null;
+  activo: boolean;
+  fechaCreacion?: string;
+  fechaActualizacion?: string;
+}
+
+export interface RutaPeaje {
+  idRutaPeaje: string;
+  idRuta: string;
+  nombrePeaje: string;
+  ubicacion?: string | null;
+  orden: number;
+  costo: number | string;
+  activo: boolean;
+  fechaCreacion?: string;
+  fechaActualizacion?: string;
+}
+
+export interface ItemRutaPeajeDto {
+  nombrePeaje: string;
+  ubicacion?: string | null;
+  orden: number;
+  costo: number;
+  activo?: boolean;
+}
 

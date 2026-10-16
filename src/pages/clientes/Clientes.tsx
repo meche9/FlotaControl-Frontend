@@ -13,7 +13,6 @@ import {
   Copy,
   Check,
   X,
-  Eye,
   Pencil,
   Trash2,
   MoreVertical,

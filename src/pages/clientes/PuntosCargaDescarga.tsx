@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Building2,
@@ -26,13 +26,11 @@ import {
   Factory,
   Ship,
   TrendingUp,
-  AlertCircle,
   FilterX,
   X,
 } from 'lucide-react';
 import {
   Card,
-  Badge,
 } from '../../components/ui';
 import {
   puntosCargaService,
