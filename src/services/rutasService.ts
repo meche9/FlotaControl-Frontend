@@ -117,6 +117,26 @@ export const rutasService = {
   deleteRutaPeaje: async (idRutaPeaje: string): Promise<void> => {
     await api.delete(`/rutas/peajes/${idRutaPeaje}`);
   },
+
+  // Gestión de Recargos Generales y Recargos de Ruta
+  getRecargosGenerales: async (): Promise<RecargoGeneral[]> => {
+    const response = await api.get<RecargoGeneral[]>('/rutas/recargos/catalogo');
+    return response.data;
+  },
+
+  getRecargosByRuta: async (idRuta: string): Promise<RutaRecargo[]> => {
+    const response = await api.get<RutaRecargo[]>(`/rutas/recargos/ruta/${idRuta}`);
+    return response.data;
+  },
+
+  asignarRecargosRuta: async (idRuta: string, recargos: ItemRutaRecargoDto[]): Promise<RutaRecargo[]> => {
+    const response = await api.post<RutaRecargo[]>('/rutas/recargos/asignar', { idRuta, recargos });
+    return response.data;
+  },
+
+  deleteRutaRecargo: async (idRecargo: string): Promise<void> => {
+    await api.delete(`/rutas/recargos/${idRecargo}`);
+  },
 };
 
 export interface PeajeVzla {
@@ -147,5 +167,28 @@ export interface ItemRutaPeajeDto {
   orden: number;
   costo: number;
   activo?: boolean;
+}
+
+export type RecargoTipoCalculo = 'Monto_Fijo' | 'Porcentaje' | 'Por_Hora';
+
+export interface RecargoGeneral {
+  idRecargo: string;
+  concepto: string;
+  tipoCalculo: RecargoTipoCalculo;
+  valor: number | string;
+}
+
+export interface RutaRecargo {
+  idRecargo: string;
+  idRuta: string;
+  concepto: string;
+  tipoCalculo: RecargoTipoCalculo;
+  valor: number | string;
+}
+
+export interface ItemRutaRecargoDto {
+  concepto: string;
+  tipoCalculo?: RecargoTipoCalculo;
+  valor?: number;
 }
 

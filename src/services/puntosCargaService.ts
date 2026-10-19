@@ -5,6 +5,7 @@ export type TipoPunto = 'Origen' | 'Destino' | 'Ambos';
 export interface PuntoCargaDescarga {
   idPunto: string;
   idCliente: string;
+  codigoPuntoc?: string;
   nombreSede: string;
   tipoPunto: TipoPunto;
   direccion: string;
@@ -28,6 +29,7 @@ export interface PuntoCargaDescarga {
 
 export interface CreatePuntoCargaDto {
   idCliente: string;
+  codigoPuntoc: string;
   nombreSede: string;
   tipoPunto?: TipoPunto;
   direccion: string;
@@ -52,6 +54,14 @@ export const puntosCargaService = {
   getPuntosByCliente: async (idCliente: string): Promise<PuntoCargaDescarga[]> => {
     const response = await api.get<PuntoCargaDescarga[]>(`/puntos-carga/cliente/${idCliente}`);
     return response.data;
+  },
+
+  validarCodigo: async (idCliente: string, codigo: string, excludeId?: string): Promise<boolean> => {
+    const url = `/puntos-carga/validar-codigo/${encodeURIComponent(idCliente)}/${encodeURIComponent(codigo)}${
+      excludeId ? `?excludeId=${encodeURIComponent(excludeId)}` : ''
+    }`;
+    const response = await api.get<{ existe: boolean }>(url);
+    return response.data.existe;
   },
 
   getPuntoById: async (id: string): Promise<PuntoCargaDescarga> => {

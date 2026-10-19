@@ -399,6 +399,7 @@ export default function PuntosCargaDescarga() {
       // 4. Búsqueda por texto (sede, ciudad, estado, contacto)
       if (searchTerm.trim()) {
         const query = searchTerm.toLowerCase();
+        const matchesCodigo = p.codigoPuntoc?.toLowerCase().includes(query) || false;
         const matchesSede = p.nombreSede.toLowerCase().includes(query);
         const matchesCiudad = p.ciudad.toLowerCase().includes(query);
         const matchesEstado = p.estado.toLowerCase().includes(query);
@@ -406,10 +407,11 @@ export default function PuntosCargaDescarga() {
         const matchesCliente = p.cliente?.razonSocial.toLowerCase().includes(query) || false;
         const matchesDireccion = p.direccion.toLowerCase().includes(query);
 
-        if (!matchesSede && !matchesCiudad && !matchesEstado && !matchesContacto && !matchesCliente && !matchesDireccion) {
+        if (!matchesCodigo && !matchesSede && !matchesCiudad && !matchesEstado && !matchesContacto && !matchesCliente && !matchesDireccion) {
           return false;
         }
       }
+
 
       return true;
     }).sort((a, b) => {
@@ -891,7 +893,7 @@ export default function PuntosCargaDescarga() {
                 </tr>
               ) : (
                 paginatedPuntos.map((punto, idx) => {
-                  const tagReferencial = (punto as any).codigoTag || `#PTA-${String(idx + 1).padStart(4, '0')}`;
+                  const tagReferencial = punto.codigoPuntoc ? `#${punto.codigoPuntoc}` : ((punto as any).codigoTag || `#PTA-${String(idx + 1).padStart(4, '0')}`);
                   const geocodigoVal =
                     (punto as any).geocodigo ||
                     `${(10.2 + idx * 0.05).toFixed(4)}° N, ${(67.8 + idx * 0.04).toFixed(4)}° W`;

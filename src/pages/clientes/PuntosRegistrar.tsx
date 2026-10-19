@@ -20,6 +20,7 @@ import { Card } from '../../components/ui';
 import {
   puntosCargaService,
   type CreatePuntoCargaDto,
+  type PuntoCargaDescarga,
 } from '../../services/puntosCargaService';
 import {
   clientesService,
@@ -73,6 +74,7 @@ export default function PuntosRegistrar() {
 
   // Referencias para navegación secuencial fluida con la tecla Enter
   const idClienteRef = useRef<HTMLSelectElement>(null);
+  const codigoPuntocRef = useRef<HTMLInputElement>(null);
   const nombreSedeRef = useRef<HTMLInputElement>(null);
   const estadoRef = useRef<HTMLSelectElement>(null);
   const ciudadRef = useRef<HTMLInputElement>(null);
@@ -103,9 +105,15 @@ export default function PuntosRegistrar() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
+  // Puntos del cliente seleccionado para validación de código único
+  const [puntosCliente, setPuntosCliente] = useState<PuntoCargaDescarga[]>([]);
+  const [validandoCodigo, setValidandoCodigo] = useState(false);
+  const [codigoError, setCodigoError] = useState<string | null>(null);
+
   // Form State
   const [formData, setFormData] = useState<CreatePuntoCargaDto>({
     idCliente: clienteIdUrl,
+    codigoPuntoc: '',
     nombreSede: '',
     tipoPunto: 'Origen',
     direccion: '',
@@ -147,6 +155,85 @@ export default function PuntosRegistrar() {
     fetchClientes();
   }, [clienteIdUrl]);
 
+  // Cargar puntos existentes del cliente para verificación inmediata de duplicados
+  useEffect(() => {
+    if (!formData.idCliente) {
+      setPuntosCliente([]);
+      return;
+    }
+
+    let isMounted = true;
+    async function fetchPuntosCliente() {
+      try {
+        const puntos = await puntosCargaService.getPuntosByCliente(formData.idCliente);
+        if (isMounted) {
+          setPuntosCliente(puntos);
+        }
+      } catch (err) {
+        console.error('Error cargando puntos del cliente:', err);
+      }
+    }
+
+    fetchPuntosCliente();
+    return () => {
+      isMounted = false;
+    };
+  }, [formData.idCliente]);
+
+  // Validar unicidad del código del punto para el cliente seleccionado
+  useEffect(() => {
+    const rawCodigo = formData.codigoPuntoc?.trim();
+    if (!rawCodigo) {
+      setCodigoError(null);
+      return;
+    }
+
+    if (rawCodigo.length > 10) {
+      setCodigoError('El código no puede exceder los 10 caracteres.');
+      return;
+    }
+
+    const codigoUpper = rawCodigo.toUpperCase();
+
+    // 1. Verificación local inmediata sobre los puntos ya cargados del cliente
+    const puntoExistente = puntosCliente.find(
+      (p) =>
+        p.codigoPuntoc &&
+        p.codigoPuntoc.trim().toUpperCase() === codigoUpper &&
+        (!isEditing || p.idPunto !== id)
+    );
+
+    if (puntoExistente) {
+      setCodigoError(
+        `El código "${codigoUpper}" ya existe para este cliente (asignado a: "${puntoExistente.nombreSede}").`
+      );
+      return;
+    }
+
+    // 2. Verificación adicional remota contra el backend
+    setValidandoCodigo(true);
+    const timeout = setTimeout(async () => {
+      try {
+        const existe = await puntosCargaService.validarCodigo(
+          formData.idCliente,
+          codigoUpper,
+          isEditing && id ? id : undefined
+        );
+        if (existe) {
+          setCodigoError(`El código "${codigoUpper}" ya se encuentra registrado para este cliente.`);
+        } else {
+          setCodigoError(null);
+        }
+      } catch (err) {
+        console.warn('Advertencia al validar código:', err);
+      } finally {
+        setValidandoCodigo(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timeout);
+  }, [formData.codigoPuntoc, formData.idCliente, puntosCliente, isEditing, id]);
+
   // Si estamos en modo edición, cargar datos del punto
   useEffect(() => {
     if (isEditing && id) {
@@ -157,6 +244,7 @@ export default function PuntosRegistrar() {
           if (punto) {
             setFormData({
               idCliente: punto.idCliente,
+              codigoPuntoc: punto.codigoPuntoc || '',
               nombreSede: punto.nombreSede,
               tipoPunto: punto.tipoPunto,
               direccion: punto.direccion,
@@ -191,7 +279,11 @@ export default function PuntosRegistrar() {
     if (!loading) {
       const timer = setTimeout(() => {
         if (formData.idCliente) {
-          nombreSedeRef.current?.focus();
+          if (!formData.codigoPuntoc) {
+            codigoPuntocRef.current?.focus();
+          } else {
+            nombreSedeRef.current?.focus();
+          }
         } else {
           idClienteRef.current?.focus();
         }
@@ -212,23 +304,31 @@ export default function PuntosRegistrar() {
   // Verificación: Validación de campos obligatorios requeridos
   const isDatosCompletos = Boolean(
     formData.idCliente?.trim() &&
+    formData.codigoPuntoc?.trim() &&
+    !codigoError &&
     formData.nombreSede?.trim() &&
     formData.estado?.trim() &&
     formData.ciudad?.trim() &&
     formData.direccion?.trim()
   );
 
-  const puedeGuardar = isDatosCompletos;
+  const puedeGuardar = isDatosCompletos && !codigoError && !validandoCodigo;
 
   // Enviar formulario
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setErrorMsg(null);
 
-    if (!isDatosCompletos) {
+    if (!isDatosCompletos || codigoError) {
       if (!formData.idCliente) {
         setErrorMsg('Debes seleccionar un cliente corporativo vinculado.');
         idClienteRef.current?.focus();
+      } else if (!formData.codigoPuntoc?.trim()) {
+        setErrorMsg('El código del punto es obligatorio (máximo 10 caracteres).');
+        codigoPuntocRef.current?.focus();
+      } else if (codigoError) {
+        setErrorMsg(codigoError);
+        codigoPuntocRef.current?.focus();
       } else if (!formData.nombreSede.trim()) {
         setErrorMsg('El nombre de la sede es obligatorio.');
         nombreSedeRef.current?.focus();
@@ -265,9 +365,10 @@ export default function PuntosRegistrar() {
         'No se pudo guardar el punto. Verifique los datos o conexión con el servidor.'
       );
       setErrorMsg(msg);
-      setTimeout(() => {
-        navigate('/clientes/puntos-carga-descarga');
-      }, 1500);
+      if (msg.toLowerCase().includes('código') || msg.toLowerCase().includes('codigo')) {
+        setCodigoError(msg);
+        codigoPuntocRef.current?.focus();
+      }
     } finally {
       setGuardando(false);
     }
@@ -431,9 +532,9 @@ export default function PuntosRegistrar() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
             {/* Cliente Corporativo */}
-            <div className="space-y-1.5">
+            <div className="md:col-span-7 space-y-1.5">
               <label className="text-xs font-bold text-slate-700">
                 Cliente Corporativo Vinculado <span className="text-orange-500">*</span>
               </label>
@@ -441,7 +542,7 @@ export default function PuntosRegistrar() {
                 ref={idClienteRef}
                 value={formData.idCliente}
                 onChange={(e) => setFormData({ ...formData, idCliente: e.target.value })}
-                onKeyDown={(e) => handleKeyDownNext(e, nombreSedeRef)}
+                onKeyDown={(e) => handleKeyDownNext(e, codigoPuntocRef)}
                 className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition cursor-pointer"
                 required
               >
@@ -454,8 +555,66 @@ export default function PuntosRegistrar() {
               </select>
             </div>
 
+            {/* Código del Punto */}
+            <div className="md:col-span-5 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-700">
+                  Código del Punto <span className="text-orange-500">*</span>
+                </label>
+                <span className="text-[10px] font-mono text-slate-400">
+                  {formData.codigoPuntoc?.length || 0}/10 máx
+                </span>
+              </div>
+              <div className="relative">
+                <input
+                  ref={codigoPuntocRef}
+                  type="text"
+                  maxLength={10}
+                  value={formData.codigoPuntoc}
+                  onChange={(e) => {
+                    const clean = e.target.value.toUpperCase();
+                    setFormData({ ...formData, codigoPuntoc: clean });
+                  }}
+                  onKeyDown={(e) => handleKeyDownNext(e, nombreSedeRef)}
+                  placeholder="Ej. PT-SJ01"
+                  className={`w-full pl-3.5 pr-9 py-2.5 rounded-xl text-xs font-mono font-bold uppercase transition bg-white border ${
+                    codigoError
+                      ? 'border-rose-400 text-rose-800 bg-rose-50/20 focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500'
+                      : formData.codigoPuntoc?.trim() && !validandoCodigo
+                      ? 'border-emerald-400 text-slate-800 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500'
+                      : 'border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500'
+                  }`}
+                  required
+                />
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                  {validandoCodigo ? (
+                    <Loader2 className="w-4 h-4 text-orange-500 animate-spin" />
+                  ) : codigoError ? (
+                    <AlertCircle className="w-4 h-4 text-rose-500" />
+                  ) : formData.codigoPuntoc?.trim() ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                  ) : null}
+                </div>
+              </div>
+
+              {/* Feedback de validación de unicidad en tiempo real */}
+              {codigoError ? (
+                <p className="text-[11px] font-medium text-rose-600 flex items-center gap-1">
+                  <span>{codigoError}</span>
+                </p>
+              ) : formData.codigoPuntoc?.trim() && !validandoCodigo ? (
+                <p className="text-[11px] font-medium text-emerald-600 flex items-center gap-1">
+                  <span>✓ Código disponible para este cliente</span>
+                </p>
+              ) : (
+                <p className="text-[10px] text-slate-400">
+                  Código alfanumérico único para este cliente (máx. 10 caracteres).
+                </p>
+              )}
+            </div>
+
             {/* Nombre de la Sede */}
-            <div className="space-y-1.5">
+            <div className="md:col-span-12 space-y-1.5">
               <label className="text-xs font-bold text-slate-700">
                 Nombre de la Sede / Almacén / Andén <span className="text-orange-500">*</span>
               </label>
