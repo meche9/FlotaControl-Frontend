@@ -5,6 +5,7 @@ export interface ConductorResumen {
   nombreCompleto: string;
   telefono: string;
   vehiculoHabitual?: string | null;
+  placaVehiculoHabitual?: string | null;
   estado?: string;
 }
 

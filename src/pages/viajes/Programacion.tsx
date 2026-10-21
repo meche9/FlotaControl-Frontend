@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   Search,
-  MessageSquare,
   Edit2,
   MapPin,
   ChevronDown,
@@ -28,8 +27,7 @@ import {
   programacionService,
   type TripItem,
   type SchedulePreviewResponse,
-  type ConductorResumen,
-  type PuntoResumen
+  type ConductorResumen
 } from '../../services/programacionService';
 import { conductoresService } from '../../services/conductoresService';
 
@@ -49,7 +47,9 @@ const DEMO_MANIFEST: TripItem[] = [
       idConductor: 'c-1',
       nombreCompleto: 'Carlos Mendoza',
       telefono: '+58 414-5692118',
-      vehiculoHabitual: 'Mack MP8 (Tracto #66) + Batea #10'
+      placaVehiculoHabitual: 'Tracto #66',
+      vehiculoHabitual: 'Mack MP8 (Tracto #66) + Batea #10',
+      estado: 'Activo'
     },
     idConductor: 'c-1',
     nroRetorno: 'RET-9091-A',
@@ -72,7 +72,9 @@ const DEMO_MANIFEST: TripItem[] = [
       idConductor: 'c-2',
       nombreCompleto: 'Rafael Useche',
       telefono: '+58 412-8874120',
-      vehiculoHabitual: 'Iveco Stralis (Tracto #22)'
+      placaVehiculoHabitual: 'Tracto #22',
+      vehiculoHabitual: 'Iveco Stralis (Tracto #22)',
+      estado: 'Activo'
     },
     idConductor: 'c-2',
     nroRetorno: 'RET-9092-B',
@@ -113,7 +115,9 @@ const DEMO_MANIFEST: TripItem[] = [
       idConductor: 'c-3',
       nombreCompleto: 'Manuel Gómez',
       telefono: '+58 424-9112233',
-      vehiculoHabitual: 'Freightliner Cascadia (Tracto #45)'
+      placaVehiculoHabitual: 'Tracto #45',
+      vehiculoHabitual: 'Freightliner Cascadia (Tracto #45)',
+      estado: 'Activo'
     },
     idConductor: 'c-3',
     nroRetorno: 'RET-9094-BQ',
@@ -137,7 +141,9 @@ const DEMO_MANIFEST: TripItem[] = [
       idConductor: 'c-4',
       nombreCompleto: 'Luis Villegas',
       telefono: '+58 416-5544332',
-      vehiculoHabitual: 'Cargo #19'
+      placaVehiculoHabitual: 'Cargo #19',
+      vehiculoHabitual: 'Cargo #19',
+      estado: 'Activo'
     },
     idConductor: 'c-4',
     nroRetorno: 'RET-9098-R',
@@ -160,7 +166,9 @@ const DEMO_MANIFEST: TripItem[] = [
       idConductor: 'c-5',
       nombreCompleto: 'Eduardo Quintero',
       telefono: '+58 414-7788990',
-      vehiculoHabitual: 'Mack Trident (Tracto #52)'
+      placaVehiculoHabitual: 'Tracto #52',
+      vehiculoHabitual: 'Mack Trident (Tracto #52)',
+      estado: 'Activo'
     },
     idConductor: 'c-5',
     nroRetorno: 'RET-9099-PC',
@@ -313,6 +321,20 @@ export interface GrupoPlanta {
   destinosUnicos: number;
 }
 
+export function WhatsAppIcon({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg
+      role="img"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0 0 12.04 2m.01 1.67c2.2 0 4.26.86 5.82 2.42a8.225 8.225 0 0 1 2.41 5.83c0 4.54-3.7 8.24-8.24 8.24-1.48 0-2.93-.39-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.32a8.188 8.188 0 0 1-1.26-4.38c.01-4.54 3.7-8.24 8.25-8.24M8.53 7.33c-.16 0-.43.06-.66.31-.22.25-.85.84-.85 2.05 0 1.21.88 2.37 1 2.54.12.16 1.72 2.63 4.17 3.69.58.25 1.04.4 1.39.51.59.19 1.12.16 1.55.1.48-.07 1.47-.6 1.67-1.18.21-.57.21-1.06.15-1.16-.06-.11-.23-.17-.48-.29-.25-.13-1.47-.73-1.7-.81-.22-.09-.39-.13-.55.12-.17.25-.64.81-.79.98-.14.16-.29.18-.54.06-.25-.13-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.02-.38.11-.51.11-.11.24-.28.37-.43.12-.14.16-.25.24-.41.09-.17.05-.31-.01-.43-.07-.13-.56-1.33-.76-1.82-.2-.48-.4-.41-.55-.42-.15-.01-.27.05-.39.05Z" />
+    </svg>
+  );
+}
+
 export default function Programacion() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -321,8 +343,10 @@ export default function Programacion() {
 
   // Estados principales
   const [trips, setTrips] = useState<TripItem[]>(DEMO_MANIFEST);
-  const [nombreArchivo, setNombreArchivo] = useState<string>('manifiesto_demostracion.pdf');
+  const [archivosCargados, setArchivosCargados] = useState<string[]>(['manifiesto_demostracion.pdf']);
+  const [esModoDemo, setEsModoDemo] = useState<boolean>(true);
   const [cargandoPdf, setCargandoPdf] = useState<boolean>(false);
+  const [mensajeCarga, setMensajeCarga] = useState<string>('Extrayendo PDF...');
   const [guardandoBd, setGuardandoBd] = useState<boolean>(false);
   const [mensajeToast, setMensajeToast] = useState<{ tipo: 'ok' | 'err' | 'warn'; texto: string } | null>(null);
 
@@ -333,9 +357,8 @@ export default function Programacion() {
   const [filtroSoloColisiones, setFiltroSoloColisiones] = useState<boolean>(false);
   const [busqueda, setBusqueda] = useState<string>('');
 
-  // Conductores y puntos disponibles
+  // Conductores disponibles
   const [conductores, setConductores] = useState<ConductorResumen[]>([]);
-  const [puntos, setPuntos] = useState<PuntoResumen[]>([]);
 
   // Secciones colapsadas (por clave de grupo)
   const [seccionesAbiertas, setSeccionesAbiertas] = useState<Record<string, boolean>>({});
@@ -345,6 +368,28 @@ export default function Programacion() {
   const [modalWhatsappAbierto, setModalWhatsappAbierto] = useState<boolean>(false);
   const [textoWhatsappCustom, setTextoWhatsappCustom] = useState<string | null>(null);
   const [editandoTextoWa, setEditandoTextoWa] = useState<boolean>(false);
+
+  // Asegurar unicidad absoluta de IDs en la lista de viajes para evitar que dos filas compartan id
+  useEffect(() => {
+    setTrips((prev) => {
+      const idsVistos = new Set<string>();
+      let hayDuplicados = false;
+      const corregidos = prev.map((t) => {
+        if (!t.id || idsVistos.has(t.id)) {
+          hayDuplicados = true;
+          const nuevoId =
+            typeof crypto !== 'undefined' && crypto.randomUUID
+              ? `trip-${crypto.randomUUID()}`
+              : `trip-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+          idsVistos.add(nuevoId);
+          return { ...t, id: nuevoId };
+        }
+        idsVistos.add(t.id);
+        return t;
+      });
+      return hayDuplicados ? corregidos : prev;
+    });
+  }, []);
 
   // Manejo de tecla Escape y bloqueo de scroll para el modal de WhatsApp
   useEffect(() => {
@@ -371,14 +416,17 @@ export default function Programacion() {
       try {
         const drivers = await conductoresService.getConductores();
         if (drivers && drivers.length > 0) {
-          // Filtrar solo conductores con estatus 'Activo' en la tabla conductores
-          const activos = drivers.filter((d) => d.estado === 'Activo');
+          // Filtrar estrictamente solo conductores con estatus 'Activo' en la tabla conductores
+          const activos = drivers.filter(
+            (d) => d.estado?.trim().toLowerCase() === 'activo'
+          );
           setConductores(
             activos.map((d) => ({
               idConductor: d.idConductor,
               nombreCompleto: `${d.nombres} ${d.apellidos}`,
               telefono: d.telefono,
               estado: d.estado,
+              placaVehiculoHabitual: d.vehiculoHabitual?.placa || null,
               vehiculoHabitual: d.vehiculoHabitual
                 ? `${d.vehiculoHabitual.marca} (${d.vehiculoHabitual.placa})`
                 : undefined,
@@ -388,74 +436,188 @@ export default function Programacion() {
       } catch (err) {
         console.warn('Usando catálogo local de conductores.');
         setConductores([
-          { idConductor: 'c-1', nombreCompleto: 'Carlos Mendoza', telefono: '+58 414-5692118', estado: 'Activo', vehiculoHabitual: 'Mack MP8 (Tracto #66)' },
-          { idConductor: 'c-2', nombreCompleto: 'Rafael Useche', telefono: '+58 412-8874120', estado: 'Activo', vehiculoHabitual: 'Iveco Stralis (Tracto #22)' },
-          { idConductor: 'c-3', nombreCompleto: 'Manuel Gómez', telefono: '+58 424-9112233', estado: 'Activo', vehiculoHabitual: 'Freightliner Cascadia (#45)' },
-          { idConductor: 'c-4', nombreCompleto: 'Luis Villegas', telefono: '+58 416-5544332', estado: 'Activo', vehiculoHabitual: 'Cargo #19' },
-          { idConductor: 'c-5', nombreCompleto: 'Eduardo Quintero', telefono: '+58 414-7788990', estado: 'Activo', vehiculoHabitual: 'Mack Trident (#52)' },
-          { idConductor: 'c-6', nombreCompleto: 'Javier Ortiz', telefono: '+58 412-1234567', estado: 'Activo', vehiculoHabitual: 'Mack Granite (#14)' },
-          { idConductor: 'c-7', nombreCompleto: 'Mateo Valdivia', telefono: '+58 414-9876543', estado: 'Activo', vehiculoHabitual: 'Volvo FH (#33)' },
+          { idConductor: 'c-1', nombreCompleto: 'Carlos Mendoza', telefono: '+58 414-5692118', estado: 'Activo', placaVehiculoHabitual: 'Tracto #66', vehiculoHabitual: 'Mack MP8 (Tracto #66)' },
+          { idConductor: 'c-2', nombreCompleto: 'Rafael Useche', telefono: '+58 412-8874120', estado: 'Activo', placaVehiculoHabitual: 'Tracto #22', vehiculoHabitual: 'Iveco Stralis (Tracto #22)' },
+          { idConductor: 'c-3', nombreCompleto: 'Manuel Gómez', telefono: '+58 424-9112233', estado: 'Activo', placaVehiculoHabitual: 'Tracto #45', vehiculoHabitual: 'Freightliner Cascadia (#45)' },
+          { idConductor: 'c-4', nombreCompleto: 'Luis Villegas', telefono: '+58 416-5544332', estado: 'Activo', placaVehiculoHabitual: 'Cargo #19', vehiculoHabitual: 'Cargo #19' },
+          { idConductor: 'c-5', nombreCompleto: 'Eduardo Quintero', telefono: '+58 414-7788990', estado: 'Activo', placaVehiculoHabitual: 'Tracto #52', vehiculoHabitual: 'Mack Trident (#52)' },
+          { idConductor: 'c-6', nombreCompleto: 'Javier Ortiz', telefono: '+58 412-1234567', estado: 'Activo', placaVehiculoHabitual: 'Tracto #14', vehiculoHabitual: 'Mack Granite (#14)' },
+          { idConductor: 'c-7', nombreCompleto: 'Mateo Valdivia', telefono: '+58 414-9876543', estado: 'Activo', placaVehiculoHabitual: 'Tracto #33', vehiculoHabitual: 'Volvo FH (#33)' },
         ]);
       }
     }
     cargarCatalogos();
   }, []);
 
-  // Manejar subida de archivo PDF emitido por el cliente
+  // Manejar subida de archivo(s) PDF emitidos por el cliente (acumulativo)
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const fileList = event.target.files;
+    if (!fileList || fileList.length === 0) return;
 
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
-      mostrarToast('warn', 'Por favor seleccione un archivo PDF emitido por el cliente.');
+    const files = Array.from(fileList).filter((f) =>
+      f.name.toLowerCase().endsWith('.pdf')
+    );
+
+    if (files.length === 0) {
+      mostrarToast('warn', 'Por favor seleccione uno o más archivos PDF emitidos por el cliente.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
     setCargandoPdf(true);
-    setNombreArchivo(file.name);
+    let totalViajesNuevos = 0;
+    let totalColisiones = 0;
+    const nuevosArchivosExitosos: string[] = [];
 
     try {
-      const resp: SchedulePreviewResponse = await programacionService.subirPdfPrograma(file);
+      // Si la consola estaba en modo demo, limpiamos los datos de prueba antes de comenzar la acumulación
+      let viajesBase = esModoDemo ? [] : [...trips];
 
-      setTrips(resp.trips.map(t => ({ ...t, seleccionado: !t.colision })));
-      if (resp.conductoresDisponibles?.length > 0) {
-        setConductores(resp.conductoresDisponibles.filter((c) => !c.estado || c.estado === 'Activo'));
-      }
-      if (resp.puntosDisponibles?.length > 0) {
-        setPuntos(resp.puntosDisponibles);
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        setMensajeCarga(
+          files.length > 1
+            ? `Extrayendo (${i + 1}/${files.length}): ${file.name}...`
+            : `Extrayendo ${file.name}...`
+        );
+
+        try {
+          const resp: SchedulePreviewResponse = await programacionService.subirPdfPrograma(file);
+          nuevosArchivosExitosos.push(file.name);
+
+          if (resp.conductoresDisponibles?.length > 0) {
+            const activos = resp.conductoresDisponibles.filter(
+              (c) => c.estado?.trim().toLowerCase() === 'activo'
+            );
+            setConductores((prev) => {
+              const ids = new Set(prev.map((c) => c.idConductor));
+              const nuevos = activos.filter((c) => !ids.has(c.idConductor));
+              return [...prev, ...nuevos];
+            });
+          }
+
+
+
+          // Combinar viajes evitando duplicados por nroTransporte real
+          const tripKey = (t: TripItem) => {
+            const nro = t.nroTransporte?.trim().toUpperCase();
+            if (nro && nro !== 'S/N' && nro !== 'PENDIENTE' && !nro.startsWith('TR-AUTO-')) {
+              return nro;
+            }
+            return null;
+          };
+
+          for (const tripNuevo of resp.trips) {
+            const key = tripKey(tripNuevo);
+            const idx = key ? viajesBase.findIndex((t) => tripKey(t) === key) : -1;
+
+            if (idx >= 0) {
+              // Ya existía en la tabla acumulada: actualizar información preservando su ID único existente y conductor ya asignado
+              viajesBase[idx] = {
+                ...tripNuevo,
+                id: viajesBase[idx].id,
+                idConductor: viajesBase[idx].idConductor || tripNuevo.idConductor,
+                conductorAsignado: viajesBase[idx].conductorAsignado || tripNuevo.conductorAsignado,
+                puntoRegreso: viajesBase[idx].puntoRegreso || tripNuevo.puntoRegreso,
+                seleccionado: !tripNuevo.colision,
+              };
+            } else {
+              // Asignar ID único e irrepetible para evitar colisiones entre manifiestos
+              const idUnico =
+                tripNuevo.id && !viajesBase.some((t) => t.id === tripNuevo.id)
+                  ? tripNuevo.id
+                  : (typeof crypto !== 'undefined' && crypto.randomUUID
+                      ? `trip-${crypto.randomUUID()}`
+                      : `trip-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`);
+
+              viajesBase.push({
+                ...tripNuevo,
+                id: idUnico,
+                seleccionado: !tripNuevo.colision,
+              });
+              totalViajesNuevos++;
+            }
+
+            if (tripNuevo.colision || tripNuevo.yaExiste) {
+              totalColisiones++;
+            }
+          }
+        } catch (err: any) {
+          console.error(`Error procesando archivo ${file.name}:`, err);
+          const msg = err.response?.data?.message || err.message || 'Error al procesar archivo';
+          mostrarToast('err', `Error en "${file.name}": ${msg}`);
+        }
       }
 
-      // Resetear filtros para ver el contenido completo del PDF
+      setTrips(viajesBase);
+      setEsModoDemo(false);
+      setArchivosCargados((prev) =>
+        esModoDemo ? nuevosArchivosExitosos : [...prev, ...nuevosArchivosExitosos]
+      );
+
+      // Resetear filtros para que el usuario visualice la totalidad de viajes acumulados
       setFiltroFecha('todos');
       setFiltroPlanta('todas');
 
-      if (resp.colisiones > 0) {
-        mostrarToast(
-          'warn',
-          `Se detectaron ${resp.colisiones} viaje(s) que ya existen en 'guias_viajes'. Han sido marcados con advertencia.`
-        );
-      } else {
-        mostrarToast('ok', `PDF procesado: ${resp.totalViajes} viajes detectados sin colisiones.`);
+      if (viajesBase.length > 0 && (!viajeSeleccionadoWhatsapp || esModoDemo)) {
+        setViajeSeleccionadoWhatsapp(viajesBase[0]);
       }
 
-      if (resp.trips.length > 0) {
-        setViajeSeleccionadoWhatsapp(resp.trips[0]);
+      if (nuevosArchivosExitosos.length > 0) {
+        if (totalColisiones > 0) {
+          mostrarToast(
+            'warn',
+            `Se procesó(eron) ${nuevosArchivosExitosos.length} manifiesto(s). Total acumulado: ${viajesBase.length} viajes (${totalColisiones} con colisión en BD).`
+          );
+        } else {
+          mostrarToast(
+            'ok',
+            `Manifiesto(s) agregado(s) con éxito (+${totalViajesNuevos} viajes). Total acumulado en consola: ${viajesBase.length} viajes.`
+          );
+        }
       }
     } catch (error: any) {
-      console.error('Error al subir PDF:', error);
-      const msg = error.response?.data?.message || error.message || 'Error al conectar con el backend.';
-      mostrarToast('err', `Error al levantar programa: ${msg}`);
+      console.error('Error general al subir PDF:', error);
+      mostrarToast('err', `Error al levantar programa: ${error.message || 'Error de conexión'}`);
     } finally {
       setCargandoPdf(false);
+      setMensajeCarga('Extrayendo PDF...');
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
     }
   };
 
+  // Limpiar pantalla / Iniciar nuevo proceso de carga
+  const handleLimpiarPantalla = () => {
+    if (trips.length > 0 && !esModoDemo) {
+      const confirmar = window.confirm(
+        '¿Desea limpiar la pantalla e iniciar un nuevo proceso de carga? Se descartarán los viajes en pantalla que no hayan sido guardados.'
+      );
+      if (!confirmar) return;
+    }
+
+    setTrips([]);
+    setArchivosCargados([]);
+    setEsModoDemo(false);
+    setFiltroFecha('todos');
+    setFiltroPlanta('todas');
+    setFiltroSoloSinChofer(false);
+    setFiltroSoloColisiones(false);
+    setBusqueda('');
+    setViajeSeleccionadoWhatsapp(null);
+    setModalWhatsappAbierto(false);
+    setSeccionesAbiertas({});
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    mostrarToast('ok', 'Pantalla lista para iniciar nuevo proceso de carga de manifiestos.');
+  };
+
   const handleCargarDemo = () => {
     setTrips(DEMO_MANIFEST);
-    setNombreArchivo('manifiesto_demostracion.pdf');
+    setArchivosCargados(['manifiesto_demostracion.pdf']);
+    setEsModoDemo(true);
     setFiltroFecha('todos');
     setFiltroPlanta('todas');
     setViajeSeleccionadoWhatsapp(DEMO_MANIFEST[0]);
@@ -469,52 +631,73 @@ export default function Programacion() {
 
   // Asignar conductor a un viaje
   const handleAsignarConductor = (tripId: string, idConductor: string) => {
+    const choferSeleccionado =
+      conductores.find((c) => c.idConductor === idConductor) || null;
+
     setTrips((prev) =>
       prev.map((t) => {
         if (t.id === tripId) {
-          const chofer =
-            conductores.find((c) => c.idConductor === idConductor) ||
+          const choferFinal =
+            choferSeleccionado ||
             (t.conductorAsignado?.idConductor === idConductor ? t.conductorAsignado : null);
-          const updated = {
+          return {
             ...t,
-            idConductor: chofer?.idConductor || null,
-            conductorAsignado: chofer || null,
-            estadoPendienteChofer: !chofer,
+            idConductor: choferFinal?.idConductor || null,
+            conductorAsignado: choferFinal || null,
+            estadoPendienteChofer: !choferFinal,
           };
-          if (viajeSeleccionadoWhatsapp?.id === tripId) {
-            setViajeSeleccionadoWhatsapp(updated);
-          }
-          return updated;
         }
         return t;
       })
     );
+
+    setViajeSeleccionadoWhatsapp((prev) => {
+      if (prev && prev.id === tripId) {
+        return {
+          ...prev,
+          idConductor: choferSeleccionado?.idConductor || null,
+          conductorAsignado: choferSeleccionado || null,
+          estadoPendienteChofer: !choferSeleccionado,
+        };
+      }
+      return prev;
+    });
   };
 
-  // Obtener conductores disponibles para un viaje específico:
-  // 1. Que tengan estatus 'Activo' en la tabla conductores
-  // 2. Que aún NO hayan sido seleccionados en el manifiesto actual (exceptuando el viaje actual si ya lo tiene asignado)
-  const getConductoresDisponiblesParaViaje = (tripActualId: string, idConductorActual?: string | null) => {
-    // IDs de conductores asignados en OTROS viajes del manifiesto
-    const asignadosEnOtrosViajes = new Set(
-      trips
-        .filter((t) => t.id !== tripActualId && (t.idConductor || t.conductorAsignado?.idConductor))
-        .map((t) => (t.idConductor || t.conductorAsignado?.idConductor) as string)
+  // Obtener viajes asignados a un chofer en un día de programación específico (para permitir múltiples viajes)
+  const getViajesChoferEnDia = (idConductor?: string | null, fechaProgramadaCarga?: string) => {
+    if (!idConductor || !fechaProgramadaCarga) return [];
+    const isoDiaActual = normalizarFecha(fechaProgramadaCarga).isoKey;
+    return trips.filter(
+      (t) =>
+        (t.idConductor === idConductor || t.conductorAsignado?.idConductor === idConductor) &&
+        normalizarFecha(t.fechaProgramadaCarga).isoKey === isoDiaActual
     );
+  };
 
-    return conductores.filter((c) => {
-      // 1. Debe tener estatus activo
-      const esActivo = !c.estado || c.estado === 'Activo';
-      if (!esActivo) return false;
+  // Obtener conductores disponibles para un viaje:
+  // 1. Muestra únicamente choferes con estatus 'Activo'
+  // 2. Permite que un chofer pueda realizar más de un viaje el mismo día de programación
+  const getConductoresDisponiblesParaViaje = (_tripActualId?: string, _idConductorActual?: string | null) => {
+    return conductores.filter(
+      (c) => c.estado?.trim().toLowerCase() === 'activo'
+    );
+  };
 
-      // 2. Si es el conductor actualmente asignado a este viaje, se mantiene disponible para mostrarlo en el select
-      if (idConductorActual && c.idConductor === idConductorActual) {
-        return true;
-      }
-
-      // 3. No debe haber sido seleccionado en otro viaje del manifiesto
-      return !asignadosEnOtrosViajes.has(c.idConductor);
-    });
+  // Obtener la placa del vehículo habitual de un conductor
+  const getPlacaVehiculo = (conductor?: ConductorResumen | null): string => {
+    if (!conductor) return '';
+    if (conductor.placaVehiculoHabitual && conductor.placaVehiculoHabitual.trim()) {
+      return conductor.placaVehiculoHabitual.trim();
+    }
+    if (!conductor.vehiculoHabitual || !conductor.vehiculoHabitual.trim()) {
+      return '';
+    }
+    const match = conductor.vehiculoHabitual.match(/\(([^)]+)\)/);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+    return conductor.vehiculoHabitual.trim();
   };
 
 
@@ -743,7 +926,7 @@ export default function Programacion() {
     if (!viajeSeleccionadoWhatsapp) return '';
     const chofer = viajeSeleccionadoWhatsapp.conductorAsignado?.nombreCompleto || 'Estimado Conductor';
     const unidad = viajeSeleccionadoWhatsapp.conductorAsignado?.vehiculoHabitual || 'Mack MP8 (Tracto #66) + Batea #10';
-    return `🔔 NOTIFICACIÓN DE VIAJE FLEETFLOW\n\nHola ${chofer}, se te ha asignado el despacho:\n\n• Guía de Ida: ${viajeSeleccionadoWhatsapp.nroTransporte}\n• Origen: [${viajeSeleccionadoWhatsapp.origenSalida.codigo}] ${viajeSeleccionadoWhatsapp.origenSalida.nombre} (${viajeSeleccionadoWhatsapp.fechaProgramadaCarga} ${viajeSeleccionadoWhatsapp.horaProgramadaCarga})\n• Destino: [${viajeSeleccionadoWhatsapp.destinoLlegada.codigo}] ${viajeSeleccionadoWhatsapp.destinoLlegada.nombre} (Est. ${viajeSeleccionadoWhatsapp.horaEntregaEstimada})\n• Guía Retorno: ${viajeSeleccionadoWhatsapp.nroRetorno || 'RET-9091-A'}\n• Punto de Regreso: ${viajeSeleccionadoWhatsapp.puntoRegreso || 'Planta San Joaquín (Simétrico)'}\n• Unidad: ${unidad}\n\nPor favor confirma recepción respondiendo OK o reporta cualquier novedad a la Mesa de Control.`;
+    return `🔔 NOTIFICACIÓN DE VIAJE FLEETFLOW\n\nHola ${chofer}, se te ha asignado el despacho:\n\n• Guía de Ida: ${viajeSeleccionadoWhatsapp.nroTransporte}\n• Origen: [${viajeSeleccionadoWhatsapp.origenSalida.codigo}] ${viajeSeleccionadoWhatsapp.origenSalida.nombre} (${viajeSeleccionadoWhatsapp.fechaProgramadaCarga} ${viajeSeleccionadoWhatsapp.horaProgramadaCarga})\n• Destino: [${viajeSeleccionadoWhatsapp.destinoLlegada.codigo}] ${viajeSeleccionadoWhatsapp.destinoLlegada.nombre} (Est. ${viajeSeleccionadoWhatsapp.horaEntregaEstimada})\n• Guía Retorno: ${viajeSeleccionadoWhatsapp.nroRetorno || 'RET-9091-A'}\n• Unidad: ${unidad}\n\nPor favor confirma recepción respondiendo OK o reporta cualquier novedad a la Mesa de Control.`;
   }, [viajeSeleccionadoWhatsapp]);
 
   const textoWhatsappFinal = textoWhatsappCustom ?? mensajeWhatsappGenerado;
@@ -778,7 +961,6 @@ export default function Programacion() {
               <th className="py-2.5 px-3">ORIGEN SALIDA</th>
               <th className="py-2.5 px-3">DESTINO LLEGADA</th>
               <th className="py-2.5 px-3">CONDUCTOR ASIGNADO</th>
-              <th className="py-2.5 px-3">PUNTO DE REGRESO</th>
               <th className="py-2.5 px-3 text-center">ACCIONES RÁPIDAS</th>
             </tr>
           </thead>
@@ -857,9 +1039,19 @@ export default function Programacion() {
                         trip.id,
                         trip.idConductor
                       );
-                      const primerChoferDisponible = conductoresDisponibles.find(
-                        (c) => c.idConductor !== trip.idConductor
-                      );
+                      // Para sugerir chofer urgente: busca uno activo sin viajes ese día o el primer activo disponible
+                      const primerChoferDisponible =
+                        conductoresDisponibles.find((c) => {
+                          if (c.idConductor === trip.idConductor) return false;
+                          const viajesDia = getViajesChoferEnDia(
+                            c.idConductor,
+                            trip.fechaProgramadaCarga
+                          ).filter((t) => t.id !== trip.id);
+                          return viajesDia.length === 0;
+                        }) ||
+                        conductoresDisponibles.find(
+                          (c) => c.idConductor !== trip.idConductor
+                        );
 
                       if (esPendiente) {
                         return (
@@ -873,20 +1065,37 @@ export default function Programacion() {
                                 <option value="">
                                   {conductoresDisponibles.length === 0
                                     ? 'Sin choferes activos disponibles'
-                                    : 'Seleccionar chofer...'}
+                                    : 'Seleccionar chofer activo...'}
                                 </option>
-                                {conductoresDisponibles.map((c) => (
-                                  <option key={c.idConductor} value={c.idConductor}>
-                                    {c.nombreCompleto} {c.vehiculoHabitual ? `(${c.vehiculoHabitual})` : ''}
-                                  </option>
-                                ))}
+                                {conductoresDisponibles.map((c) => {
+                                  const otrosViajesDia = getViajesChoferEnDia(
+                                    c.idConductor,
+                                    trip.fechaProgramadaCarga
+                                  ).filter((t) => t.id !== trip.id);
+                                  const nOtros = otrosViajesDia.length;
+                                  const tagViajes = nOtros > 0
+                                    ? ` • [${nOtros} viaje${nOtros > 1 ? 's' : ''} este día]`
+                                    : '';
+                                  const placa = getPlacaVehiculo(c);
+                                  return (
+                                    <option key={c.idConductor} value={c.idConductor}>
+                                      {c.nombreCompleto} {placa ? `(${placa})` : ''}{tagViajes}
+                                    </option>
+                                  );
+                                })}
                               </select>
                             </div>
 
                             {primerChoferDisponible ? (
                               <button
                                 onClick={() => handleAsignarConductor(trip.id, primerChoferDisponible.idConductor)}
-                                title={`Asignar de urgencia a ${primerChoferDisponible.nombreCompleto}`}
+                                title={`Asignar de urgencia a ${primerChoferDisponible.nombreCompleto}${
+                                  getPlacaVehiculo(primerChoferDisponible) ? ` (${getPlacaVehiculo(primerChoferDisponible)})` : ''
+                                }${
+                                  getViajesChoferEnDia(primerChoferDisponible.idConductor, trip.fechaProgramadaCarga).filter((t) => t.id !== trip.id).length > 0
+                                    ? ' (Tiene viajes este día)'
+                                    : ''
+                                }`}
                                 className="bg-gradient-to-r from-amber-700 to-orange-700 hover:from-amber-800 hover:to-orange-800 text-white font-bold text-[11px] px-2.5 py-1.5 rounded-xl shadow-xs flex items-center space-x-1.5 transition cursor-pointer shrink-0"
                               >
                                 <Truck className="w-3.5 h-3.5" />
@@ -901,58 +1110,79 @@ export default function Programacion() {
                         );
                       }
 
+                      const totalViajesDia = getViajesChoferEnDia(
+                        trip.idConductor,
+                        trip.fechaProgramadaCarga
+                      );
+
                       return (
-                        <div className="relative">
-                          <select
-                            value={trip.idConductor || ''}
-                            onChange={(e) => handleAsignarConductor(trip.id, e.target.value)}
-                            className="bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-800 text-xs font-semibold rounded-xl px-2.5 py-1.5 pr-6 cursor-pointer focus:outline-none focus:ring-1 focus:ring-orange-500 max-w-[240px] truncate"
-                          >
-                            <option value="">
-                              — Quitar chofer (Dejar pendiente) —
-                            </option>
-                            {conductoresDisponibles.map((c) => (
-                              <option key={c.idConductor} value={c.idConductor}>
-                                {c.nombreCompleto} {c.vehiculoHabitual ? `(${c.vehiculoHabitual})` : ''}
+                        <div className="flex flex-col">
+                          <div className="relative">
+                            <select
+                              value={trip.idConductor || ''}
+                              onChange={(e) => handleAsignarConductor(trip.id, e.target.value)}
+                              className="bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-800 text-xs font-semibold rounded-xl px-2.5 py-1.5 pr-6 cursor-pointer focus:outline-none focus:ring-1 focus:ring-orange-500 max-w-[240px] truncate"
+                            >
+                              <option value="">
+                                — Quitar chofer (Dejar pendiente) —
                               </option>
-                            ))}
-                            {trip.conductorAsignado &&
-                              !conductoresDisponibles.some(
-                                (c) => c.idConductor === trip.conductorAsignado?.idConductor
-                              ) && (
-                                <option value={trip.conductorAsignado.idConductor}>
-                                  {trip.conductorAsignado.nombreCompleto}{' '}
-                                  {trip.conductorAsignado.vehiculoHabitual
-                                    ? `(${trip.conductorAsignado.vehiculoHabitual})`
-                                    : ''}
-                                </option>
-                              )}
-                          </select>
+                              {conductoresDisponibles.map((c) => {
+                                const otrosViajesDia = getViajesChoferEnDia(
+                                  c.idConductor,
+                                  trip.fechaProgramadaCarga
+                                ).filter((t) => t.id !== trip.id);
+                                const nOtros = otrosViajesDia.length;
+                                const tagViajes = nOtros > 0
+                                  ? ` • [${nOtros} viaje${nOtros > 1 ? 's' : ''} este día]`
+                                  : '';
+                                const placa = getPlacaVehiculo(c);
+                                return (
+                                  <option key={c.idConductor} value={c.idConductor}>
+                                    {c.nombreCompleto} {placa ? `(${placa})` : ''}{tagViajes}
+                                  </option>
+                                );
+                              })}
+                              {trip.conductorAsignado &&
+                                (!trip.conductorAsignado.estado || trip.conductorAsignado.estado.trim().toLowerCase() === 'activo') &&
+                                !conductoresDisponibles.some(
+                                  (c) => c.idConductor === trip.conductorAsignado?.idConductor
+                                ) && (
+                                  <option value={trip.conductorAsignado.idConductor}>
+                                    {trip.conductorAsignado.nombreCompleto}{' '}
+                                    {getPlacaVehiculo(trip.conductorAsignado)
+                                      ? `(${getPlacaVehiculo(trip.conductorAsignado)})`
+                                      : ''}
+                                  </option>
+                                )}
+                              {trip.conductorAsignado &&
+                                trip.conductorAsignado.estado &&
+                                trip.conductorAsignado.estado.trim().toLowerCase() !== 'activo' && (
+                                  <option value={trip.conductorAsignado.idConductor} disabled>
+                                    ⚠️ {trip.conductorAsignado.nombreCompleto}{' '}
+                                    {getPlacaVehiculo(trip.conductorAsignado)
+                                      ? `(${getPlacaVehiculo(trip.conductorAsignado)}) `
+                                      : ''}
+                                    ({trip.conductorAsignado.estado} - No disponible)
+                                  </option>
+                                )}
+                            </select>
+                          </div>
+
+                          {totalViajesDia.length > 1 && (
+                            <span
+                              title={`Este chofer tiene ${totalViajesDia.length} viajes asignados en este día de programación`}
+                              className="inline-flex items-center space-x-1 text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-md mt-1 w-fit"
+                            >
+                              <RotateCcw className="w-2.5 h-2.5 text-blue-500" />
+                              <span>{totalViajesDia.length} viajes este día</span>
+                            </span>
+                          )}
                         </div>
                       );
                     })()}
                   </td>
 
-                  {/* Punto de Regreso */}
-                  <td className="py-3 px-3">
-                    <select
-                      value={trip.puntoRegreso || ''}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setTrips((prev) =>
-                          prev.map((t) => (t.id === trip.id ? { ...t, puntoRegreso: val } : t))
-                        );
-                      }}
-                      className="bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-800 text-xs font-medium rounded-xl px-2 py-1 max-w-[170px] truncate cursor-pointer focus:outline-none"
-                    >
-                      <option value={trip.puntoRegreso || ''}>{trip.puntoRegreso || 'Punto retorno'}</option>
-                      {puntos.map((p) => (
-                        <option key={p.idPunto} value={`[${p.codigoPuntoc}] ${p.nombreSede}`}>
-                          [{p.codigoPuntoc}] {p.nombreSede} ({p.ciudad})
-                        </option>
-                      ))}
-                    </select>
-                  </td>
+
 
                   {/* Acciones Rápidas */}
                   <td className="py-3 px-3 text-center">
@@ -967,7 +1197,7 @@ export default function Programacion() {
                         title="Ver y Enviar Notificación WhatsApp"
                         className="w-7 h-7 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center shadow-xs transition cursor-pointer"
                       >
-                        <MessageSquare className="w-3.5 h-3.5" />
+                        <WhatsAppIcon className="w-3.5 h-3.5" />
                       </button>
 
                       <button
@@ -1018,10 +1248,11 @@ export default function Programacion() {
         </div>
       )}
 
-      {/* Input oculto para subida de PDF */}
+      {/* Input oculto para subida de PDF(s) */}
       <input
         ref={fileInputRef}
         type="file"
+        multiple
         accept="application/pdf,.pdf"
         className="hidden"
         onChange={handleFileUpload}
@@ -1046,7 +1277,16 @@ export default function Programacion() {
         </div>
 
         {/* Acciones Superiores */}
-        <div className="flex items-center space-x-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={handleLimpiarPantalla}
+            title="Limpiar la consola para iniciar un nuevo proceso de carga de manifiestos"
+            className="flex items-center space-x-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold px-3 py-2 rounded-xl transition cursor-pointer shadow-xs active:scale-95"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+            <span>Limpiar / Iniciar Carga</span>
+          </button>
+
           <button
             onClick={handleCargarDemo}
             title="Restablecer datos de demostración"
@@ -1074,12 +1314,12 @@ export default function Programacion() {
             {cargandoPdf ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Extrayendo PDF...</span>
+                <span>{mensajeCarga}</span>
               </>
             ) : (
               <>
                 <Upload className="w-4 h-4" />
-                <span>Subir Manifiesto (.pdf)</span>
+                <span>+ Adjuntar Manifiesto (.pdf)</span>
               </>
             )}
           </button>
@@ -1092,8 +1332,19 @@ export default function Programacion() {
           {/* Badge Nombre Archivo & Colisiones */}
           <div className="flex items-center space-x-2 bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-xl text-xs font-medium text-gray-700">
             <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span className="font-semibold text-gray-800 max-w-[140px] truncate" title={nombreArchivo}>
-              {nombreArchivo}
+            <span
+              className="font-semibold text-gray-800 max-w-[200px] truncate cursor-help"
+              title={
+                archivosCargados.length > 0
+                  ? archivosCargados.map((a, i) => `${i + 1}. ${a}`).join('\n')
+                  : 'Sin archivos cargados'
+              }
+            >
+              {archivosCargados.length === 0
+                ? 'Sin manifiestos'
+                : archivosCargados.length === 1
+                  ? archivosCargados[0]
+                  : `${archivosCargados.length} manifiestos acumulados`}
             </span>
             <span className="text-gray-300">|</span>
             <span className="flex items-center space-x-1 text-emerald-700 font-bold">
@@ -1318,110 +1569,147 @@ export default function Programacion() {
         </div>
       </div>
 
-      {/* 5. Matriz de Viajes Agrupados (Acordeones Dinámicos) */}
-      <div className="space-y-4">
-        {modoVista === 'dia' ? (
-          // VISTA: CORTE POR DÍA
-          gruposCronologicos.map((grupo) => {
-            const estaAbierto = seccionesAbiertas[grupo.isoKey] !== undefined ? seccionesAbiertas[grupo.isoKey] : true;
-            const choferesListos = grupo.viajes.filter((v) => v.conductorAsignado && !v.estadoPendienteChofer).length;
-            const choferesTotal = grupo.viajes.length;
+      {/* 5. Matriz de Viajes Agrupados (Acordeones Dinámicos) o Estado Vacío */}
+      {trips.length === 0 ? (
+        <div className="bg-white border-2 border-dashed border-gray-200 rounded-3xl p-12 text-center flex flex-col items-center justify-center space-y-4 shadow-xs">
+          <div className="w-16 h-16 rounded-2xl bg-orange-50 border border-orange-100 flex items-center justify-center text-orange-600 shadow-inner">
+            <Upload className="w-8 h-8" />
+          </div>
+          <div className="max-w-md">
+            <h3 className="text-base font-black text-gray-900 tracking-tight">
+              Consola Lista para Iniciar Proceso de Carga
+            </h3>
+            <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+              No hay viajes en pantalla. Adjunte uno o más archivos PDF del mismo cliente para acumular sus despachos en la matriz sin sobreescribir los anteriores.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={cargandoPdf}
+              className="flex items-center space-x-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-md transition transform active:scale-95 disabled:opacity-50 cursor-pointer"
+            >
+              <Upload className="w-4 h-4" />
+              <span>+ Adjuntar Manifiesto(s) (.pdf)</span>
+            </button>
+            <button
+              onClick={handleCargarDemo}
+              className="flex items-center space-x-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold px-4 py-2.5 rounded-xl transition cursor-pointer"
+            >
+              <RefreshCw className="w-4 h-4 text-gray-500" />
+              <span>Cargar Datos Demo</span>
+            </button>
+          </div>
+        </div>
+      ) : tripsFiltrados.length === 0 ? (
+        <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center text-gray-500 text-xs font-medium">
+          No se encontraron viajes que coincidan con los filtros de búsqueda aplicados.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {modoVista === 'dia' ? (
+            // VISTA: CORTE POR DÍA
+            gruposCronologicos.map((grupo) => {
+              const estaAbierto = seccionesAbiertas[grupo.isoKey] !== undefined ? seccionesAbiertas[grupo.isoKey] : true;
+              const choferesListos = grupo.viajes.filter((v) => v.conductorAsignado && !v.estadoPendienteChofer).length;
+              const choferesTotal = grupo.viajes.length;
 
-            return (
-              <div key={grupo.isoKey} className="bg-white border border-gray-200 rounded-2xl shadow-xs overflow-hidden">
-                {/* Encabezado del Acordeón por Día */}
-                <div
-                  onClick={() =>
-                    setSeccionesAbiertas((prev) => ({ ...prev, [grupo.isoKey]: !estaAbierto }))
-                  }
-                  className="p-4 bg-gradient-to-r from-gray-50 to-white hover:bg-gray-100/70 border-b border-gray-200 flex items-center justify-between cursor-pointer transition select-none"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-6 h-6 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center font-bold text-xs">
-                      {estaAbierto ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              return (
+                <div key={grupo.isoKey} className="bg-white border border-gray-200 rounded-2xl shadow-xs overflow-hidden">
+                  {/* Encabezado del Acordeón por Día */}
+                  <div
+                    onClick={() =>
+                      setSeccionesAbiertas((prev) => ({ ...prev, [grupo.isoKey]: !estaAbierto }))
+                    }
+                    className="p-4 bg-gradient-to-r from-gray-50 to-white hover:bg-gray-100/70 border-b border-gray-200 flex items-center justify-between cursor-pointer transition select-none"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <div className="w-6 h-6 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center font-bold text-xs">
+                        {estaAbierto ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </div>
+                      <div>
+                        <h3 className="text-xs font-black text-gray-900 tracking-wide uppercase">
+                          {grupo.titulo} —{' '}
+                          <span className="text-gray-500 font-semibold">
+                            {grupo.viajes.length} VIAJES PROGRAMADOS | {grupo.kmTotalesEstimados.toLocaleString()} KM TOTALES | {grupo.ventanaHoraria}
+                          </span>
+                        </h3>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="text-xs font-black text-gray-900 tracking-wide uppercase">
-                        {grupo.titulo} —{' '}
-                        <span className="text-gray-500 font-semibold">
-                          {grupo.viajes.length} VIAJES PROGRAMADOS | {grupo.kmTotalesEstimados.toLocaleString()} KM TOTALES | {grupo.ventanaHoraria}
-                        </span>
-                      </h3>
+
+                    <div className="flex items-center space-x-3">
+                      <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold text-[11px] px-2.5 py-1 rounded-xl">
+                        +{choferesListos}/{choferesTotal} Choferes Listos
+                      </span>
+
+                      <label
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex items-center space-x-1.5 text-xs font-medium text-gray-600 cursor-pointer"
+                      >
+                        <span>Auto-Guardar</span>
+                        <input type="checkbox" defaultChecked className="rounded text-emerald-600 focus:ring-0" />
+                      </label>
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-3">
-                    <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold text-[11px] px-2.5 py-1 rounded-xl">
-                      +{choferesListos}/{choferesTotal} Choferes Listos
-                    </span>
-
-                    <label
-                      onClick={(e) => e.stopPropagation()}
-                      className="flex items-center space-x-1.5 text-xs font-medium text-gray-600 cursor-pointer"
-                    >
-                      <span>Auto-Guardar</span>
-                      <input type="checkbox" defaultChecked className="rounded text-emerald-600 focus:ring-0" />
-                    </label>
-                  </div>
+                  {/* Tabla de Viajes */}
+                  {estaAbierto && renderTablaDeViajes(grupo.viajes, `dia-${grupo.isoKey}`)}
                 </div>
+              );
+            })
+          ) : (
+            // VISTA: CORTE POR PLANTA
+            gruposPorPlanta.map((grupo) => {
+              const estaAbierto = seccionesAbiertas[grupo.key] !== undefined ? seccionesAbiertas[grupo.key] : true;
+              const choferesListos = grupo.viajes.filter((v) => v.conductorAsignado && !v.estadoPendienteChofer).length;
+              const choferesTotal = grupo.viajes.length;
 
-                {/* Tabla de Viajes */}
-                {estaAbierto && renderTablaDeViajes(grupo.viajes, `dia-${grupo.isoKey}`)}
-              </div>
-            );
-          })
-        ) : (
-          // VISTA: CORTE POR PLANTA
-          gruposPorPlanta.map((grupo) => {
-            const estaAbierto = seccionesAbiertas[grupo.key] !== undefined ? seccionesAbiertas[grupo.key] : true;
-            const choferesListos = grupo.viajes.filter((v) => v.conductorAsignado && !v.estadoPendienteChofer).length;
-            const choferesTotal = grupo.viajes.length;
-
-            return (
-              <div key={grupo.key} className="bg-white border border-gray-200 rounded-2xl shadow-xs overflow-hidden">
-                {/* Encabezado del Acordeón por Planta */}
-                <div
-                  onClick={() =>
-                    setSeccionesAbiertas((prev) => ({ ...prev, [grupo.key]: !estaAbierto }))
-                  }
-                  className="p-4 bg-gradient-to-r from-emerald-50/40 to-white hover:bg-emerald-50/70 border-b border-gray-200 flex items-center justify-between cursor-pointer transition select-none"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs">
-                      {estaAbierto ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              return (
+                <div key={grupo.key} className="bg-white border border-gray-200 rounded-2xl shadow-xs overflow-hidden">
+                  {/* Encabezado del Acordeón por Planta */}
+                  <div
+                    onClick={() =>
+                      setSeccionesAbiertas((prev) => ({ ...prev, [grupo.key]: !estaAbierto }))
+                    }
+                    className="p-4 bg-gradient-to-r from-emerald-50/40 to-white hover:bg-emerald-50/70 border-b border-gray-200 flex items-center justify-between cursor-pointer transition select-none"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <div className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs">
+                        {estaAbierto ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </div>
+                      <div>
+                        <h3 className="text-xs font-black text-gray-900 tracking-wide uppercase">
+                          {grupo.titulo} —{' '}
+                          <span className="text-gray-500 font-semibold">
+                            {grupo.viajes.length} VIAJES PROGRAMADOS | {grupo.destinosUnicos} DESTINOS | {grupo.ventanaHoraria}
+                          </span>
+                        </h3>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="text-xs font-black text-gray-900 tracking-wide uppercase">
-                        {grupo.titulo} —{' '}
-                        <span className="text-gray-500 font-semibold">
-                          {grupo.viajes.length} VIAJES PROGRAMADOS | {grupo.destinosUnicos} DESTINOS | {grupo.ventanaHoraria}
-                        </span>
-                      </h3>
+
+                    <div className="flex items-center space-x-3">
+                      <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold text-[11px] px-2.5 py-1 rounded-xl">
+                        +{choferesListos}/{choferesTotal} Choferes Listos
+                      </span>
+
+                      <label
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex items-center space-x-1.5 text-xs font-medium text-gray-600 cursor-pointer"
+                      >
+                        <span>Auto-Guardar</span>
+                        <input type="checkbox" defaultChecked className="rounded text-emerald-600 focus:ring-0" />
+                      </label>
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-3">
-                    <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold text-[11px] px-2.5 py-1 rounded-xl">
-                      +{choferesListos}/{choferesTotal} Choferes Listos
-                    </span>
-
-                    <label
-                      onClick={(e) => e.stopPropagation()}
-                      className="flex items-center space-x-1.5 text-xs font-medium text-gray-600 cursor-pointer"
-                    >
-                      <span>Auto-Guardar</span>
-                      <input type="checkbox" defaultChecked className="rounded text-emerald-600 focus:ring-0" />
-                    </label>
-                  </div>
+                  {/* Tabla de Viajes */}
+                  {estaAbierto && renderTablaDeViajes(grupo.viajes, `planta-${grupo.key}`)}
                 </div>
-
-                {/* Tabla de Viajes */}
-                {estaAbierto && renderTablaDeViajes(grupo.viajes, `planta-${grupo.key}`)}
-              </div>
-            );
-          })
-        )}
-      </div>
+              );
+            })
+          )}
+        </div>
+      )}
 
       {/* 6. Modal Oficial de Notificación WhatsApp / Dispatch Preview */}
       {modalWhatsappAbierto && viajeSeleccionadoWhatsapp && (
@@ -1463,8 +1751,8 @@ export default function Programacion() {
 
               <div className="flex items-center space-x-3 text-xs font-bold text-emerald-300">
                 <div className="hidden sm:flex items-center space-x-1.5 bg-emerald-900/60 border border-emerald-700/50 px-2.5 py-1 rounded-lg">
-                  <span className="text-[10px]">&lt; &gt;</span>
-                  <span className="tracking-wider text-[11px]">VISTA PREVIA</span>
+                  <WhatsAppIcon className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="tracking-wider text-[11px]">VISTA PREVIA WHATSAPP</span>
                 </div>
                 <button
                   type="button"
