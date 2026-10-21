@@ -150,10 +150,11 @@ export default function Sidebar() {
 
             <Link
               to="/scheduling"
-              className={`flex items-center space-x-3 px-3 py-1.5 rounded-xl font-medium transition ${isActive('/scheduling')
-                ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20'
-                : 'text-gray-700 hover:bg-gray-100'
-                }`}
+              className={`flex items-center space-x-3 px-3 py-1.5 rounded-xl font-medium transition ${
+                isActive('/scheduling') || isActive('/viajes/programacion') || isActive('/programacion')
+                  ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20'
+                  : 'text-gray-700 hover:bg-gray-100'
+              }`}
             >
               <Calendar className="w-4 h-4 shrink-0" />
               <span>Programación</span>

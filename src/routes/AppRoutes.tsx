@@ -14,6 +14,7 @@ import Clientes from '../pages/clientes/Clientes';
 import PuntosCargaDescarga from '../pages/clientes/PuntosCargaDescarga';
 import PuntosRegistrar from '../pages/clientes/PuntosRegistrar';
 import RutasRegistro from '../pages/rutas/RutasRegistro';
+import Programacion from '../pages/viajes/Programacion';
 import PaginaEnConstruccion from '../componentes/common/PaginaEnConstruccion';
 
 export default function AppRoutes() {
@@ -60,7 +61,9 @@ export default function AppRoutes() {
                         <Route path="/rutas/registro" element={<RutasRegistro />} />
                         <Route path="/rutas/editar/:id" element={<RutasRegistro />} />
                         <Route path="/routes/:id" element={<RutasRegistro />} />
-                        <Route path="/scheduling" element={<PaginaEnConstruccion titulo="Programación" descripcion="Programación de viajes y asignación de gandolas." />} />
+                        <Route path="/scheduling" element={<Programacion />} />
+                        <Route path="/viajes/programacion" element={<Programacion />} />
+                        <Route path="/programacion" element={<Programacion />} />
 
                         {/* Financiero */}
                         <Route path="/proformas" element={<PaginaEnConstruccion titulo="Proformas" descripcion="Generación y gestión de proformas de liquidación de fletes." />} />
