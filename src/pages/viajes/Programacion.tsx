@@ -1,203 +1,30 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import {
+  ArrowLeft,
   Upload,
   AlertCircle,
   CheckCircle2,
   AlertTriangle,
   Search,
-  Edit2,
-  MapPin,
   ChevronDown,
   ChevronUp,
-  Truck,
   RotateCcw,
-  Sparkles,
   Save,
-  Send,
   Loader2,
   FileText,
-  Table,
   X,
   Calendar,
   Building2,
-  RefreshCw,
-  Copy
+  Users,
+  Trash2
 } from 'lucide-react';
 import {
   programacionService,
   type TripItem,
   type SchedulePreviewResponse,
-  type ConductorResumen
+  type ClienteDetectado
 } from '../../services/programacionService';
-import { conductoresService } from '../../services/conductoresService';
-
-// Datos de demostración enriquecidos que replican el estado visual del diseño de consola
-const DEMO_MANIFEST: TripItem[] = [
-  // LUNES 24 DE FEBRERO 2025
-  {
-    id: 'demo-1',
-    nroTransporte: 'TR-2025-0481',
-    origenSalida: { codigo: 'P-SJ01', nombre: 'Planta San Joaquín' },
-    destinoLlegada: { codigo: 'P-LC04', nombre: 'C.D. Los Cortijos' },
-    fechaProgramadaCarga: '24/02/2025',
-    horaProgramadaCarga: '06:30 AM',
-    fechaEntregaEstimada: '24/02/2025',
-    horaEntregaEstimada: '11:15 AM',
-    conductorAsignado: {
-      idConductor: 'c-1',
-      nombreCompleto: 'Carlos Mendoza',
-      telefono: '+58 414-5692118',
-      placaVehiculoHabitual: 'Tracto #66',
-      vehiculoHabitual: 'Mack MP8 (Tracto #66) + Batea #10',
-      estado: 'Activo'
-    },
-    idConductor: 'c-1',
-    nroRetorno: 'RET-9091-A',
-    puntoRegreso: '[P-SJ01] Planta San Joaquín',
-    estadoPendienteChofer: false,
-    yaExiste: false,
-    colision: false,
-    seleccionado: true
-  },
-  {
-    id: 'demo-2',
-    nroTransporte: 'TR-2025-0482',
-    origenSalida: { codigo: 'P-SJ01', nombre: 'Planta San Joaquín' },
-    destinoLlegada: { codigo: 'P-MY01', nombre: 'C.D. Maracay' },
-    fechaProgramadaCarga: '24/02/2025',
-    horaProgramadaCarga: '07:15 AM',
-    fechaEntregaEstimada: '24/02/2025',
-    horaEntregaEstimada: '09:40 AM',
-    conductorAsignado: {
-      idConductor: 'c-2',
-      nombreCompleto: 'Rafael Useche',
-      telefono: '+58 412-8874120',
-      placaVehiculoHabitual: 'Tracto #22',
-      vehiculoHabitual: 'Iveco Stralis (Tracto #22)',
-      estado: 'Activo'
-    },
-    idConductor: 'c-2',
-    nroRetorno: 'RET-9092-B',
-    puntoRegreso: '[P-TM02] Turmero',
-    estadoPendienteChofer: false,
-    yaExiste: false,
-    colision: false,
-    seleccionado: true
-  },
-  {
-    id: 'demo-3',
-    nroTransporte: 'TR-2025-0483',
-    origenSalida: { codigo: 'P-PC01', nombre: 'Puerto Cabello' },
-    destinoLlegada: { codigo: 'P-SJ01', nombre: 'Silos San Joaquín' },
-    fechaProgramadaCarga: '24/02/2025',
-    horaProgramadaCarga: '08:00 AM',
-    fechaEntregaEstimada: '24/02/2025',
-    horaEntregaEstimada: '12:30 PM',
-    conductorAsignado: null,
-    idConductor: null,
-    nroRetorno: 'RET-9093-PC',
-    puntoRegreso: '[P-PC01] Puerto Cabello',
-    estadoPendienteChofer: true,
-    yaExiste: false,
-    colision: false,
-    seleccionado: true
-  },
-  {
-    id: 'demo-4',
-    nroTransporte: 'TR-2025-0484',
-    origenSalida: { codigo: 'P-SJ01', nombre: 'Planta San Joaquín' },
-    destinoLlegada: { codigo: 'P-BQ02', nombre: 'C.D. Barquisimeto' },
-    fechaProgramadaCarga: '24/02/2025',
-    horaProgramadaCarga: '09:00 AM',
-    fechaEntregaEstimada: '24/02/2025',
-    horaEntregaEstimada: '03:15 PM',
-    conductorAsignado: {
-      idConductor: 'c-3',
-      nombreCompleto: 'Manuel Gómez',
-      telefono: '+58 424-9112233',
-      placaVehiculoHabitual: 'Tracto #45',
-      vehiculoHabitual: 'Freightliner Cascadia (Tracto #45)',
-      estado: 'Activo'
-    },
-    idConductor: 'c-3',
-    nroRetorno: 'RET-9094-BQ',
-    puntoRegreso: '[P-SJ01] Planta San Joaquín',
-    estadoPendienteChofer: false,
-    yaExiste: false,
-    colision: false,
-    seleccionado: true
-  },
-  // MARTES 25 DE FEBRERO 2025
-  {
-    id: 'demo-5',
-    nroTransporte: 'TR-2025-0490',
-    origenSalida: { codigo: 'P-TM02', nombre: 'Turmero Graneles' },
-    destinoLlegada: { codigo: 'P-MY01', nombre: 'Almacén Maracay' },
-    fechaProgramadaCarga: '25/02/2025',
-    horaProgramadaCarga: '07:00 AM',
-    fechaEntregaEstimada: '25/02/2025',
-    horaEntregaEstimada: '09:30 AM',
-    conductorAsignado: {
-      idConductor: 'c-4',
-      nombreCompleto: 'Luis Villegas',
-      telefono: '+58 416-5544332',
-      placaVehiculoHabitual: 'Cargo #19',
-      vehiculoHabitual: 'Cargo #19',
-      estado: 'Activo'
-    },
-    idConductor: 'c-4',
-    nroRetorno: 'RET-9098-R',
-    puntoRegreso: '[P-SJ01] Planta San Joaquín',
-    estadoPendienteChofer: false,
-    yaExiste: false,
-    colision: false,
-    seleccionado: true
-  },
-  {
-    id: 'demo-6',
-    nroTransporte: 'TR-2025-0491',
-    origenSalida: { codigo: 'P-PC01', nombre: 'Puerto Cabello' },
-    destinoLlegada: { codigo: 'P-SJ01', nombre: 'Planta San Joaquín' },
-    fechaProgramadaCarga: '25/02/2025',
-    horaProgramadaCarga: '06:00 AM',
-    fechaEntregaEstimada: '25/02/2025',
-    horaEntregaEstimada: '10:20 AM',
-    conductorAsignado: {
-      idConductor: 'c-5',
-      nombreCompleto: 'Eduardo Quintero',
-      telefono: '+58 414-7788990',
-      placaVehiculoHabitual: 'Tracto #52',
-      vehiculoHabitual: 'Mack Trident (Tracto #52)',
-      estado: 'Activo'
-    },
-    idConductor: 'c-5',
-    nroRetorno: 'RET-9099-PC',
-    puntoRegreso: '[P-PC01] Puerto Cabello',
-    estadoPendienteChofer: false,
-    yaExiste: false,
-    colision: false,
-    seleccionado: true
-  },
-  // MIÉRCOLES 26 DE FEBRERO 2025
-  {
-    id: 'demo-7',
-    nroTransporte: 'TR-2025-0501',
-    origenSalida: { codigo: 'P-SJ01', nombre: 'Planta San Joaquín' },
-    destinoLlegada: { codigo: 'P-VL01', nombre: 'C.D. Valencia Sur' },
-    fechaProgramadaCarga: '26/02/2025',
-    horaProgramadaCarga: '08:30 AM',
-    fechaEntregaEstimada: '26/02/2025',
-    horaEntregaEstimada: '11:00 AM',
-    conductorAsignado: null,
-    idConductor: null,
-    nroRetorno: 'RET-9102-V',
-    puntoRegreso: '[P-SJ01] Planta San Joaquín',
-    estadoPendienteChofer: true,
-    yaExiste: false,
-    colision: false,
-    seleccionado: true
-  }
-];
 
 interface InfoFechaNormalizada {
   isoKey: string;
@@ -321,20 +148,6 @@ export interface GrupoPlanta {
   destinosUnicos: number;
 }
 
-export function WhatsAppIcon({ className = 'w-4 h-4' }: { className?: string }) {
-  return (
-    <svg
-      role="img"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      className={className}
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0 0 12.04 2m.01 1.67c2.2 0 4.26.86 5.82 2.42a8.225 8.225 0 0 1 2.41 5.83c0 4.54-3.7 8.24-8.24 8.24-1.48 0-2.93-.39-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.32a8.188 8.188 0 0 1-1.26-4.38c.01-4.54 3.7-8.24 8.25-8.24M8.53 7.33c-.16 0-.43.06-.66.31-.22.25-.85.84-.85 2.05 0 1.21.88 2.37 1 2.54.12.16 1.72 2.63 4.17 3.69.58.25 1.04.4 1.39.51.59.19 1.12.16 1.55.1.48-.07 1.47-.6 1.67-1.18.21-.57.21-1.06.15-1.16-.06-.11-.23-.17-.48-.29-.25-.13-1.47-.73-1.7-.81-.22-.09-.39-.13-.55.12-.17.25-.64.81-.79.98-.14.16-.29.18-.54.06-.25-.13-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.02-.38.11-.51.11-.11.24-.28.37-.43.12-.14.16-.25.24-.41.09-.17.05-.31-.01-.43-.07-.13-.56-1.33-.76-1.82-.2-.48-.4-.41-.55-.42-.15-.01-.27.05-.39.05Z" />
-    </svg>
-  );
-}
-
 export default function Programacion() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -342,32 +155,24 @@ export default function Programacion() {
   const [modoVista, setModoVista] = useState<'dia' | 'planta'>('dia');
 
   // Estados principales
-  const [trips, setTrips] = useState<TripItem[]>(DEMO_MANIFEST);
-  const [archivosCargados, setArchivosCargados] = useState<string[]>(['manifiesto_demostracion.pdf']);
-  const [esModoDemo, setEsModoDemo] = useState<boolean>(true);
+  const [trips, setTrips] = useState<TripItem[]>([]);
+  const [archivosCargados, setArchivosCargados] = useState<string[]>([]);
   const [cargandoPdf, setCargandoPdf] = useState<boolean>(false);
   const [mensajeCarga, setMensajeCarga] = useState<string>('Extrayendo PDF...');
   const [guardandoBd, setGuardandoBd] = useState<boolean>(false);
+  const [guardandoTripId, setGuardandoTripId] = useState<string | null>(null);
+  const [guardandoGrupoKey, setGuardandoGrupoKey] = useState<string | null>(null);
+  const [clienteDetectado, setClienteDetectado] = useState<ClienteDetectado | null>(null);
   const [mensajeToast, setMensajeToast] = useState<{ tipo: 'ok' | 'err' | 'warn'; texto: string } | null>(null);
 
   // Filtros
   const [filtroFecha, setFiltroFecha] = useState<string>('todos');
   const [filtroPlanta, setFiltroPlanta] = useState<string>('todas');
-  const [filtroSoloSinChofer, setFiltroSoloSinChofer] = useState<boolean>(false);
   const [filtroSoloColisiones, setFiltroSoloColisiones] = useState<boolean>(false);
   const [busqueda, setBusqueda] = useState<string>('');
 
-  // Conductores disponibles
-  const [conductores, setConductores] = useState<ConductorResumen[]>([]);
-
   // Secciones colapsadas (por clave de grupo)
   const [seccionesAbiertas, setSeccionesAbiertas] = useState<Record<string, boolean>>({});
-
-  // Viaje activo para vista previa WhatsApp y modal
-  const [viajeSeleccionadoWhatsapp, setViajeSeleccionadoWhatsapp] = useState<TripItem | null>(DEMO_MANIFEST[0]);
-  const [modalWhatsappAbierto, setModalWhatsappAbierto] = useState<boolean>(false);
-  const [textoWhatsappCustom, setTextoWhatsappCustom] = useState<string | null>(null);
-  const [editandoTextoWa, setEditandoTextoWa] = useState<boolean>(false);
 
   // Asegurar unicidad absoluta de IDs en la lista de viajes para evitar que dos filas compartan id
   useEffect(() => {
@@ -391,64 +196,6 @@ export default function Programacion() {
     });
   }, []);
 
-  // Manejo de tecla Escape y bloqueo de scroll para el modal de WhatsApp
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && modalWhatsappAbierto) {
-        setModalWhatsappAbierto(false);
-      }
-    };
-
-    if (modalWhatsappAbierto) {
-      document.body.style.overflow = 'hidden';
-      window.addEventListener('keydown', handleKeyDown);
-    }
-
-    return () => {
-      document.body.style.overflow = 'unset';
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [modalWhatsappAbierto]);
-
-  // Cargar conductores reales del sistema para los dropdowns
-  useEffect(() => {
-    async function cargarCatalogos() {
-      try {
-        const drivers = await conductoresService.getConductores();
-        if (drivers && drivers.length > 0) {
-          // Filtrar estrictamente solo conductores con estatus 'Activo' en la tabla conductores
-          const activos = drivers.filter(
-            (d) => d.estado?.trim().toLowerCase() === 'activo'
-          );
-          setConductores(
-            activos.map((d) => ({
-              idConductor: d.idConductor,
-              nombreCompleto: `${d.nombres} ${d.apellidos}`,
-              telefono: d.telefono,
-              estado: d.estado,
-              placaVehiculoHabitual: d.vehiculoHabitual?.placa || null,
-              vehiculoHabitual: d.vehiculoHabitual
-                ? `${d.vehiculoHabitual.marca} (${d.vehiculoHabitual.placa})`
-                : undefined,
-            }))
-          );
-        }
-      } catch (err) {
-        console.warn('Usando catálogo local de conductores.');
-        setConductores([
-          { idConductor: 'c-1', nombreCompleto: 'Carlos Mendoza', telefono: '+58 414-5692118', estado: 'Activo', placaVehiculoHabitual: 'Tracto #66', vehiculoHabitual: 'Mack MP8 (Tracto #66)' },
-          { idConductor: 'c-2', nombreCompleto: 'Rafael Useche', telefono: '+58 412-8874120', estado: 'Activo', placaVehiculoHabitual: 'Tracto #22', vehiculoHabitual: 'Iveco Stralis (Tracto #22)' },
-          { idConductor: 'c-3', nombreCompleto: 'Manuel Gómez', telefono: '+58 424-9112233', estado: 'Activo', placaVehiculoHabitual: 'Tracto #45', vehiculoHabitual: 'Freightliner Cascadia (#45)' },
-          { idConductor: 'c-4', nombreCompleto: 'Luis Villegas', telefono: '+58 416-5544332', estado: 'Activo', placaVehiculoHabitual: 'Cargo #19', vehiculoHabitual: 'Cargo #19' },
-          { idConductor: 'c-5', nombreCompleto: 'Eduardo Quintero', telefono: '+58 414-7788990', estado: 'Activo', placaVehiculoHabitual: 'Tracto #52', vehiculoHabitual: 'Mack Trident (#52)' },
-          { idConductor: 'c-6', nombreCompleto: 'Javier Ortiz', telefono: '+58 412-1234567', estado: 'Activo', placaVehiculoHabitual: 'Tracto #14', vehiculoHabitual: 'Mack Granite (#14)' },
-          { idConductor: 'c-7', nombreCompleto: 'Mateo Valdivia', telefono: '+58 414-9876543', estado: 'Activo', placaVehiculoHabitual: 'Tracto #33', vehiculoHabitual: 'Volvo FH (#33)' },
-        ]);
-      }
-    }
-    cargarCatalogos();
-  }, []);
-
   // Manejar subida de archivo(s) PDF emitidos por el cliente (acumulativo)
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const fileList = event.target.files;
@@ -467,11 +214,12 @@ export default function Programacion() {
     setCargandoPdf(true);
     let totalViajesNuevos = 0;
     let totalColisiones = 0;
+    let rechazadosPorDistintoCliente = 0;
     const nuevosArchivosExitosos: string[] = [];
 
     try {
-      // Si la consola estaba en modo demo, limpiamos los datos de prueba antes de comenzar la acumulación
-      let viajesBase = esModoDemo ? [] : [...trips];
+      let viajesBase = [...trips];
+      let clienteActual: ClienteDetectado | null = clienteActivo;
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
@@ -483,20 +231,46 @@ export default function Programacion() {
 
         try {
           const resp: SchedulePreviewResponse = await programacionService.subirPdfPrograma(file);
-          nuevosArchivosExitosos.push(file.name);
 
-          if (resp.conductoresDisponibles?.length > 0) {
-            const activos = resp.conductoresDisponibles.filter(
-              (c) => c.estado?.trim().toLowerCase() === 'activo'
-            );
-            setConductores((prev) => {
-              const ids = new Set(prev.map((c) => c.idConductor));
-              const nuevos = activos.filter((c) => !ids.has(c.idConductor));
-              return [...prev, ...nuevos];
-            });
+          // Determinar cliente del manifiesto mediante la respuesta del extractor o de las unidades de origen
+          let clienteNuevo: ClienteDetectado | null = resp.clienteDetectado || null;
+          if (!clienteNuevo) {
+            for (const t of resp.trips) {
+              if (t.origenSalida.idCliente || t.origenSalida.clienteNombre) {
+                clienteNuevo = {
+                  idCliente: t.origenSalida.idCliente || '',
+                  razonSocial: t.origenSalida.clienteNombre || 'Cliente Detectado',
+                  nombreComercial: t.origenSalida.clienteNombre,
+                  rif: t.origenSalida.clienteRif,
+                };
+                break;
+              }
+            }
           }
 
+          // REGLA: Si los manifiestos no pertenecen al mismo cliente, no permitir procesar
+          if (
+            clienteActual &&
+            clienteNuevo &&
+            clienteActual.idCliente &&
+            clienteNuevo.idCliente &&
+            clienteActual.idCliente !== clienteNuevo.idCliente
+          ) {
+            rechazadosPorDistintoCliente++;
+            mostrarToast(
+              'err',
+              `Bloqueo de Ingesta: "${file.name}" pertenece a "${clienteNuevo.nombreComercial || clienteNuevo.razonSocial}", el cual es DIFERENTE al cliente del lote actual ("${clienteActual.nombreComercial || clienteActual.razonSocial}"). Todos los manifiestos deben pertenecer al mismo cliente.`
+            );
+            continue; // Se rechaza este archivo y no se procesan sus viajes
+          }
 
+          // Si es el primer manifiesto con cliente detectado, fijarlo como el cliente del lote
+          if (!clienteActual && clienteNuevo) {
+            clienteActual = clienteNuevo;
+            setClienteDetectado(clienteNuevo);
+          }
+
+          nuevosArchivosExitosos.push(file.name);
 
           // Combinar viajes evitando duplicados por nroTransporte real
           const tripKey = (t: TripItem) => {
@@ -512,13 +286,12 @@ export default function Programacion() {
             const idx = key ? viajesBase.findIndex((t) => tripKey(t) === key) : -1;
 
             if (idx >= 0) {
-              // Ya existía en la tabla acumulada: actualizar información preservando su ID único existente y conductor ya asignado
+              // Ya existía en la tabla acumulada: actualizar información preservando su ID único existente
               viajesBase[idx] = {
                 ...tripNuevo,
                 id: viajesBase[idx].id,
-                idConductor: viajesBase[idx].idConductor || tripNuevo.idConductor,
-                conductorAsignado: viajesBase[idx].conductorAsignado || tripNuevo.conductorAsignado,
                 puntoRegreso: viajesBase[idx].puntoRegreso || tripNuevo.puntoRegreso,
+                observacion: tripNuevo.observacion || viajesBase[idx].observacion,
                 seleccionado: !tripNuevo.colision,
               };
             } else {
@@ -527,8 +300,8 @@ export default function Programacion() {
                 tripNuevo.id && !viajesBase.some((t) => t.id === tripNuevo.id)
                   ? tripNuevo.id
                   : (typeof crypto !== 'undefined' && crypto.randomUUID
-                      ? `trip-${crypto.randomUUID()}`
-                      : `trip-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`);
+                    ? `trip-${crypto.randomUUID()}`
+                    : `trip-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`);
 
               viajesBase.push({
                 ...tripNuevo,
@@ -550,31 +323,27 @@ export default function Programacion() {
       }
 
       setTrips(viajesBase);
-      setEsModoDemo(false);
-      setArchivosCargados((prev) =>
-        esModoDemo ? nuevosArchivosExitosos : [...prev, ...nuevosArchivosExitosos]
-      );
+      setArchivosCargados((prev) => [...prev, ...nuevosArchivosExitosos]);
 
       // Resetear filtros para que el usuario visualice la totalidad de viajes acumulados
       setFiltroFecha('todos');
       setFiltroPlanta('todas');
 
-      if (viajesBase.length > 0 && (!viajeSeleccionadoWhatsapp || esModoDemo)) {
-        setViajeSeleccionadoWhatsapp(viajesBase[0]);
-      }
-
       if (nuevosArchivosExitosos.length > 0) {
+        const nombreClienteStr = clienteActual ? ` [${clienteActual.nombreComercial || clienteActual.razonSocial}]` : '';
         if (totalColisiones > 0) {
           mostrarToast(
             'warn',
-            `Se procesó(eron) ${nuevosArchivosExitosos.length} manifiesto(s). Total acumulado: ${viajesBase.length} viajes (${totalColisiones} con colisión en BD).`
+            `Se procesó(eron) ${nuevosArchivosExitosos.length} manifiesto(s)${nombreClienteStr}. Total acumulado: ${viajesBase.length} viajes (${totalColisiones} con colisión en BD).`
           );
         } else {
           mostrarToast(
             'ok',
-            `Manifiesto(s) agregado(s) con éxito (+${totalViajesNuevos} viajes). Total acumulado en consola: ${viajesBase.length} viajes.`
+            `Manifiesto(s) agregado(s) con éxito (+${totalViajesNuevos} viajes)${nombreClienteStr}. Total acumulado: ${viajesBase.length} viajes.`
           );
         }
+      } else if (rechazadosPorDistintoCliente > 0) {
+        mostrarToast('err', `No se procesó ningún viaje debido a discrepancias en el cliente.`);
       }
     } catch (error: any) {
       console.error('Error general al subir PDF:', error);
@@ -590,7 +359,7 @@ export default function Programacion() {
 
   // Limpiar pantalla / Iniciar nuevo proceso de carga
   const handleLimpiarPantalla = () => {
-    if (trips.length > 0 && !esModoDemo) {
+    if (trips.length > 0) {
       const confirmar = window.confirm(
         '¿Desea limpiar la pantalla e iniciar un nuevo proceso de carga? Se descartarán los viajes en pantalla que no hayan sido guardados.'
       );
@@ -599,14 +368,11 @@ export default function Programacion() {
 
     setTrips([]);
     setArchivosCargados([]);
-    setEsModoDemo(false);
+    setClienteDetectado(null);
     setFiltroFecha('todos');
     setFiltroPlanta('todas');
-    setFiltroSoloSinChofer(false);
     setFiltroSoloColisiones(false);
     setBusqueda('');
-    setViajeSeleccionadoWhatsapp(null);
-    setModalWhatsappAbierto(false);
     setSeccionesAbiertas({});
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -614,92 +380,26 @@ export default function Programacion() {
     mostrarToast('ok', 'Pantalla lista para iniciar nuevo proceso de carga de manifiestos.');
   };
 
-  const handleCargarDemo = () => {
-    setTrips(DEMO_MANIFEST);
-    setArchivosCargados(['manifiesto_demostracion.pdf']);
-    setEsModoDemo(true);
-    setFiltroFecha('todos');
-    setFiltroPlanta('todas');
-    setViajeSeleccionadoWhatsapp(DEMO_MANIFEST[0]);
-    mostrarToast('ok', 'Datos de demostración cargados.');
-  };
+  // Cliente activo determinado a partir de las unidades de origen del lote cargado
+  const clienteActivo = useMemo((): ClienteDetectado | null => {
+    if (clienteDetectado) return clienteDetectado;
+    for (const t of trips) {
+      if (t.origenSalida.idCliente || t.origenSalida.clienteNombre) {
+        return {
+          idCliente: t.origenSalida.idCliente || '',
+          razonSocial: t.origenSalida.clienteNombre || 'Cliente Detectado',
+          nombreComercial: t.origenSalida.clienteNombre,
+          rif: t.origenSalida.clienteRif,
+        };
+      }
+    }
+    return null;
+  }, [clienteDetectado, trips]);
 
   const mostrarToast = (tipo: 'ok' | 'err' | 'warn', texto: string) => {
     setMensajeToast({ tipo, texto });
     setTimeout(() => setMensajeToast(null), 6000);
   };
-
-  // Asignar conductor a un viaje
-  const handleAsignarConductor = (tripId: string, idConductor: string) => {
-    const choferSeleccionado =
-      conductores.find((c) => c.idConductor === idConductor) || null;
-
-    setTrips((prev) =>
-      prev.map((t) => {
-        if (t.id === tripId) {
-          const choferFinal =
-            choferSeleccionado ||
-            (t.conductorAsignado?.idConductor === idConductor ? t.conductorAsignado : null);
-          return {
-            ...t,
-            idConductor: choferFinal?.idConductor || null,
-            conductorAsignado: choferFinal || null,
-            estadoPendienteChofer: !choferFinal,
-          };
-        }
-        return t;
-      })
-    );
-
-    setViajeSeleccionadoWhatsapp((prev) => {
-      if (prev && prev.id === tripId) {
-        return {
-          ...prev,
-          idConductor: choferSeleccionado?.idConductor || null,
-          conductorAsignado: choferSeleccionado || null,
-          estadoPendienteChofer: !choferSeleccionado,
-        };
-      }
-      return prev;
-    });
-  };
-
-  // Obtener viajes asignados a un chofer en un día de programación específico (para permitir múltiples viajes)
-  const getViajesChoferEnDia = (idConductor?: string | null, fechaProgramadaCarga?: string) => {
-    if (!idConductor || !fechaProgramadaCarga) return [];
-    const isoDiaActual = normalizarFecha(fechaProgramadaCarga).isoKey;
-    return trips.filter(
-      (t) =>
-        (t.idConductor === idConductor || t.conductorAsignado?.idConductor === idConductor) &&
-        normalizarFecha(t.fechaProgramadaCarga).isoKey === isoDiaActual
-    );
-  };
-
-  // Obtener conductores disponibles para un viaje:
-  // 1. Muestra únicamente choferes con estatus 'Activo'
-  // 2. Permite que un chofer pueda realizar más de un viaje el mismo día de programación
-  const getConductoresDisponiblesParaViaje = (_tripActualId?: string, _idConductorActual?: string | null) => {
-    return conductores.filter(
-      (c) => c.estado?.trim().toLowerCase() === 'activo'
-    );
-  };
-
-  // Obtener la placa del vehículo habitual de un conductor
-  const getPlacaVehiculo = (conductor?: ConductorResumen | null): string => {
-    if (!conductor) return '';
-    if (conductor.placaVehiculoHabitual && conductor.placaVehiculoHabitual.trim()) {
-      return conductor.placaVehiculoHabitual.trim();
-    }
-    if (!conductor.vehiculoHabitual || !conductor.vehiculoHabitual.trim()) {
-      return '';
-    }
-    const match = conductor.vehiculoHabitual.match(/\(([^)]+)\)/);
-    if (match && match[1]) {
-      return match[1].trim();
-    }
-    return conductor.vehiculoHabitual.trim();
-  };
-
 
   // Lista única de días disponibles para los filtros de píldora
   const diasDisponibles = useMemo(() => {
@@ -749,10 +449,8 @@ export default function Programacion() {
   const metricas = useMemo(() => {
     const total = trips.length;
     const colisiones = trips.filter((t) => t.yaExiste || t.colision).length;
-    const asignados = trips.filter((t) => t.conductorAsignado && !t.estadoPendienteChofer).length;
-    const pendientes = total - asignados;
     const seleccionadosValidos = trips.filter((t) => !t.colision).length;
-    return { total, colisiones, asignados, pendientes, seleccionadosValidos };
+    return { total, colisiones, seleccionadosValidos };
   }, [trips]);
 
   // Lista filtrada común
@@ -760,8 +458,6 @@ export default function Programacion() {
     return trips.filter((t) => {
       // Filtro de colisión
       if (filtroSoloColisiones && !t.colision) return false;
-      // Filtro sin chofer
-      if (filtroSoloSinChofer && !t.estadoPendienteChofer) return false;
 
       // Filtro según la vista activa
       if (modoVista === 'dia') {
@@ -782,12 +478,13 @@ export default function Programacion() {
         const coincideNro = t.nroTransporte.toLowerCase().includes(q);
         const coincideOrigen = t.origenSalida.nombre.toLowerCase().includes(q) || t.origenSalida.codigo.toLowerCase().includes(q);
         const coincideDestino = t.destinoLlegada.nombre.toLowerCase().includes(q) || t.destinoLlegada.codigo.toLowerCase().includes(q);
-        const coincideChofer = t.conductorAsignado?.nombreCompleto.toLowerCase().includes(q);
-        return coincideNro || coincideOrigen || coincideDestino || coincideChofer;
+        const coincideRetorno = t.nroRetorno?.toLowerCase().includes(q) || t.puntoRegreso?.toLowerCase().includes(q);
+        const coincideObs = t.observacion?.toLowerCase().includes(q);
+        return coincideNro || coincideOrigen || coincideDestino || coincideRetorno || coincideObs;
       }
       return true;
     });
-  }, [trips, filtroSoloColisiones, filtroSoloSinChofer, modoVista, filtroFecha, filtroPlanta, busqueda]);
+  }, [trips, filtroSoloColisiones, modoVista, filtroFecha, filtroPlanta, busqueda]);
 
   // Agrupación 1: Corte cronológico por fechaProgramadaCarga (Día)
   const gruposCronologicos = useMemo((): GrupoCronologicoDia[] => {
@@ -899,7 +596,7 @@ export default function Programacion() {
 
     setGuardandoBd(true);
     try {
-      const res = await programacionService.confirmarProgramacion(validos);
+      const res = await programacionService.confirmarProgramacion(validos, clienteActivo?.idCliente);
       if (res.success) {
         mostrarToast('ok', `Éxito: Se registraron ${res.guardados} viajes en la tabla guias_viajes.`);
         setTrips((prev) =>
@@ -921,32 +618,72 @@ export default function Programacion() {
     }
   };
 
-  // Texto generado para la plantilla WhatsApp
-  const mensajeWhatsappGenerado = useMemo(() => {
-    if (!viajeSeleccionadoWhatsapp) return '';
-    const chofer = viajeSeleccionadoWhatsapp.conductorAsignado?.nombreCompleto || 'Estimado Conductor';
-    const unidad = viajeSeleccionadoWhatsapp.conductorAsignado?.vehiculoHabitual || 'Mack MP8 (Tracto #66) + Batea #10';
-    return `🔔 NOTIFICACIÓN DE VIAJE FLEETFLOW\n\nHola ${chofer}, se te ha asignado el despacho:\n\n• Guía de Ida: ${viajeSeleccionadoWhatsapp.nroTransporte}\n• Origen: [${viajeSeleccionadoWhatsapp.origenSalida.codigo}] ${viajeSeleccionadoWhatsapp.origenSalida.nombre} (${viajeSeleccionadoWhatsapp.fechaProgramadaCarga} ${viajeSeleccionadoWhatsapp.horaProgramadaCarga})\n• Destino: [${viajeSeleccionadoWhatsapp.destinoLlegada.codigo}] ${viajeSeleccionadoWhatsapp.destinoLlegada.nombre} (Est. ${viajeSeleccionadoWhatsapp.horaEntregaEstimada})\n• Guía Retorno: ${viajeSeleccionadoWhatsapp.nroRetorno || 'RET-9091-A'}\n• Unidad: ${unidad}\n\nPor favor confirma recepción respondiendo OK o reporta cualquier novedad a la Mesa de Control.`;
-  }, [viajeSeleccionadoWhatsapp]);
-
-  const textoWhatsappFinal = textoWhatsappCustom ?? mensajeWhatsappGenerado;
-
-  const enviarWhatsappDirecto = () => {
-    if (!viajeSeleccionadoWhatsapp?.conductorAsignado?.telefono) {
-      mostrarToast('warn', 'El conductor no tiene un número telefónico asignado.');
+  // Guardar un viaje individual directamente en BD
+  const handleGuardarViajeIndividual = async (trip: TripItem) => {
+    if (trip.colision || trip.yaExiste) {
+      mostrarToast('warn', `El viaje ${trip.nroTransporte} ya existe en la base de datos (colisión).`);
       return;
     }
-    const cleanTel = viajeSeleccionadoWhatsapp.conductorAsignado.telefono.replace(/[^0-9]/g, '');
-    const url = `https://wa.me/${cleanTel}?text=${encodeURIComponent(textoWhatsappFinal)}`;
-    window.open(url, '_blank');
+
+    setGuardandoTripId(trip.id);
+    try {
+      const res = await programacionService.confirmarProgramacion(
+        [trip],
+        trip.origenSalida.idCliente || clienteActivo?.idCliente
+      );
+      if (res.success && res.guardados > 0) {
+        mostrarToast('ok', `Viaje ${trip.nroTransporte} registrado con éxito en base de datos.`);
+        setTrips((prev) =>
+          prev.map((t) => (t.id === trip.id ? { ...t, yaExiste: true, colision: true } : t))
+        );
+      } else {
+        mostrarToast('warn', res.message || `No se pudo registrar el viaje ${trip.nroTransporte}.`);
+      }
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || 'Error al persistir en la base de datos.';
+      mostrarToast('err', `Error al registrar viaje ${trip.nroTransporte}: ${msg}`);
+    } finally {
+      setGuardandoTripId(null);
+    }
   };
 
-  const copiarTextoWhatsapp = async () => {
+  // Eliminar renglón o viaje de la lista en pantalla
+  const handleEliminarViaje = (tripId: string, nroTransporte: string) => {
+    setTrips((prev) => prev.filter((t) => t.id !== tripId));
+    mostrarToast('ok', `Viaje ${nroTransporte} eliminado de la lista.`);
+  };
+
+  // Guardar/confirmar en BD únicamente los viajes de un grupo (día específico o planta)
+  const handleGuardarGrupo = async (viajesGrupo: TripItem[], nombreGrupo: string, grupoKey: string) => {
+    const validos = viajesGrupo.filter((t) => !t.colision && !t.yaExiste);
+    if (validos.length === 0) {
+      mostrarToast('warn', `No hay viajes pendientes o aptos para registrar en ${nombreGrupo}.`);
+      return;
+    }
+
+    setGuardandoGrupoKey(grupoKey);
     try {
-      await navigator.clipboard.writeText(textoWhatsappFinal);
-      mostrarToast('ok', 'Plantilla copiada al portapapeles.');
-    } catch {
-      mostrarToast('warn', 'No se pudo copiar el texto automáticamente.');
+      const res = await programacionService.confirmarProgramacion(validos, clienteActivo?.idCliente);
+      if (res.success && res.guardados > 0) {
+        mostrarToast('ok', `Éxito: Se registraron ${res.guardados} viajes de ${nombreGrupo} en guias_viajes.`);
+        const validosIds = new Set(validos.map((v) => v.id));
+        const validosNros = new Set(validos.map((v) => v.nroTransporte));
+        setTrips((prev) =>
+          prev.map((t) => {
+            if (validosIds.has(t.id) || validosNros.has(t.nroTransporte)) {
+              return { ...t, yaExiste: true, colision: true };
+            }
+            return t;
+          })
+        );
+      } else {
+        mostrarToast('warn', res.message || `No se pudo registrar la programación de ${nombreGrupo}.`);
+      }
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || 'Error al persistir en la base de datos.';
+      mostrarToast('err', `Error al registrar ${nombreGrupo}: ${msg}`);
+    } finally {
+      setGuardandoGrupoKey(null);
     }
   };
 
@@ -960,29 +697,22 @@ export default function Programacion() {
               <th className="py-2.5 px-3">N° TRANSPORTE</th>
               <th className="py-2.5 px-3">ORIGEN SALIDA</th>
               <th className="py-2.5 px-3">DESTINO LLEGADA</th>
-              <th className="py-2.5 px-3">CONDUCTOR ASIGNADO</th>
+              <th className="py-2.5 px-3">OBSERVACIÓN MANIFIESTO</th>
+              <th className="py-2.5 px-3">ESTADO INGESTA</th>
               <th className="py-2.5 px-3 text-center">ACCIONES RÁPIDAS</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {viajesGrupo.map((trip) => {
               const esColision = trip.yaExiste || trip.colision;
-              const esPendiente = trip.estadoPendienteChofer || !trip.conductorAsignado;
-              const estaSeleccionadoParaWa = modalWhatsappAbierto && viajeSeleccionadoWhatsapp?.id === trip.id;
 
               return (
                 <tr
                   key={`${grupoId}-${trip.id}`}
-                  className={`transition hover:bg-orange-50/40 ${esColision
-                    ? 'bg-rose-50/30'
-                    : esPendiente
-                      ? 'bg-amber-50/20'
-                      : estaSeleccionadoParaWa
-                        ? 'bg-emerald-50/30'
-                        : 'bg-white'
-                    }`}
+                  className={`transition hover:bg-orange-50/40 ${
+                    esColision ? 'bg-rose-50/30' : 'bg-white'
+                  }`}
                 >
-
                   {/* N° Guía / Despacho */}
                   <td className="py-3 px-3">
                     <div className="flex flex-col">
@@ -1015,7 +745,6 @@ export default function Programacion() {
                         <span className="text-emerald-700 font-extrabold">[{trip.origenSalida.codigo}]</span>{' '}
                         {trip.origenSalida.nombre}
                       </span>
-
                     </div>
                   </td>
 
@@ -1032,188 +761,74 @@ export default function Programacion() {
                     </div>
                   </td>
 
-                  {/* Conductor Asignado */}
-                  <td className="py-3 px-3">
-                    {(() => {
-                      const conductoresDisponibles = getConductoresDisponiblesParaViaje(
-                        trip.id,
-                        trip.idConductor
-                      );
-                      // Para sugerir chofer urgente: busca uno activo sin viajes ese día o el primer activo disponible
-                      const primerChoferDisponible =
-                        conductoresDisponibles.find((c) => {
-                          if (c.idConductor === trip.idConductor) return false;
-                          const viajesDia = getViajesChoferEnDia(
-                            c.idConductor,
-                            trip.fechaProgramadaCarga
-                          ).filter((t) => t.id !== trip.id);
-                          return viajesDia.length === 0;
-                        }) ||
-                        conductoresDisponibles.find(
-                          (c) => c.idConductor !== trip.idConductor
-                        );
-
-                      if (esPendiente) {
-                        return (
-                          <div className="flex items-center space-x-2">
-                            <div className="relative">
-                              <select
-                                value={trip.idConductor || ''}
-                                onChange={(e) => handleAsignarConductor(trip.id, e.target.value)}
-                                className="bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-semibold rounded-xl px-2.5 py-1.5 pr-6 cursor-pointer focus:outline-none focus:ring-1 focus:ring-amber-500 max-w-[210px] truncate"
-                              >
-                                <option value="">
-                                  {conductoresDisponibles.length === 0
-                                    ? 'Sin choferes activos disponibles'
-                                    : 'Seleccionar chofer activo...'}
-                                </option>
-                                {conductoresDisponibles.map((c) => {
-                                  const otrosViajesDia = getViajesChoferEnDia(
-                                    c.idConductor,
-                                    trip.fechaProgramadaCarga
-                                  ).filter((t) => t.id !== trip.id);
-                                  const nOtros = otrosViajesDia.length;
-                                  const tagViajes = nOtros > 0
-                                    ? ` • [${nOtros} viaje${nOtros > 1 ? 's' : ''} este día]`
-                                    : '';
-                                  const placa = getPlacaVehiculo(c);
-                                  return (
-                                    <option key={c.idConductor} value={c.idConductor}>
-                                      {c.nombreCompleto} {placa ? `(${placa})` : ''}{tagViajes}
-                                    </option>
-                                  );
-                                })}
-                              </select>
-                            </div>
-
-                            {primerChoferDisponible ? (
-                              <button
-                                onClick={() => handleAsignarConductor(trip.id, primerChoferDisponible.idConductor)}
-                                title={`Asignar de urgencia a ${primerChoferDisponible.nombreCompleto}${
-                                  getPlacaVehiculo(primerChoferDisponible) ? ` (${getPlacaVehiculo(primerChoferDisponible)})` : ''
-                                }${
-                                  getViajesChoferEnDia(primerChoferDisponible.idConductor, trip.fechaProgramadaCarga).filter((t) => t.id !== trip.id).length > 0
-                                    ? ' (Tiene viajes este día)'
-                                    : ''
-                                }`}
-                                className="bg-gradient-to-r from-amber-700 to-orange-700 hover:from-amber-800 hover:to-orange-800 text-white font-bold text-[11px] px-2.5 py-1.5 rounded-xl shadow-xs flex items-center space-x-1.5 transition cursor-pointer shrink-0"
-                              >
-                                <Truck className="w-3.5 h-3.5" />
-                                <span>Asignar Urgente</span>
-                              </button>
-                            ) : null}
-
-                            <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0">
-                              Pendiente
-                            </span>
-                          </div>
-                        );
-                      }
-
-                      const totalViajesDia = getViajesChoferEnDia(
-                        trip.idConductor,
-                        trip.fechaProgramadaCarga
-                      );
-
-                      return (
-                        <div className="flex flex-col">
-                          <div className="relative">
-                            <select
-                              value={trip.idConductor || ''}
-                              onChange={(e) => handleAsignarConductor(trip.id, e.target.value)}
-                              className="bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-800 text-xs font-semibold rounded-xl px-2.5 py-1.5 pr-6 cursor-pointer focus:outline-none focus:ring-1 focus:ring-orange-500 max-w-[240px] truncate"
-                            >
-                              <option value="">
-                                — Quitar chofer (Dejar pendiente) —
-                              </option>
-                              {conductoresDisponibles.map((c) => {
-                                const otrosViajesDia = getViajesChoferEnDia(
-                                  c.idConductor,
-                                  trip.fechaProgramadaCarga
-                                ).filter((t) => t.id !== trip.id);
-                                const nOtros = otrosViajesDia.length;
-                                const tagViajes = nOtros > 0
-                                  ? ` • [${nOtros} viaje${nOtros > 1 ? 's' : ''} este día]`
-                                  : '';
-                                const placa = getPlacaVehiculo(c);
-                                return (
-                                  <option key={c.idConductor} value={c.idConductor}>
-                                    {c.nombreCompleto} {placa ? `(${placa})` : ''}{tagViajes}
-                                  </option>
-                                );
-                              })}
-                              {trip.conductorAsignado &&
-                                (!trip.conductorAsignado.estado || trip.conductorAsignado.estado.trim().toLowerCase() === 'activo') &&
-                                !conductoresDisponibles.some(
-                                  (c) => c.idConductor === trip.conductorAsignado?.idConductor
-                                ) && (
-                                  <option value={trip.conductorAsignado.idConductor}>
-                                    {trip.conductorAsignado.nombreCompleto}{' '}
-                                    {getPlacaVehiculo(trip.conductorAsignado)
-                                      ? `(${getPlacaVehiculo(trip.conductorAsignado)})`
-                                      : ''}
-                                  </option>
-                                )}
-                              {trip.conductorAsignado &&
-                                trip.conductorAsignado.estado &&
-                                trip.conductorAsignado.estado.trim().toLowerCase() !== 'activo' && (
-                                  <option value={trip.conductorAsignado.idConductor} disabled>
-                                    ⚠️ {trip.conductorAsignado.nombreCompleto}{' '}
-                                    {getPlacaVehiculo(trip.conductorAsignado)
-                                      ? `(${getPlacaVehiculo(trip.conductorAsignado)}) `
-                                      : ''}
-                                    ({trip.conductorAsignado.estado} - No disponible)
-                                  </option>
-                                )}
-                            </select>
-                          </div>
-
-                          {totalViajesDia.length > 1 && (
-                            <span
-                              title={`Este chofer tiene ${totalViajesDia.length} viajes asignados en este día de programación`}
-                              className="inline-flex items-center space-x-1 text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-md mt-1 w-fit"
-                            >
-                              <RotateCcw className="w-2.5 h-2.5 text-blue-500" />
-                              <span>{totalViajesDia.length} viajes este día</span>
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })()}
+                  {/* Observación del Manifiesto */}
+                  <td className="py-2.5 px-3">
+                    <div className="flex flex-col max-w-[260px]">
+                      <input
+                        type="text"
+                        value={trip.observacion ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setTrips((prev) =>
+                            prev.map((t) => (t.id === trip.id ? { ...t, observacion: val } : t))
+                          );
+                        }}
+                        placeholder="Sin observación"
+                        title={trip.observacion ? `Observación: ${trip.observacion}` : 'Sin observación en manifiesto (editable)'}
+                        className="w-full text-xs font-semibold text-gray-800 bg-transparent hover:bg-gray-100/70 focus:bg-white border border-transparent hover:border-gray-300 focus:border-orange-500 rounded-lg px-2 py-1 placeholder:italic placeholder:font-normal placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-orange-500 transition"
+                      />
+                    </div>
                   </td>
 
-
+                  {/* Estado Ingesta */}
+                  <td className="py-3 px-3">
+                    {esColision ? (
+                      <span className="inline-flex items-center space-x-1 bg-rose-100 text-rose-800 text-[10px] font-black px-2 py-0.5 rounded-md border border-rose-200">
+                        <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
+                        <span>Colisión en BD</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center space-x-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-200">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                        <span>Apto para Registrar</span>
+                      </span>
+                    )}
+                  </td>
 
                   {/* Acciones Rápidas */}
                   <td className="py-3 px-3 text-center">
                     <div className="flex items-center justify-center space-x-1.5">
+                      {/* Guardar / Registrar Viaje */}
                       <button
-                        onClick={() => {
-                          setViajeSeleccionadoWhatsapp(trip);
-                          setTextoWhatsappCustom(null);
-                          setEditandoTextoWa(false);
-                          setModalWhatsappAbierto(true);
-                        }}
-                        title="Ver y Enviar Notificación WhatsApp"
-                        className="w-7 h-7 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center shadow-xs transition cursor-pointer"
+                        type="button"
+                        onClick={() => handleGuardarViajeIndividual(trip)}
+                        disabled={esColision || guardandoTripId === trip.id}
+                        title={
+                          esColision
+                            ? 'Este viaje ya está registrado en base de datos'
+                            : 'Guardar / Registrar este viaje en base de datos'
+                        }
+                        className={`w-7 h-7 rounded-lg flex items-center justify-center transition ${
+                          esColision
+                            ? 'bg-gray-100 text-gray-300 border border-gray-200 cursor-not-allowed opacity-60'
+                            : 'bg-orange-50 hover:bg-orange-100 text-orange-600 hover:text-orange-700 border border-orange-300 shadow-xs cursor-pointer active:scale-95'
+                        }`}
                       >
-                        <WhatsAppIcon className="w-3.5 h-3.5" />
+                        {guardandoTripId === trip.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-orange-600" />
+                        ) : (
+                          <Save className="w-3.5 h-3.5" />
+                        )}
                       </button>
 
+                      {/* Eliminar renglón de la lista */}
                       <button
-                        onClick={() => mostrarToast('ok', `Edición de viaje ${trip.nroTransporte} habilitada.`)}
-                        title="Editar Registro de Viaje"
-                        className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 flex items-center justify-center transition cursor-pointer"
+                        type="button"
+                        onClick={() => handleEliminarViaje(trip.id, trip.nroTransporte)}
+                        title="Eliminar renglón o viaje de la lista"
+                        className="w-7 h-7 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 border border-rose-200 flex items-center justify-center transition cursor-pointer shadow-xs active:scale-95"
                       >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-
-                      <button
-                        onClick={() => mostrarToast('ok', `Geocerca verificada: 100% de cobertura en ruta.`)}
-                        title="Ver Geocercas y Ruta"
-                        className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 flex items-center justify-center transition cursor-pointer"
-                      >
-                        <MapPin className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </td>
@@ -1231,12 +846,13 @@ export default function Programacion() {
       {/* Toast Alert Flotante */}
       {mensajeToast && (
         <div
-          className={`fixed top-5 right-5 z-50 flex items-center space-x-3 px-4 py-3 rounded-xl shadow-xl transition-all duration-300 ${mensajeToast.tipo === 'ok'
-            ? 'bg-emerald-600 text-white'
-            : mensajeToast.tipo === 'warn'
-              ? 'bg-amber-500 text-white'
-              : 'bg-rose-600 text-white'
-            }`}
+          className={`fixed top-5 right-5 z-50 flex items-center space-x-3 px-4 py-3 rounded-xl shadow-xl transition-all duration-300 ${
+            mensajeToast.tipo === 'ok'
+              ? 'bg-emerald-600 text-white'
+              : mensajeToast.tipo === 'warn'
+                ? 'bg-amber-500 text-white'
+                : 'bg-rose-600 text-white'
+          }`}
         >
           {mensajeToast.tipo === 'ok' && <CheckCircle2 className="w-5 h-5 shrink-0" />}
           {mensajeToast.tipo === 'warn' && <AlertTriangle className="w-5 h-5 shrink-0" />}
@@ -1258,26 +874,56 @@ export default function Programacion() {
         onChange={handleFileUpload}
       />
 
-      {/* 1. Encabezado y Breadcrumbs */}
+      {/* 0. Barra de Retorno a InicialProgramación y Breadcrumbs */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-200/80 pb-3">
+        <Link
+          to="/scheduling"
+          className="inline-flex items-center space-x-2 text-xs font-bold text-gray-700 hover:text-orange-600 bg-white hover:bg-orange-50 border border-gray-200 hover:border-orange-300 px-3.5 py-2 rounded-xl shadow-2xs transition group cursor-pointer"
+        >
+          <ArrowLeft className="w-4 h-4 text-gray-500 group-hover:text-orange-600 group-hover:-translate-x-0.5 transition-transform" />
+          <span>Volver a Programación Inicial</span>
+        </Link>
+
+        <div className="flex items-center space-x-2 text-[11px] font-bold tracking-wider uppercase text-gray-400">
+          <Link to="/scheduling" className="hover:text-gray-600 transition cursor-pointer">Logístico</Link>
+          <span className="text-gray-300 font-normal">&gt;</span>
+          <Link to="/scheduling" className="text-orange-600 font-extrabold hover:text-orange-700 transition cursor-pointer">Programación de Viajes</Link>
+          <span className="text-gray-300 font-normal">&gt;</span>
+          <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-bold">Ingesta de Manifiesto</span>
+        </div>
+      </div>
+
+      {/* 1. Encabezado */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center space-x-2 text-xs font-bold tracking-wider text-emerald-800 uppercase">
-            <span>LOGÍSTICO</span>
-            <span>›</span>
-            <span>PROGRAMACIÓN DE VIAJES</span>
-            <span>›</span>
-            <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">INGESTA DE MANIFIESTO</span>
-          </div>
-          <h1 className="text-2xl font-black text-gray-900 tracking-tight mt-1">
-            Consola de Programación de Viajes y Despacho Masivo
+          <h1 className="text-2xl font-black text-gray-900 tracking-tight">
+            Consola de Ingesta y Programación de Viajes
           </h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            Matriz de alta densidad para edición en lote, asignación rápida de tripulación troncal y notificación masiva vía WhatsApp.
+            Matriz de alta densidad para ingesta de manifiestos, validación de colisiones en base de datos y confirmación de despachos.
           </p>
         </div>
 
         {/* Acciones Superiores */}
         <div className="flex flex-wrap items-center gap-2.5">
+          <Link
+            to="/scheduling"
+            className="flex items-center space-x-2 bg-white hover:bg-gray-100 text-gray-700 border border-gray-200 text-xs font-bold px-3.5 py-2 rounded-xl transition cursor-pointer shadow-xs active:scale-95 group"
+            title="Volver a la pantalla de Programación Inicial"
+          >
+            <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
+            <span>Volver a Inicial</span>
+          </Link>
+
+          <Link
+            to="/asignacion-conductores"
+            className="flex items-center space-x-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition cursor-pointer shadow-md active:scale-95"
+            title="Ir a Asignación de Conductores"
+          >
+            <Users className="w-4 h-4 text-orange-400" />
+            <span>Asignación de Conductores</span>
+          </Link>
+
           <button
             onClick={handleLimpiarPantalla}
             title="Limpiar la consola para iniciar un nuevo proceso de carga de manifiestos"
@@ -1286,25 +932,6 @@ export default function Programacion() {
             <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
             <span>Limpiar / Iniciar Carga</span>
           </button>
-
-          <button
-            onClick={handleCargarDemo}
-            title="Restablecer datos de demostración"
-            className="flex items-center space-x-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold px-3 py-2 rounded-xl transition cursor-pointer"
-          >
-            <RefreshCw className="w-3.5 h-3.5 text-gray-500" />
-            <span>Datos Demo</span>
-          </button>
-
-          <div className="flex items-center space-x-2 bg-blue-50 text-blue-700 border border-blue-200 text-xs font-semibold px-3 py-2 rounded-xl">
-            <Table className="w-4 h-4 text-blue-600" />
-            <span>DataGrid</span>
-          </div>
-
-          <div className="flex items-center space-x-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold px-3 py-2 rounded-xl">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>Sincronizado</span>
-          </div>
 
           <button
             onClick={() => fileInputRef.current?.click()}
@@ -1323,6 +950,40 @@ export default function Programacion() {
               </>
             )}
           </button>
+
+          {/* Cliente Determinado por Unidad de Origen */}
+          {clienteActivo ? (
+            <div
+              className="flex items-center space-x-2.5 bg-gradient-to-r from-orange-50 to-amber-50 border-2 border-orange-500 text-orange-950 px-3.5 py-1.5 rounded-xl shadow-xs"
+              title={`Cliente determinado por la unidad de origen: ${clienteActivo.razonSocial} (${clienteActivo.rif || 'Sin RIF'})`}
+            >
+              <div className="w-7 h-7 rounded-lg bg-orange-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                <Building2 className="w-4 h-4" />
+              </div>
+              <div className="flex flex-col">
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-[10px] font-black uppercase text-orange-700 tracking-wider">
+                    Cliente del Manifiesto
+                  </span>
+                  {clienteActivo.rif && (
+                    <span className="text-[10px] font-bold text-gray-500 bg-white/80 px-1 py-0.2 rounded border border-orange-200">
+                      {clienteActivo.rif}
+                    </span>
+                  )}
+                </div>
+                <span className="font-black text-xs text-gray-900 truncate max-w-[280px]">
+                  {clienteActivo.nombreComercial || clienteActivo.razonSocial}
+                </span>
+              </div>
+            </div>
+          ) : (
+            archivosCargados.length > 0 && (
+              <div className="flex items-center space-x-2 bg-gray-100 border border-gray-300 text-gray-600 px-3 py-1.5 rounded-xl text-xs">
+                <Building2 className="w-3.5 h-3.5 text-gray-400" />
+                <span className="text-[11px] font-bold italic">Origen Sin Cliente Vinculado</span>
+              </div>
+            )
+          )}
         </div>
       </div>
 
@@ -1367,19 +1028,15 @@ export default function Programacion() {
             TOTAL: {metricas.total} Viajes
           </div>
 
-          {/* Badge Asignados vs Pendientes */}
-          <div className="flex items-center space-x-2 bg-amber-50 border border-amber-200 text-amber-900 text-xs font-medium px-3 py-1.5 rounded-xl">
-            <span>Asignados: <strong className="font-bold text-amber-950">{metricas.asignados}</strong> / {metricas.total}</span>
-            {metricas.pendientes > 0 && (
-              <span className="bg-amber-600 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">
-                {metricas.pendientes} Pendientes
-              </span>
-            )}
+          {/* Badge Aptos para Ingesta */}
+          <div className="flex items-center space-x-2 bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-medium px-3 py-1.5 rounded-xl">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Aptos para Ingesta: <strong className="font-bold text-emerald-950">{metricas.seleccionadosValidos}</strong> / {metricas.total}</span>
           </div>
 
           {/* Badge Retornos */}
-          <div className="bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-semibold px-3 py-1.5 rounded-xl flex items-center space-x-1">
-            <RotateCcw className="w-3.5 h-3.5 text-emerald-600" />
+          <div className="bg-blue-50 text-blue-800 border border-blue-200 text-xs font-semibold px-3 py-1.5 rounded-xl flex items-center space-x-1">
+            <RotateCcw className="w-3.5 h-3.5 text-blue-600" />
             <span>Retornos: 100% Geocercados</span>
           </div>
         </div>
@@ -1389,7 +1046,7 @@ export default function Programacion() {
           <button
             onClick={handleConfirmarYGuardar}
             disabled={guardandoBd || metricas.seleccionadosValidos === 0}
-            className="flex items-center space-x-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-md transition transform active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            className="flex items-center space-x-2 bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-md shadow-orange-500/20 transition transform active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
           >
             {guardandoBd ? (
               <>
@@ -1399,7 +1056,7 @@ export default function Programacion() {
             ) : (
               <>
                 <Save className="w-4 h-4" />
-                <span>Confirmar e Ingestar ({metricas.seleccionadosValidos} Nuevos)</span>
+                <span>Confirmar y Registrar Viajes ({metricas.seleccionadosValidos} Nuevos)</span>
               </>
             )}
           </button>
@@ -1426,16 +1083,18 @@ export default function Programacion() {
         <div className="flex items-center space-x-2">
           <button
             onClick={() => setModoVista('dia')}
-            className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-black transition cursor-pointer ${modoVista === 'dia'
-              ? 'bg-slate-900 text-white shadow-md'
-              : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
-              }`}
+            className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-black transition cursor-pointer ${
+              modoVista === 'dia'
+                ? 'bg-slate-900 text-white shadow-md'
+                : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+            }`}
           >
             <Calendar className={`w-4 h-4 ${modoVista === 'dia' ? 'text-orange-400' : 'text-gray-400'}`} />
             <span>Corte por Día (Cronológico)</span>
             <span
-              className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${modoVista === 'dia' ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-700'
-                }`}
+              className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${
+                modoVista === 'dia' ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-700'
+              }`}
             >
               {diasDisponibles.length} Días
             </span>
@@ -1443,16 +1102,18 @@ export default function Programacion() {
 
           <button
             onClick={() => setModoVista('planta')}
-            className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-black transition cursor-pointer ${modoVista === 'planta'
-              ? 'bg-slate-900 text-white shadow-md'
-              : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
-              }`}
+            className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-black transition cursor-pointer ${
+              modoVista === 'planta'
+                ? 'bg-slate-900 text-white shadow-md'
+                : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+            }`}
           >
             <Building2 className={`w-4 h-4 ${modoVista === 'planta' ? 'text-emerald-400' : 'text-gray-400'}`} />
             <span>Corte por Planta (Sede Origen)</span>
             <span
-              className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${modoVista === 'planta' ? 'bg-emerald-500 text-white' : 'bg-gray-200 text-gray-700'
-                }`}
+              className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${
+                modoVista === 'planta' ? 'bg-emerald-500 text-white' : 'bg-gray-200 text-gray-700'
+              }`}
             >
               {plantasDisponibles.length} Plantas
             </span>
@@ -1472,10 +1133,11 @@ export default function Programacion() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setFiltroFecha('todos')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${filtroFecha === 'todos'
-                ? 'bg-slate-900 text-white shadow-sm'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                filtroFecha === 'todos'
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
             >
               Todos <span className="ml-1 opacity-80">{trips.length}</span>
             </button>
@@ -1484,10 +1146,11 @@ export default function Programacion() {
               <button
                 key={dia.isoKey}
                 onClick={() => setFiltroFecha(dia.isoKey)}
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${filtroFecha === dia.isoKey
-                  ? 'bg-orange-500 text-white shadow-sm'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  filtroFecha === dia.isoKey
+                    ? 'bg-orange-500 text-white shadow-sm'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
               >
                 <span>{dia.pildora}</span>
                 <span className="bg-emerald-100 text-emerald-800 text-[10px] px-1.5 py-0.2 rounded-full font-extrabold">
@@ -1501,10 +1164,11 @@ export default function Programacion() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setFiltroPlanta('todas')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${filtroPlanta === 'todas'
-                ? 'bg-slate-900 text-white shadow-sm'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                filtroPlanta === 'todas'
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
             >
               Todas las Plantas <span className="ml-1 opacity-80">{trips.length}</span>
             </button>
@@ -1513,10 +1177,11 @@ export default function Programacion() {
               <button
                 key={p.key}
                 onClick={() => setFiltroPlanta(p.key)}
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${filtroPlanta === p.key
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  filtroPlanta === p.key
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
               >
                 <span>{p.codigo ? `[${p.codigo}] ` : ''}{p.nombre}</span>
                 <span className="bg-emerald-100 text-emerald-900 text-[10px] px-1.5 py-0.2 rounded-full font-extrabold">
@@ -1529,26 +1194,15 @@ export default function Programacion() {
 
         {/* Filtros Rápidos y Buscador */}
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-          {/* Toggle Sin Chofer */}
-          <button
-            onClick={() => setFiltroSoloSinChofer((prev) => !prev)}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${filtroSoloSinChofer
-              ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
-              : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
-              }`}
-          >
-            <span className="w-2 h-2 rounded-sm bg-amber-600"></span>
-            <span>{metricas.pendientes} Sin Chofer</span>
-          </button>
-
           {/* Toggle Solo Colisiones */}
           {metricas.colisiones > 0 && (
             <button
               onClick={() => setFiltroSoloColisiones((prev) => !prev)}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${filtroSoloColisiones
-                ? 'bg-rose-600 text-white border-rose-700 shadow-sm'
-                : 'bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100'
-                }`}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                filtroSoloColisiones
+                  ? 'bg-rose-600 text-white border-rose-700 shadow-sm'
+                  : 'bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100'
+              }`}
             >
               <AlertTriangle className="w-3.5 h-3.5" />
               <span>{metricas.colisiones} Colisiones</span>
@@ -1560,7 +1214,7 @@ export default function Programacion() {
             <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
             <input
               type="text"
-              placeholder="Buscar chofer, guía TR-, nodo..."
+              placeholder="Buscar guía TR-, origen, destino, obs..."
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
               className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-9 pr-3 py-1.5 text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white transition"
@@ -1592,13 +1246,6 @@ export default function Programacion() {
               <Upload className="w-4 h-4" />
               <span>+ Adjuntar Manifiesto(s) (.pdf)</span>
             </button>
-            <button
-              onClick={handleCargarDemo}
-              className="flex items-center space-x-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold px-4 py-2.5 rounded-xl transition cursor-pointer"
-            >
-              <RefreshCw className="w-4 h-4 text-gray-500" />
-              <span>Cargar Datos Demo</span>
-            </button>
           </div>
         </div>
       ) : tripsFiltrados.length === 0 ? (
@@ -1611,8 +1258,8 @@ export default function Programacion() {
             // VISTA: CORTE POR DÍA
             gruposCronologicos.map((grupo) => {
               const estaAbierto = seccionesAbiertas[grupo.isoKey] !== undefined ? seccionesAbiertas[grupo.isoKey] : true;
-              const choferesListos = grupo.viajes.filter((v) => v.conductorAsignado && !v.estadoPendienteChofer).length;
-              const choferesTotal = grupo.viajes.length;
+              const viajesAptos = grupo.viajes.filter((v) => !v.colision).length;
+              const viajesTotal = grupo.viajes.length;
 
               return (
                 <div key={grupo.isoKey} className="bg-white border border-gray-200 rounded-2xl shadow-xs overflow-hidden">
@@ -1639,16 +1286,39 @@ export default function Programacion() {
 
                     <div className="flex items-center space-x-3">
                       <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold text-[11px] px-2.5 py-1 rounded-xl">
-                        +{choferesListos}/{choferesTotal} Choferes Listos
+                        {viajesAptos}/{viajesTotal} Aptos para Ingesta
                       </span>
 
-                      <label
-                        onClick={(e) => e.stopPropagation()}
-                        className="flex items-center space-x-1.5 text-xs font-medium text-gray-600 cursor-pointer"
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleGuardarGrupo(grupo.viajes, `el día ${grupo.pildora}`, grupo.isoKey);
+                        }}
+                        disabled={viajesAptos === 0 || guardandoGrupoKey === grupo.isoKey}
+                        title={
+                          viajesAptos === 0
+                            ? 'Todos los viajes de este día ya están registrados en base de datos'
+                            : `Registrar ${viajesAptos} viaje(s) de este día en base de datos`
+                        }
+                        className={`flex items-center space-x-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition shadow-xs active:scale-95 ${
+                          viajesAptos === 0
+                            ? 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
+                            : 'bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white border border-orange-600 shadow-sm shadow-orange-500/20 cursor-pointer'
+                        }`}
                       >
-                        <span>Auto-Guardar</span>
-                        <input type="checkbox" defaultChecked className="rounded text-emerald-600 focus:ring-0" />
-                      </label>
+                        {guardandoGrupoKey === grupo.isoKey ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Registrando...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Save className="w-3.5 h-3.5" />
+                            <span>Registro Diario</span>
+                          </>
+                        )}
+                      </button>
                     </div>
                   </div>
 
@@ -1661,8 +1331,8 @@ export default function Programacion() {
             // VISTA: CORTE POR PLANTA
             gruposPorPlanta.map((grupo) => {
               const estaAbierto = seccionesAbiertas[grupo.key] !== undefined ? seccionesAbiertas[grupo.key] : true;
-              const choferesListos = grupo.viajes.filter((v) => v.conductorAsignado && !v.estadoPendienteChofer).length;
-              const choferesTotal = grupo.viajes.length;
+              const viajesAptos = grupo.viajes.filter((v) => !v.colision).length;
+              const viajesTotal = grupo.viajes.length;
 
               return (
                 <div key={grupo.key} className="bg-white border border-gray-200 rounded-2xl shadow-xs overflow-hidden">
@@ -1689,16 +1359,39 @@ export default function Programacion() {
 
                     <div className="flex items-center space-x-3">
                       <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold text-[11px] px-2.5 py-1 rounded-xl">
-                        +{choferesListos}/{choferesTotal} Choferes Listos
+                        {viajesAptos}/{viajesTotal} Aptos para Ingesta
                       </span>
 
-                      <label
-                        onClick={(e) => e.stopPropagation()}
-                        className="flex items-center space-x-1.5 text-xs font-medium text-gray-600 cursor-pointer"
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleGuardarGrupo(grupo.viajes, grupo.titulo, grupo.key);
+                        }}
+                        disabled={viajesAptos === 0 || guardandoGrupoKey === grupo.key}
+                        title={
+                          viajesAptos === 0
+                            ? 'Todos los viajes de esta planta ya están registrados en base de datos'
+                            : `Registrar ${viajesAptos} viaje(s) de esta planta en base de datos`
+                        }
+                        className={`flex items-center space-x-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition shadow-xs active:scale-95 ${
+                          viajesAptos === 0
+                            ? 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
+                            : 'bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white border border-orange-600 shadow-sm shadow-orange-500/20 cursor-pointer'
+                        }`}
                       >
-                        <span>Auto-Guardar</span>
-                        <input type="checkbox" defaultChecked className="rounded text-emerald-600 focus:ring-0" />
-                      </label>
+                        {guardandoGrupoKey === grupo.key ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Registrando...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Save className="w-3.5 h-3.5" />
+                            <span>Registrar Planta</span>
+                          </>
+                        )}
+                      </button>
                     </div>
                   </div>
 
@@ -1708,143 +1401,6 @@ export default function Programacion() {
               );
             })
           )}
-        </div>
-      )}
-
-      {/* 6. Modal Oficial de Notificación WhatsApp / Dispatch Preview */}
-      {modalWhatsappAbierto && viajeSeleccionadoWhatsapp && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-xs overflow-y-auto animate-in fade-in duration-200"
-          onClick={() => setModalWhatsappAbierto(false)}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            id="whatsapp-preview-card"
-            className="relative w-full max-w-2xl bg-[#0b2b24] rounded-2xl overflow-hidden shadow-2xl border border-emerald-800/60 my-auto animate-in zoom-in-95 duration-150"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Cabecera de la Notificación */}
-            <div className="p-4 bg-[#08201a] border-b border-emerald-800/40 flex items-center justify-between text-white">
-              <div className="flex items-center space-x-3">
-                <div className="w-9 h-9 rounded-full bg-emerald-600 flex items-center justify-center font-extrabold text-sm text-white shadow-inner shrink-0">
-                  {viajeSeleccionadoWhatsapp?.conductorAsignado?.nombreCompleto
-                    ? viajeSeleccionadoWhatsapp.conductorAsignado.nombreCompleto.slice(0, 2).toUpperCase()
-                    : 'SC'}
-                </div>
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <span className="font-bold text-sm tracking-tight">
-                      {viajeSeleccionadoWhatsapp?.conductorAsignado?.nombreCompleto || 'Sin Conductor Asignado'}
-                    </span>
-                    <span
-                      className={`w-2 h-2 rounded-full ${viajeSeleccionadoWhatsapp?.conductorAsignado ? 'bg-emerald-400' : 'bg-amber-400'
-                        }`}
-                    ></span>
-                  </div>
-                  <p className="text-[11px] text-emerald-200/80 font-medium">
-                    {viajeSeleccionadoWhatsapp?.conductorAsignado?.telefono || 'Sin teléfono registrado'} •{' '}
-                    {viajeSeleccionadoWhatsapp?.conductorAsignado ? 'Conductor Titular' : 'Pendiente Asignación'}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-3 text-xs font-bold text-emerald-300">
-                <div className="hidden sm:flex items-center space-x-1.5 bg-emerald-900/60 border border-emerald-700/50 px-2.5 py-1 rounded-lg">
-                  <WhatsAppIcon className="w-3.5 h-3.5 text-emerald-400" />
-                  <span className="tracking-wider text-[11px]">VISTA PREVIA WHATSAPP</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setModalWhatsappAbierto(false)}
-                  aria-label="Cerrar modal"
-                  className="text-emerald-300 hover:text-white hover:bg-emerald-800/60 p-1.5 rounded-xl transition-colors cursor-pointer"
-                  title="Cerrar (Esc)"
-                >
-                  <X className="w-5 h-5 stroke-[2.5]" />
-                </button>
-              </div>
-            </div>
-
-            {/* Banner Plantilla Oficial */}
-            <div className="bg-[#0e372e] py-1.5 px-4 text-[10px] font-extrabold tracking-widest text-emerald-200 uppercase border-b border-emerald-800/30 flex items-center justify-between">
-              <span>GUÍA: {viajeSeleccionadoWhatsapp.nroTransporte}</span>
-              <span>PLANTILLA OFICIAL DE DESPACHO</span>
-            </div>
-
-            {/* Advertencia si no hay conductor o teléfono */}
-            {!viajeSeleccionadoWhatsapp?.conductorAsignado?.telefono && (
-              <div className="bg-amber-900/40 border-b border-amber-600/30 px-4 py-2 flex items-center space-x-2 text-amber-200 text-xs">
-                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>
-                  Atención: El conductor asignado no tiene número telefónico registrado en el sistema.
-                </span>
-              </div>
-            )}
-
-            {/* Cuerpo del Mensaje (Burbuja WhatsApp) */}
-            <div className="p-6 bg-[#061814] bg-opacity-95 flex justify-center">
-              <div className="w-full max-w-xl bg-white text-gray-900 rounded-2xl p-4 shadow-lg text-xs leading-relaxed border border-gray-100">
-                {editandoTextoWa ? (
-                  <textarea
-                    value={textoWhatsappFinal}
-                    onChange={(e) => setTextoWhatsappCustom(e.target.value)}
-                    rows={10}
-                    className="w-full p-2.5 border border-gray-300 rounded-xl font-mono text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                    placeholder="Escribe el mensaje de WhatsApp..."
-                  />
-                ) : (
-                  <div className="space-y-2 whitespace-pre-wrap font-sans">
-                    {textoWhatsappFinal}
-                  </div>
-                )}
-                <div className="flex justify-end items-center space-x-1 text-[10px] text-gray-400 mt-2 font-mono">
-                  <span>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                  <span className="text-blue-500 font-bold">✓✓</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Pie de la Notificación & Acciones */}
-            <div className="p-4 bg-[#08201a] border-t border-emerald-800/40 flex flex-wrap items-center justify-between gap-3 text-xs">
-              <div className="flex items-center space-x-2 text-emerald-300">
-                <Sparkles className="w-4 h-4 text-emerald-400" />
-                <span className="font-semibold">Disparador: Webhook API Oficial</span>
-                <span className="text-emerald-500">•</span>
-                <span className="text-emerald-400 text-[11px] font-bold">Token Activo</span>
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <button
-                  type="button"
-                  onClick={copiarTextoWhatsapp}
-                  title="Copiar texto al portapapeles"
-                  className="flex items-center space-x-1.5 bg-emerald-950/80 hover:bg-emerald-900 text-emerald-200 border border-emerald-700/60 px-3 py-1.5 rounded-xl font-bold transition cursor-pointer"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>Copiar</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setEditandoTextoWa((prev) => !prev)}
-                  className="flex items-center space-x-1.5 bg-emerald-950/80 hover:bg-emerald-900 text-emerald-200 border border-emerald-700/60 px-3 py-1.5 rounded-xl font-bold transition cursor-pointer"
-                >
-                  <Edit2 className="w-3.5 h-3.5" />
-                  <span>{editandoTextoWa ? 'Listo' : 'Editar Texto'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={enviarWhatsappDirecto}
-                  className="flex items-center space-x-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-4 py-1.5 rounded-xl shadow-md transition transform active:scale-95 cursor-pointer"
-                >
-                  <Send className="w-4 h-4" />
-                  <span>Enviar Este</span>
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
       )}
     </div>

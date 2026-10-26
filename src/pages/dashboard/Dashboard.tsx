@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { RegistrarDespachoModal } from './RegistrarDespachoModal';
 import {
   Truck,
   Users,
@@ -109,6 +110,8 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<'ruta' | 'disponibles' | 'taller' | 'detenidas'>('ruta');
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [isModalDespachoOpen, setIsModalDespachoOpen] = useState(false);
+  const [toastMensaje, setToastMensaje] = useState<string | null>(null);
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto pb-12">
@@ -139,9 +142,13 @@ export default function Dashboard() {
           </div>
 
           {/* Asignar Viaje Button */}
-          <button className="bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center justify-center gap-1.5 shadow-sm shadow-orange-500/20 transition">
+          <button
+            type="button"
+            onClick={() => setIsModalDespachoOpen(true)}
+            className="bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center justify-center gap-1.5 shadow-sm shadow-orange-500/20 transition cursor-pointer"
+          >
             <Truck className="w-4 h-4 stroke-[2.5]" />
-            <span>Asignar Viaje</span>
+            <span>Viaje Adicional</span>
           </button>
         </div>
       </div>
@@ -798,6 +805,24 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Toast Notificación */}
+      {toastMensaje && (
+        <div className="fixed top-5 right-5 z-50 bg-slate-900 text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-2xl flex items-center space-x-2.5 border border-slate-700 animate-in fade-in slide-in-from-top-4 duration-200">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{toastMensaje}</span>
+        </div>
+      )}
+
+      {/* Modal Registrar Despacho / Asignar Viaje */}
+      <RegistrarDespachoModal
+        isOpen={isModalDespachoOpen}
+        onClose={() => setIsModalDespachoOpen(false)}
+        onSuccess={(viaje) => {
+          setToastMensaje(`Despacho ${viaje.nroTransporte} registrado con éxito.`);
+          setTimeout(() => setToastMensaje(null), 4000);
+        }}
+      />
     </div>
   );
 }

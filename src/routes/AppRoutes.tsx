@@ -15,6 +15,8 @@ import PuntosCargaDescarga from '../pages/clientes/PuntosCargaDescarga';
 import PuntosRegistrar from '../pages/clientes/PuntosRegistrar';
 import RutasRegistro from '../pages/rutas/RutasRegistro';
 import Programacion from '../pages/viajes/Programacion';
+import InicialProgramacion from '../pages/viajes/InicialProgramacion';
+import AsignacionConductores from '../pages/viajes/AsignacionConductores';
 import PaginaEnConstruccion from '../componentes/common/PaginaEnConstruccion';
 
 export default function AppRoutes() {
@@ -61,9 +63,17 @@ export default function AppRoutes() {
                         <Route path="/rutas/registro" element={<RutasRegistro />} />
                         <Route path="/rutas/editar/:id" element={<RutasRegistro />} />
                         <Route path="/routes/:id" element={<RutasRegistro />} />
-                        <Route path="/scheduling" element={<Programacion />} />
-                        <Route path="/viajes/programacion" element={<Programacion />} />
-                        <Route path="/programacion" element={<Programacion />} />
+                        <Route path="/scheduling" element={<InicialProgramacion />} />
+                        <Route path="/viajes/programacion" element={<InicialProgramacion />} />
+                        <Route path="/programacion" element={<InicialProgramacion />} />
+                        <Route path="/viajes/programacion/editor" element={<Programacion />} />
+                        <Route path="/viajes/programacion/importar" element={<Programacion />} />
+                        <Route path="/programacion/editor" element={<Programacion />} />
+                        <Route path="/programacion/importar" element={<Programacion />} />
+                        <Route path="/viajes/programacion/asignacion-conductores" element={<AsignacionConductores />} />
+                        <Route path="/programacion/asignacion-conductores" element={<AsignacionConductores />} />
+                        <Route path="/viajes/asignacion-conductores" element={<AsignacionConductores />} />
+                        <Route path="/asignacion-conductores" element={<AsignacionConductores />} />
 
                         {/* Financiero */}
                         <Route path="/proformas" element={<PaginaEnConstruccion titulo="Proformas" descripcion="Generación y gestión de proformas de liquidación de fletes." />} />

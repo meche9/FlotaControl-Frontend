@@ -2,6 +2,7 @@ import api from './api';
 
 export interface RutaPuntoResumen {
   idPunto: string;
+  codigoPuntoc?: string;
   nombreSede: string;
   ciudad: string;
   estado: string;
