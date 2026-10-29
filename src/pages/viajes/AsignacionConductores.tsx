@@ -24,7 +24,8 @@ import {
   Maximize2,
   AlertTriangle,
   Save,
-  XCircle
+  XCircle,
+  FileCheck
 } from 'lucide-react';
 import { conductoresService } from '../../services/conductoresService';
 import { clientesService, type Cliente } from '../../services/clientesService';
@@ -64,6 +65,7 @@ export interface ViajeAsignacion {
   autoGuardar?: boolean;
   observaciones?: string | null;
   estadoOrden?: string;
+  fisico?: boolean;
 }
 
 export interface GrupoDia {
@@ -168,6 +170,7 @@ function mapGuiaToViaje(g: GuiaProgramada): ViajeAsignacion {
     autoGuardar: true,
     observaciones,
     estadoOrden: g.estadoOrden || 'Programado',
+    fisico: Boolean(g.fisico),
   };
 }
 
@@ -270,6 +273,7 @@ export default function AsignacionConductores() {
   const [motivoCancelacion, setMotivoCancelacion] = useState<string>('');
   const [cancelandoViaje, setCancelandoViaje] = useState<boolean>(false);
   const [guardandoViajeId, setGuardandoViajeId] = useState<string | null>(null);
+  const [actualizandoFisicoId, setActualizandoFisicoId] = useState<string | null>(null);
 
   // Cargar conductores y clientes desde la base de datos al montar
   useEffect(() => {
@@ -445,6 +449,36 @@ export default function AsignacionConductores() {
     }
   };
 
+  // Alternar estado de documento físico en mano (guía física recibida)
+  const handleToggleFisico = async (viaje: ViajeAsignacion) => {
+    const nuevoValor = !viaje.fisico;
+    setActualizandoFisicoId(viaje.id);
+
+    // Actualización optimista
+    setViajes((prev) =>
+      prev.map((v) => (v.id === viaje.id ? { ...v, fisico: nuevoValor } : v))
+    );
+
+    try {
+      await programacionService.actualizarFisico(viaje.id, nuevoValor);
+      mostrarToast(
+        nuevoValor
+          ? `Guía TR-${viaje.nroTransporte} marcada como FÍSICO recibido.`
+          : `Guía TR-${viaje.nroTransporte} marcada como SIN FÍSICO (pendiente).`
+      );
+    } catch (error: any) {
+      console.error('Error al actualizar estado físico:', error);
+      // Revertir en caso de fallo
+      setViajes((prev) =>
+        prev.map((v) => (v.id === viaje.id ? { ...v, fisico: !nuevoValor } : v))
+      );
+      const msg = error?.response?.data?.message || `Error al actualizar estado físico de TR-${viaje.nroTransporte}`;
+      mostrarToast(msg);
+    } finally {
+      setActualizandoFisicoId(null);
+    }
+  };
+
   // Abrir modal de cancelación rápida
   const abrirModalCancelar = (viaje: ViajeAsignacion) => {
     setViajeParaCancelar(viaje);
@@ -547,7 +581,8 @@ export default function AsignacionConductores() {
         const matchDestino = v.destinoNombre.toLowerCase().includes(term) || v.destinoCodigo.toLowerCase().includes(term);
         const matchChofer = conductor ? conductor.nombre.toLowerCase().includes(term) || conductor.vehiculo.toLowerCase().includes(term) || conductor.placa.toLowerCase().includes(term) : false;
         const matchObs = v.observaciones ? v.observaciones.toLowerCase().includes(term) : false;
-        return matchTr || matchOrigen || matchDestino || matchChofer || matchObs;
+        const matchFisico = (v.fisico ? 'fisico físico con fisico con físico' : 'sin fisico sin físico').includes(term);
+        return matchTr || matchOrigen || matchDestino || matchChofer || matchObs || matchFisico;
       }
       return true;
     });
@@ -627,6 +662,11 @@ export default function AsignacionConductores() {
   // Conteo de viajes activos sin chofer
   const conteoSinChofer = useMemo(() => {
     return viajes.filter((v) => !v.conductorId && v.estadoOrden !== 'Cancelado').length;
+  }, [viajes]);
+
+  // Conteo de viajes activos con documento físico
+  const conteoConFisico = useMemo(() => {
+    return viajes.filter((v) => v.fisico && v.estadoOrden !== 'Cancelado').length;
   }, [viajes]);
 
   // Conductores con viajes asignados para el panel derecho (Lote Activo)
@@ -858,6 +898,12 @@ export default function AsignacionConductores() {
             <span className="w-2 h-2 rounded-full bg-orange-500"></span>
             <span>{conteoSinChofer} Sin Chofer</span>
           </div>
+
+          {/* Indicador de guías con documento físico recibido */}
+          <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-3 py-1 rounded-full text-xs font-extrabold flex items-center gap-1.5">
+            <FileCheck className="w-3.5 h-3.5 text-emerald-600" />
+            <span>{conteoConFisico}/{viajes.length} Físicos</span>
+          </div>
         </div>
 
         {/* Input de Búsqueda */}
@@ -1024,6 +1070,25 @@ export default function AsignacionConductores() {
                                         Cancelado
                                       </span>
                                     )}
+                                    {/* Botón interactivo para alternar estado Físico */}
+                                    <button
+                                      type="button"
+                                      title={
+                                        viaje.fisico
+                                          ? 'Documento Físico Recibido (Haga clic para cambiar a Pendiente)'
+                                          : 'Documento Físico Pendiente (Haga clic para marcar como Recibido)'
+                                      }
+                                      disabled={actualizandoFisicoId === viaje.id}
+                                      onClick={() => handleToggleFisico(viaje)}
+                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-tight border transition cursor-pointer select-none active:scale-95 ${
+                                        viaje.fisico
+                                          ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                                          : 'bg-slate-50 text-slate-400 border-slate-200 hover:border-slate-300 hover:text-slate-600'
+                                      }`}
+                                    >
+                                      <FileCheck className={`w-3 h-3 ${viaje.fisico ? 'text-emerald-600' : 'text-slate-400'}`} />
+                                      <span>{viaje.fisico ? 'Físico' : 'Sin Físico'}</span>
+                                    </button>
                                   </div>
                                   <div className="flex items-center space-x-1.5 text-slate-500 text-[11.5px] mt-0.5">
                                     <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />

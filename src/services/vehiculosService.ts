@@ -205,8 +205,8 @@ function generarTelemetria(raw: VehiculoApi, estadoTipo: EstadoUnidad): Telemetr
 
 function aPayload(form: VehiculoFormData) {
   let idClasificacion = Number(form.idClasificacion);
-  if (!idClasificacion || isNaN(idClasificacion) || idClasificacion < 5) {
-    idClasificacion = CLASIFICACIONES[form.clasificacion] ?? 5;
+  if (!idClasificacion || isNaN(idClasificacion) || idClasificacion <= 0) {
+    idClasificacion = form.clasificacion ? (CLASIFICACIONES[form.clasificacion] ?? 0) : 0;
   }
   const estadoFinal: EstadoApi = form.estado ?? (form.estadoTipo ? ESTADO_A_API[form.estadoTipo] : 'Activo');
 
@@ -266,7 +266,7 @@ function aVehiculo(raw: VehiculoApi, form?: VehiculoFormData): Vehiculo {
     modelo: raw.modelo ?? '',
     especificacionMotor: form?.especificacionMotor || undefined,
     anio: raw.anio,
-    idClasificacion: Number(raw.idClasificacion || raw.clasificacion?.idClasificacion || 5),
+    idClasificacion: Number(raw.idClasificacion || raw.clasificacion?.idClasificacion || 0),
     clasificacion: nombreClasificacion,
     nombreClasificacion,
     idTipo: idTipoNum,

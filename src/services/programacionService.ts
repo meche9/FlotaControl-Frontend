@@ -23,6 +23,7 @@ export interface ColisionDetalle {
   estadoOrden: string;
   fechaProgramadaCarga?: string;
   conductorAsignado?: string | null;
+  fisico?: boolean;
 }
 
 export interface ClienteDetectado {
@@ -63,6 +64,7 @@ export interface TripItem {
   colision: boolean;
   colisionDetalle?: ColisionDetalle | null;
   seleccionado?: boolean;
+  fisico?: boolean;
 }
 
 export interface SchedulePreviewResponse {
@@ -104,6 +106,7 @@ export interface GuiaProgramada {
   montoAnticipoConductor: number | string;
   estadoFacturacion: string;
   estadoOrden: string;
+  fisico: boolean;
   observaciones: string | null;
   cliente?: {
     idCliente: string;
@@ -185,6 +188,7 @@ export const programacionService = {
     fechaInicio?: string;
     fechaFin?: string;
     estadoOrden?: string;
+    fisico?: boolean | string;
   }): Promise<GuiaProgramada[]> {
     const response = await api.get<GuiaProgramada[]>('/schedules/programados', { params });
     return response.data;
@@ -216,6 +220,17 @@ export const programacionService = {
     const response = await api.patch<GuiaProgramada>('/schedules/actualizar-observacion', {
       idOrden,
       observaciones,
+    });
+    return response.data;
+  },
+
+  /**
+   * Actualiza el estado físico de una orden de viaje en guias_viajes (documento físico en mano / recibido).
+   */
+  async actualizarFisico(idOrden: string, fisico: boolean): Promise<GuiaProgramada> {
+    const response = await api.patch<GuiaProgramada>('/schedules/actualizar-fisico', {
+      idOrden,
+      fisico,
     });
     return response.data;
   },

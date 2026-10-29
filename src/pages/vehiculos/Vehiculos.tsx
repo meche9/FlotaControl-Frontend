@@ -95,8 +95,8 @@ export default function Vehiculos() {
     modelo: '',
     especificacionMotor: '',
     anio: new Date().getFullYear(),
-    clasificacion: 'Chuto',
-    idClasificacion: 5,
+    clasificacion: '',
+    idClasificacion: 0,
     idTipo: 1,
     numeroChasis: '',
     numeroMotor: '',
@@ -1649,8 +1649,8 @@ export default function Vehiculos() {
                   setFormData({
                     ...formData,
                     clasificacion: nombre,
-                    idClasificacion: match?.idClasificacion ?? 5,
-                    idTipo: match?.idTipo ?? 1,
+                    idClasificacion: match ? Number(match.idClasificacion) : (clasificaciones[0]?.idClasificacion ? Number(clasificaciones[0].idClasificacion) : 0),
+                    idTipo: match ? Number(match.idTipo) : (tiposVehiculo[0]?.idTipo ? Number(tiposVehiculo[0].idTipo) : 1),
                   });
                 }}
                 className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-semibold text-slate-800 text-xs outline-none"

@@ -368,12 +368,13 @@ export default function Login() {
                   {/* Register prompt */}
                   <div className="bg-slate-100/80 rounded-xl p-3 border border-slate-200 flex items-center justify-between text-xs">
                     <div className="flex flex-col">
-                      <span className="font-bold text-slate-800">¿Nuevo en la flota?</span>
-                      <span className="text-slate-500 text-[11px]">Solicita tu credencial de chofer</span>
+                      <span className="font-bold text-slate-800">¿Nuevo Usuario?</span>
+
                     </div>
                     <button
                       type="button"
-                      className="px-3 py-1.5 bg-white border border-slate-300 hover:border-orange-500 rounded-lg font-bold text-orange-600 hover:text-orange-700 transition-colors shadow-xs flex items-center gap-1"
+                      onClick={() => navigate('/register')}
+                      className="px-3 py-1.5 bg-white border border-slate-300 hover:border-orange-500 rounded-lg font-bold text-orange-600 hover:text-orange-700 transition-colors shadow-xs flex items-center gap-1 cursor-pointer"
                     >
                       <UserPlus className="w-3.5 h-3.5" />
                       Registrar

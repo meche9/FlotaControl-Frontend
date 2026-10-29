@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
-import authService, { type AuthUser, type LoginCredentials } from '../services/authService';
+import authService, { type AuthUser, type LoginCredentials, type LoginResponse } from '../services/authService';
 import { setSessionExpiredHandler, tokenStore } from '../services/api';
 
 export type AuthStatus = 'checking' | 'authenticated' | 'anonymous';
@@ -11,6 +11,7 @@ interface AuthContextType {
   login: (credentials: LoginCredentials) => Promise<void>;
   logout: () => Promise<void>;
   actualizarUsuario: (user: AuthUser) => void;
+  establecerSesion: (sesion: LoginResponse) => void;
 }
 
 type MensajeSesion = 'login' | 'logout';
@@ -82,6 +83,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     canalRef.current?.postMessage('login' satisfies MensajeSesion);
   }, []);
 
+  const establecerSesion = useCallback((sesion: LoginResponse) => {
+    setUser(sesion.user);
+    setStatus('authenticated');
+    canalRef.current?.postMessage('login' satisfies MensajeSesion);
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await authService.logout();
@@ -101,6 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         logout,
         actualizarUsuario: setUser,
+        establecerSesion,
       }}
     >
       {children}

@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from '../pages/auth/Login';
+import Register from '../pages/auth/Register';
 import ForgotPassword from '../pages/auth/ForgotPassword';
 import ResetPassword from '../pages/auth/ResetPassword';
 import PrivateRoute from './PrivateRoute';
@@ -26,6 +27,8 @@ export default function AppRoutes() {
                 {/* Ruta pública solo para visitantes: con sesión activa redirige al dashboard */}
                 <Route element={<PublicOnlyRoute />}>
                     <Route path="/login" element={<Login />} />
+                    <Route path="/register" element={<Register />} />
+                    <Route path="/registro" element={<Register />} />
                 </Route>
 
                 {/* Recuperación de contraseña: pública */}

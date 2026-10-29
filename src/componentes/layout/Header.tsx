@@ -1,16 +1,19 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Bell, Plus, User, LogOut } from 'lucide-react';
+import { Search, Bell, Plus, User, LogOut, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { ImagenProtegida } from '../../components/ui';
 import { urlFotoPerfil } from '../../services/authService';
 import FotoPerfilModal from './FotoPerfilModal';
+import { RegistrarDespachoModal } from '../../pages/dashboard/RegistrarDespachoModal';
 
 export default function Header() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [cerrandoSesion, setCerrandoSesion] = useState(false);
   const [fotoPerfilAbierta, setFotoPerfilAbierta] = useState(false);
+  const [isModalDespachoOpen, setIsModalDespachoOpen] = useState(false);
+  const [toastMensaje, setToastMensaje] = useState<string | null>(null);
 
   const handleLogout = async () => {
     setCerrandoSesion(true);
@@ -57,7 +60,11 @@ export default function Header() {
         </button>
 
         {/* Botón de Acción Principal */}
-        <button className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center space-x-2 shadow-md shadow-orange-500/20 transition">
+        <button
+          type="button"
+          onClick={() => setIsModalDespachoOpen(true)}
+          className="bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center space-x-2 shadow-md shadow-orange-500/20 transition cursor-pointer"
+        >
           <Plus className="w-4 h-4 stroke-[3]" />
           <span>Nuevo Viaje</span>
         </button>
@@ -104,6 +111,24 @@ export default function Header() {
       </div>
 
       <FotoPerfilModal isOpen={fotoPerfilAbierta} onClose={() => setFotoPerfilAbierta(false)} />
+
+      {/* Toast Notificación */}
+      {toastMensaje && (
+        <div className="fixed top-5 right-5 z-50 bg-slate-900 text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-2xl flex items-center space-x-2.5 border border-slate-700 animate-in fade-in slide-in-from-top-4 duration-200">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{toastMensaje}</span>
+        </div>
+      )}
+
+      {/* Modal Registrar Despacho / Asignar Viaje */}
+      <RegistrarDespachoModal
+        isOpen={isModalDespachoOpen}
+        onClose={() => setIsModalDespachoOpen(false)}
+        onSuccess={(viaje) => {
+          setToastMensaje(`Despacho ${viaje.nroTransporte} registrado con éxito.`);
+          setTimeout(() => setToastMensaje(null), 4000);
+        }}
+      />
     </header>
   );
 }

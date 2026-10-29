@@ -68,7 +68,7 @@ export default function VehiculosRegistro() {
 
     // Estado del formulario
     const [idTipoSeleccionado, setIdTipoSeleccionado] = useState<number>(1); // 1 = Unidad Motora por defecto
-    const [idClasificacion, setIdClasificacion] = useState<number>(5);
+    const [idClasificacion, setIdClasificacion] = useState<number>(0);
     const [placa, setPlaca] = useState('');
     const [anio, setAnio] = useState<number>(new Date().getFullYear());
     const [marca, setMarca] = useState('');
@@ -314,7 +314,16 @@ export default function VehiculosRegistro() {
             return;
         }
 
-        const clasifActual = clasificaciones.find((c) => Number(c.idClasificacion) === Number(idClasificacion));
+        const clasifActual =
+            clasificaciones.find((c) => Number(c.idClasificacion) === Number(idClasificacion)) ||
+            clasificacionesFiltradas[0];
+        const idClasificacionFinal = Number(idClasificacion || clasifActual?.idClasificacion || 0);
+
+        if (!idClasificacionFinal) {
+            setErrorGlobal('Debe seleccionar una clasificación válida para el vehículo.');
+            return;
+        }
+
         const tipoUnidad: TipoUnidad = esUnidadMotora ? 'motriz' : 'acoplado';
 
         setGuardando(true);
@@ -328,8 +337,8 @@ export default function VehiculosRegistro() {
                 marca: marca.trim(),
                 modelo: modelo.trim(),
                 anio: Number(anio) || new Date().getFullYear(),
-                clasificacion: clasifActual?.nombreClasificacion || (esUnidadMotora ? 'Chuto' : 'Cortinero'),
-                idClasificacion: Number(idClasificacion || clasifActual?.idClasificacion || (esUnidadMotora ? 5 : 7)),
+                clasificacion: clasifActual?.nombreClasificacion || '',
+                idClasificacion: idClasificacionFinal,
                 idTipo: Number(idTipoSeleccionado),
                 numeroChasis: numeroChasis.trim().toUpperCase(),
                 numeroMotor: esUnidadMotora && numeroMotor.trim() ? numeroMotor.trim().toUpperCase() : undefined,
@@ -521,8 +530,8 @@ export default function VehiculosRegistro() {
                                                 </option>
                                             ))
                                         ) : (
-                                            <option value={idClasificacion}>
-                                                {esUnidadMotora ? 'Chuto (Predeterminado)' : 'Cortinero (Predeterminado)'}
+                                            <option value={0} disabled>
+                                                Cargando clasificaciones...
                                             </option>
                                         )}
                                     </select>

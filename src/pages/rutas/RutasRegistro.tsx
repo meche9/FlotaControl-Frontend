@@ -154,6 +154,7 @@ export default function RutasRegistro() {
   const [recargosModalItems, setRecargosModalItems] = useState<RecargoModalItem[]>([]);
   const [recargosLoading, setRecargosLoading] = useState<boolean>(false);
   const [recargosSaving, setRecargosSaving] = useState<boolean>(false);
+  const [recargosFiltroTexto, setRecargosFiltroTexto] = useState<string>('');
 
   // Formulario Ficha Paramétrica de la Ruta
   const [formData, setFormData] = useState({
@@ -611,10 +612,34 @@ export default function RutasRegistro() {
     );
   }, [peajesSeleccionadosActivos]);
 
+  // Filtrado de recargos en el modal
+  const recargosFiltradosModal = useMemo(() => {
+    if (!recargosFiltroTexto.trim()) return recargosModalItems;
+    const q = recargosFiltroTexto.toLowerCase().trim();
+    return recargosModalItems.filter(
+      (r) =>
+        r.concepto.toLowerCase().includes(q) ||
+        (r.tipoCalculo && r.tipoCalculo.toLowerCase().includes(q))
+    );
+  }, [recargosModalItems, recargosFiltroTexto]);
+
+  // Recargos seleccionados en el modal
+  const recargosSeleccionados = useMemo(() => {
+    return recargosModalItems.filter((r) => r.selected);
+  }, [recargosModalItems]);
+
+  // Subtotal de recargos de tipo Monto Fijo
+  const costoTotalRecargosFijos = useMemo(() => {
+    return recargosSeleccionados
+      .filter((r) => r.tipoCalculo === 'Monto_Fijo' || !r.tipoCalculo)
+      .reduce((acc, r) => acc + (parseFloat(String(r.valor)) || 0), 0);
+  }, [recargosSeleccionados]);
+
   // Abrir modal de asignación de recargos y viáticos para una ruta
   const abrirModalRecargos = async (ruta: Ruta) => {
     setActiveModalRuta(ruta);
     setRecargosLoading(true);
+    setRecargosFiltroTexto('');
     setModalRecargosOpen(true);
 
     try {
@@ -628,19 +653,43 @@ export default function RutasRegistro() {
       // 2. Obtener recargos ya asignados a esta ruta (rutas_recargos)
       const asignados = await rutasService.getRecargosByRuta(ruta.idRuta);
 
-      // Set de conceptos asignados
-      const asignadosConceptos = new Set(
-        asignados.map((a) => a.concepto.trim().toLowerCase())
+      // Mapa de recargos ya asignados a esta ruta por concepto
+      const asignadosMap = new Map(
+        asignados.map((a) => [a.concepto.trim().toLowerCase(), a])
       );
 
-      // 3. Mapear catálogo cruzándolo con recargos ya asignados
-      const items: RecargoModalItem[] = catalogo.map((rg) => ({
-        idRecargo: rg.idRecargo,
-        concepto: rg.concepto,
-        tipoCalculo: rg.tipoCalculo,
-        valor: rg.valor,
-        selected: asignadosConceptos.has(rg.concepto.trim().toLowerCase()),
-      }));
+      // 3. Mapear catálogo cruzándolo con recargos ya asignados y conservando sus montos guardados
+      const items: RecargoModalItem[] = catalogo.map((rg) => {
+        const asignado = asignadosMap.get(rg.concepto.trim().toLowerCase());
+        const isSelected = !!asignado;
+        // Si ya está asignado a la ruta, usar el monto guardado en rutas_recargos; si no, el valor por defecto del catálogo
+        const valor =
+          isSelected && asignado?.valor !== undefined && asignado?.valor !== null
+            ? asignado.valor
+            : (rg.valor ?? '0.00');
+
+        return {
+          idRecargo: rg.idRecargo,
+          concepto: rg.concepto,
+          tipoCalculo: asignado?.tipoCalculo || rg.tipoCalculo,
+          valor: valor,
+          selected: isSelected,
+        };
+      });
+
+      // Incluir recargos asignados previamente que no existan en el catálogo general
+      const catalogoConceptos = new Set(catalogo.map((c) => c.concepto.trim().toLowerCase()));
+      for (const asig of asignados) {
+        if (!catalogoConceptos.has(asig.concepto.trim().toLowerCase())) {
+          items.push({
+            idRecargo: asig.idRecargo,
+            concepto: asig.concepto,
+            tipoCalculo: asig.tipoCalculo,
+            valor: asig.valor ?? '0.00',
+            selected: true,
+          });
+        }
+      }
 
       // Ordenar: seleccionados primero, luego alfabéticamente
       items.sort((a, b) => {
@@ -660,18 +709,38 @@ export default function RutasRegistro() {
     }
   };
 
-  // Alternar selección de un recargo en el modal (multiselección sin checkboxes)
-  const handleToggleRecargo = (idRecargo: string) => {
+  // Alternar selección de un recargo en el modal
+  const handleToggleRecargo = (idRecargo: string, forceState?: boolean) => {
     setRecargosModalItems((prev) =>
       prev.map((item) =>
         item.idRecargo === idRecargo
-          ? { ...item, selected: !item.selected }
+          ? { ...item, selected: forceState !== undefined ? forceState : !item.selected }
           : item
       )
     );
   };
 
-  // Guardar asignación de recargos seleccionados en rutas_recargos
+  // Modificar campo de un recargo en el modal (valor / monto solicitado)
+  const handleUpdateRecargoField = (
+    idRecargo: string,
+    field: 'valor' | 'tipoCalculo',
+    value: any
+  ) => {
+    setRecargosModalItems((prev) =>
+      prev.map((item) =>
+        item.idRecargo === idRecargo
+          ? {
+            ...item,
+            [field]: value,
+            // Si se ingresa un monto y no estaba seleccionado, seleccionarlo automáticamente
+            selected: field === 'valor' ? true : item.selected,
+          }
+          : item
+      )
+    );
+  };
+
+  // Guardar asignación de recargos seleccionados y sus montos en rutas_recargos
   const handleGuardarRecargos = async () => {
     if (!activeModalRuta) return;
 
@@ -679,9 +748,9 @@ export default function RutasRegistro() {
     setRecargosSaving(true);
     try {
       const payload: ItemRutaRecargoDto[] = seleccionados.map((r) => ({
-        concepto: r.concepto,
+        concepto: r.concepto.trim(),
         tipoCalculo: r.tipoCalculo,
-        valor: parseFloat(String(r.valor)) || 0,
+        valor: Math.max(0, parseFloat(String(r.valor)) || 0),
       }));
 
       await rutasService.asignarRecargosRuta(activeModalRuta.idRuta, payload);
@@ -704,7 +773,7 @@ export default function RutasRegistro() {
       setModalRecargosOpen(false);
       setFeedbackMsg({
         tipo: 'success',
-        texto: `Se asignaron ${seleccionados.length} recargos a la ruta "${activeModalRuta.nombreRuta}".`,
+        texto: `Se asignaron ${seleccionados.length} recargos con sus respectivos montos a la ruta "${activeModalRuta.nombreRuta}".`,
       });
     } catch (err) {
       setFeedbackMsg({
@@ -791,7 +860,7 @@ export default function RutasRegistro() {
     const origenStr = pOrigen ? pOrigen.nombreSede : formData.ciudadOrigen || 'Origen';
     const destinoStr = pDestino ? pDestino.nombreSede : formData.ciudadDestino || 'Destino';
 
-    const nombreSugerido = `Ruta Troncal: ${origenStr} — ${destinoStr}`;
+    const nombreSugerido = `Ruta: ${origenStr} — ${destinoStr}`;
     setFormData((prev) => ({ ...prev, nombreRuta: nombreSugerido }));
   };
 
@@ -799,8 +868,8 @@ export default function RutasRegistro() {
   const recalcularModeloEnergetico = (kmInput: string) => {
     const km = parseFloat(kmInput);
     if (!isNaN(km) && km > 0) {
-      const horas = (km / 45.2).toFixed(1);
-      const gasoil = (km * 0.420).toFixed(6);
+      const horas = (km / 60).toFixed(1);
+      const gasoil = (km * 0.55).toFixed(6);
 
       setFormData((prev) => ({
         ...prev,
@@ -2367,16 +2436,16 @@ export default function RutasRegistro() {
                 Recargos y Viáticos — {activeModalRuta?.nombreRuta || 'Ruta'}
               </span>
               <span className="text-[11px] text-slate-500 font-normal block">
-                Seleccione los conceptos generales que aplican a este corredor
+                Seleccione los conceptos y defina el monto a guardar en la tabla rutas_recargos
               </span>
             </div>
           </div>
         }
-        size="md"
+        size="lg"
         footer={
           <div className="flex items-center justify-between w-full">
             <span className="text-[11px] text-slate-500 font-medium">
-              {recargosModalItems.filter((r) => r.selected).length} de {recargosModalItems.length} seleccionados
+              {recargosSeleccionados.length} de {recargosModalItems.length} seleccionados
             </span>
             <div className="flex items-center gap-2">
               <Button
@@ -2407,36 +2476,51 @@ export default function RutasRegistro() {
         }
       >
         <div className="space-y-4">
-          <div className="p-3 bg-gradient-to-r from-orange-50 via-amber-50/60 to-orange-50/40 border border-orange-200/80 rounded-xl flex items-center justify-between text-xs">
+          {/* Header informativo + Buscador */}
+          <div className="p-3 bg-gradient-to-r from-orange-50 via-amber-50/60 to-orange-50/40 border border-orange-200/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
             <div className="flex items-center gap-2">
               <Coins className="w-4 h-4 text-orange-600 shrink-0" />
               <div>
                 <span className="font-bold text-orange-950 block">Catálogo de Recargos Generales:</span>
                 <span className="text-[11px] text-orange-800">
-                  Haz clic sobre cada concepto para seleccionarlo o deseleccionarlo
+                  Marque los recargos aplicables e indique el monto para esta ruta
                 </span>
               </div>
             </div>
-            <div className="text-right shrink-0">
-              <span className="font-black text-orange-950 text-sm block">
-                {recargosModalItems.filter((r) => r.selected).length}
-              </span>
-              <span className="text-[10px] text-orange-700 font-semibold">Activos</span>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Buscar concepto..."
+                  value={recargosFiltroTexto}
+                  onChange={(e) => setRecargosFiltroTexto(e.target.value)}
+                  className="pl-8 pr-2.5 py-1 text-xs bg-white border border-orange-200 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-orange-500 w-44"
+                />
+              </div>
+              <div className="text-right shrink-0 bg-white/80 border border-orange-200 px-2 py-0.5 rounded-lg">
+                <span className="font-black text-orange-950 text-xs block leading-tight">
+                  {recargosSeleccionados.length}
+                </span>
+                <span className="text-[9px] text-orange-700 font-semibold block leading-tight">Activos</span>
+              </div>
             </div>
           </div>
 
           {recargosLoading ? (
             <div className="py-12 flex flex-col items-center justify-center text-slate-400 gap-2">
               <RefreshCw className="w-6 h-6 animate-spin text-orange-500" />
-              <p className="text-xs font-medium">Cargando catálogo de recargos generales...</p>
+              <p className="text-xs font-medium">Cargando catálogo de recargos generales y valores de la ruta...</p>
             </div>
-          ) : recargosModalItems.length === 0 ? (
+          ) : recargosFiltradosModal.length === 0 ? (
             <div className="p-8 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-              No hay conceptos registrados en la tabla de recargos generales.
+              {recargosFiltroTexto
+                ? `No se encontraron conceptos que coincidan con "${recargosFiltroTexto}".`
+                : 'No hay conceptos registrados en la tabla de recargos generales.'}
             </div>
           ) : (
-            <div className="space-y-2">
-              {recargosModalItems.map((recargo) => {
+            <div className="max-h-[46vh] overflow-y-auto space-y-2 pr-1">
+              {recargosFiltradosModal.map((recargo) => {
                 const isSelected = recargo.selected;
                 const tipoTexto = recargo.tipoCalculo
                   ? recargo.tipoCalculo.replace(/_/g, ' ')
@@ -2445,46 +2529,130 @@ export default function RutasRegistro() {
                 return (
                   <div
                     key={recargo.idRecargo}
-                    onClick={() => handleToggleRecargo(recargo.idRecargo)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        handleToggleRecargo(recargo.idRecargo);
-                      }
-                    }}
-                    className={`p-3.5 rounded-xl flex items-center justify-between text-xs cursor-pointer transition-all duration-150 select-none ${isSelected
-                      ? 'border-2 border-orange-500 bg-gradient-to-r from-orange-50/90 via-amber-50/60 to-orange-50/90 shadow-xs ring-2 ring-orange-400/20'
-                      : 'border border-slate-200 bg-white hover:bg-slate-50/80 hover:border-slate-300 shadow-xs'
+                    className={`p-3 rounded-xl border transition-all duration-150 ${isSelected
+                      ? 'border-orange-400 bg-gradient-to-r from-orange-50/90 via-amber-50/40 to-orange-50/70 shadow-xs ring-1 ring-orange-400/30'
+                      : 'border-slate-200 bg-white hover:bg-slate-50/80 hover:border-slate-300 shadow-2xs'
                       }`}
                   >
-                    <div className="space-y-0.5">
-                      <div className={`font-bold ${isSelected ? 'text-orange-950' : 'text-slate-800'}`}>
-                        {recargo.concepto}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      {/* Checkbox y Datos del concepto */}
+                      <div className="flex items-start gap-3 flex-1 min-w-0">
+                        <input
+                          type="checkbox"
+                          id={`recargo-${recargo.idRecargo}`}
+                          checked={isSelected}
+                          onChange={(e) => handleToggleRecargo(recargo.idRecargo, e.target.checked)}
+                          className="w-4 h-4 mt-1 text-orange-600 rounded focus:ring-orange-500 cursor-pointer accent-orange-600"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <label
+                            htmlFor={`recargo-${recargo.idRecargo}`}
+                            className={`text-xs font-bold block cursor-pointer transition-colors ${isSelected ? 'text-orange-950 font-black' : 'text-slate-800 hover:text-orange-700'
+                              }`}
+                          >
+                            {recargo.concepto}
+                          </label>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span
+                              className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border ${isSelected
+                                ? 'bg-orange-100/90 text-orange-800 border-orange-200'
+                                : 'bg-slate-100 text-slate-600 border-slate-200'
+                                }`}
+                            >
+                              {tipoTexto}
+                            </span>
+                            {isSelected && (
+                              <span className="text-[10px] text-emerald-700 font-semibold flex items-center gap-1">
+                                <Check className="w-3 h-3 text-emerald-600" />
+                                Asignado a ruta
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <div className={`text-[11px] ${isSelected ? 'text-orange-700 font-medium' : 'text-slate-400'}`}>
-                        {tipoTexto}
-                      </div>
-                    </div>
 
-                    <div>
-                      {isSelected ? (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-orange-600 text-white font-bold text-[10px] tracking-wide uppercase shadow-xs">
-                          <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
-                          Seleccionado
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-3 py-1 rounded-lg bg-slate-100 text-slate-500 font-semibold text-[10px] uppercase hover:bg-slate-200 transition-colors">
-                          + Seleccionar
-                        </span>
-                      )}
+                      {/* Parámetros de asignación a rutas_recargos: Monto */}
+                      <div className="flex items-center gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-orange-200/60">
+                        <div className="flex flex-col items-end">
+                          <label
+                            htmlFor={`monto-${recargo.idRecargo}`}
+                            className="text-[9px] font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-1"
+                          >
+                            <span>Monto a guardar</span>
+                            <span className="text-orange-600 font-mono">
+                              ({recargo.tipoCalculo === 'Porcentaje' ? '%' : 'USD'})
+                            </span>
+                          </label>
+                          <div className="flex items-center mt-0.5 relative">
+                            <span className="text-xs font-bold text-slate-400 px-1 select-none">
+                              {recargo.tipoCalculo === 'Porcentaje' ? '%' : '$'}
+                            </span>
+                            <input
+                              id={`monto-${recargo.idRecargo}`}
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={recargo.valor ?? ''}
+                              placeholder="0.00"
+                              onChange={(e) =>
+                                handleUpdateRecargoField(recargo.idRecargo, 'valor', e.target.value)
+                              }
+                              onFocus={() => {
+                                if (!isSelected) {
+                                  handleToggleRecargo(recargo.idRecargo, true);
+                                }
+                              }}
+                              className={`w-24 text-xs font-black rounded-lg py-1 px-2 text-right transition-all shadow-2xs ${isSelected
+                                ? 'text-slate-900 bg-white border border-orange-400 focus:ring-2 focus:ring-orange-500 focus:border-orange-500'
+                                : 'text-slate-500 bg-slate-50 border border-slate-300 focus:bg-white focus:text-slate-900 focus:border-orange-400'
+                                }`}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Botón rápido toggle */}
+                        <div className="flex flex-col items-center justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleRecargo(recargo.idRecargo)}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase transition-all ${isSelected
+                              ? 'bg-orange-600 text-white hover:bg-orange-700 shadow-2xs'
+                              : 'bg-slate-100 text-slate-600 hover:bg-orange-50 hover:text-orange-700 border border-slate-200'
+                              }`}
+                          >
+                            {isSelected ? 'Activo' : '+ Asignar'}
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );
               })}
             </div>
           )}
+
+          {/* Banner de Resumen y Totalización de Recargos */}
+          <div className="p-3.5 bg-gradient-to-r from-orange-50 via-amber-50/50 to-orange-50 border border-orange-200 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between text-xs gap-2">
+            <div className="flex items-center gap-2">
+              <Coins className="w-4 h-4 text-orange-600 shrink-0" />
+              <div>
+                <span className="font-bold text-orange-950 block">
+                  Resumen de Recargos para la Ruta:
+                </span>
+                <span className="text-[11px] text-orange-800">
+                  {recargosSeleccionados.length} recargo(s) asignados que se guardarán en <code className="bg-orange-100 text-orange-900 px-1 py-0.5 rounded font-mono text-[10px]">rutas_recargos</code>
+                </span>
+              </div>
+            </div>
+            <div className="text-right">
+              <span className="font-black text-orange-950 text-base block">
+                ${costoTotalRecargosFijos.toFixed(2)} USD
+              </span>
+              <span className="text-[10px] text-orange-700 font-semibold">
+                Subtotal recargos fijos por viaje
+              </span>
+            </div>
+          </div>
         </div>
       </Modal>
 

@@ -76,7 +76,14 @@ api.interceptors.request.use((config) => {
 });
 
 // Los endpoints de autenticación manejan sus propios 401 (p. ej. credenciales inválidas)
-const AUTH_ENDPOINTS = ['/auth/login', '/auth/refresh', '/auth/logout', '/auth/forgot-password', '/auth/reset-password'];
+const AUTH_ENDPOINTS = [
+  '/auth/login',
+  '/auth/refresh',
+  '/auth/logout',
+  '/auth/forgot-password',
+  '/auth/reset-password',
+  '/auth/register',
+];
 
 // ─── Response Interceptor: renovar el access token vencido una vez ───
 api.interceptors.response.use(

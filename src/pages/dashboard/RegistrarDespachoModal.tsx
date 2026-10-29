@@ -18,6 +18,7 @@ import {
   Route as RouteIcon,
   Navigation,
   Search,
+  FileCheck,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { programacionService, type TripItem } from '../../services/programacionService';
@@ -88,6 +89,7 @@ export const RegistrarDespachoModal: React.FC<RegistrarDespachoModalProps> = ({
   const [horaProgramada, setHoraProgramada] = useState('08:00 AM');
   const [activeDatePill, setActiveDatePill] = useState<'hoy' | 'manana' | '48h' | 'custom'>('hoy');
   const [observaciones, setObservaciones] = useState('Viaje Adicional');
+  const [fisico, setFisico] = useState(false);
 
   // Interactivity / Dropdown menus
   const [showClienteDropdown, setShowClienteDropdown] = useState(false);
@@ -369,6 +371,7 @@ export const RegistrarDespachoModal: React.FC<RegistrarDespachoModalProps> = ({
       horaEntregaEstimada: '18:00',
       yaExiste: false,
       colision: false,
+      fisico,
       observacion: obsFinal,
       observaciones: obsFinal,
     };
@@ -969,6 +972,34 @@ export const RegistrarDespachoModal: React.FC<RegistrarDespachoModalProps> = ({
                 className="w-full bg-white rounded-xl border border-slate-200/90 px-3.5 py-2 text-xs font-semibold text-slate-800 placeholder:text-slate-400 outline-hidden focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition shadow-2xs"
               />
             </div>
+          </div>
+
+          {/* CONTROL DE DOCUMENTO FÍSICO */}
+          <div className="flex items-center justify-between p-3 rounded-2xl bg-[#f8fafc] border border-slate-200/90 shadow-2xs">
+            <div className="flex items-center gap-2.5">
+              <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition ${
+                fisico ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200/80 text-slate-500'
+              }`}>
+                <FileCheck className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="text-xs font-bold text-slate-800 block">
+                  Documento Físico en Mano
+                </span>
+                <span className="text-[11px] text-slate-500 block">
+                  Marcar si la guía / manifiesto físico ya fue entregado
+                </span>
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={fisico}
+                onChange={(e) => setFisico(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-10 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+            </label>
           </div>
 
           {/* 6. AVISO INFORMATIVO VERDE */}

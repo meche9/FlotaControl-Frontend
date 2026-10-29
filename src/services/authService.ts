@@ -29,6 +29,29 @@ export interface MessageResponse {
   message: string;
 }
 
+export interface RegisterRequestData {
+  nombreCompleto: string;
+  email: string;
+  password: string;
+  telefono?: string;
+}
+
+export interface RegisterRequestResponse {
+  message: string;
+  email: string;
+  expiresInSeconds: number;
+  devCode?: string;
+}
+
+export interface RegisterVerifyData {
+  email: string;
+  code: string;
+}
+
+export interface RegisterResendData {
+  email: string;
+}
+
 export const urlFotoPerfil = (user: AuthUser | null) =>
   user?.foto ? `/auth/profile/foto?v=${user.foto}` : null;
 
@@ -54,6 +77,31 @@ const authService = {
    */
   async forgotPassword(email: string): Promise<MessageResponse> {
     const response = await api.post<MessageResponse>('/auth/forgot-password', { email });
+    return response.data;
+  },
+
+  /**
+   * Paso 1: Enviar datos de onboarding y solicitar código OTP
+   */
+  async registerRequest(data: RegisterRequestData): Promise<RegisterRequestResponse> {
+    const response = await api.post<RegisterRequestResponse>('/auth/register/request-code', data);
+    return response.data;
+  },
+
+  /**
+   * Reenviar código OTP de verificación
+   */
+  async registerResend(data: RegisterResendData): Promise<RegisterRequestResponse> {
+    const response = await api.post<RegisterRequestResponse>('/auth/register/resend-code', data);
+    return response.data;
+  },
+
+  /**
+   * Paso 2: Verificar código y activar cuenta (inicia sesión y guarda token)
+   */
+  async registerVerify(data: RegisterVerifyData): Promise<LoginResponse> {
+    const response = await api.post<LoginResponse>('/auth/register/verify-code', data);
+    tokenStore.set(response.data.accessToken);
     return response.data;
   },
 
