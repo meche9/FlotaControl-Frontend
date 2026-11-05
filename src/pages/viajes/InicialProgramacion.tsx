@@ -407,7 +407,7 @@ export default function InicialProgramacion() {
 
                     <div className="p-5 sm:p-6 flex flex-col flex-1 justify-between relative z-10">
                         <div>
-                            {/* Cabecera de la tarjeta: Icono y Pill */}f
+                            {/* Cabecera de la tarjeta: Icono y Pill */}
                             <div className="flex items-start justify-between gap-2">
                                 <div className="w-12 h-12 rounded-2xl bg-[#cbf7dc] flex items-center justify-center shrink-0">
                                     <Truck className="w-6 h-6 text-[#0b6641]" strokeWidth={2.2} />
