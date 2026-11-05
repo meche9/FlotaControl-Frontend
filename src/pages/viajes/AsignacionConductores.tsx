@@ -28,7 +28,7 @@ import {
   FileCheck
 } from 'lucide-react';
 import { conductoresService } from '../../services/conductoresService';
-import { clientesService, type Cliente } from '../../services/clientesService';
+import { clientesService, ordenarClientesPorFechaCreacion, type Cliente } from '../../services/clientesService';
 import { programacionService, type GuiaProgramada } from '../../services/programacionService';
 
 // ==========================================
@@ -306,13 +306,10 @@ export default function AsignacionConductores() {
         }
 
         if (clients && clients.length > 0) {
-          setClientes(clients);
-          // Preferir Polar o el primer cliente registrado
-          const polar = clients.find((c) =>
-            (c.razonSocial || '').toLowerCase().includes('polar') ||
-            (c.nombreComercial || '').toLowerCase().includes('polar')
-          );
-          const clienteId = polar ? polar.idCliente : clients[0].idCliente;
+          const sortedClients = ordenarClientesPorFechaCreacion(clients);
+          setClientes(sortedClients);
+          // Mostrar siempre el primero que se ha creado en base de datos
+          const clienteId = sortedClients[0].idCliente;
           setClienteSeleccionadoId(clienteId);
         }
       } catch (err) {

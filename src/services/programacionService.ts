@@ -151,7 +151,53 @@ export interface GuiaProgramada {
     placa: string;
     marca: string;
     modelo: string;
+    clasificacion?: {
+      idClasificacion: number;
+      nombreClasificacion: string;
+    } | null;
   } | null;
+  acoplado?: {
+    idVehiculo: string;
+    placa: string;
+    marca: string;
+    modelo: string;
+    clasificacion?: {
+      idClasificacion: number;
+      nombreClasificacion: string;
+    } | null;
+  } | null;
+  guiasViajesRecargos?: GuiaViajeRecargoItem[];
+}
+
+export interface RutaRecargoItem {
+  idRecargo: string;
+  idRuta: string;
+  concepto: string;
+  tipoCalculo: string;
+  valor: number | string;
+}
+
+export interface GuiaViajeRecargoItem {
+  idViajeRecargo: string;
+  idOrden: string;
+  idRecargo?: string | null;
+  monto: number | string;
+  estado: 'Pendiente' | 'Procesado' | 'Rechazado';
+  idProformaRecargo?: string | null;
+  observaciones?: string | null;
+  fechaCreacion?: string;
+  fechaActualizacion?: string;
+  recargo?: RutaRecargoItem | null;
+}
+
+export interface RecargosCatalogoResponse {
+  generales: Array<{
+    idRecargo: string;
+    concepto: string;
+    tipoCalculo: string;
+    valor: number | string;
+  }>;
+  deRuta: RutaRecargoItem[];
 }
 
 export const programacionService = {
@@ -201,6 +247,77 @@ export const programacionService = {
     const response = await api.patch<GuiaProgramada>('/schedules/asignar-conductor', {
       idOrden,
       idConductor,
+    });
+    return response.data;
+  },
+
+  /**
+   * Asigna recursos (vehículo motriz, acoplado y/o conductor) a un viaje.
+   */
+  async asignarRecursos(params: {
+    idOrden: string;
+    idVehiculoMotriz?: string | null;
+    idAcoplado?: string | null;
+    idConductor?: string | null;
+  }): Promise<GuiaProgramada> {
+    const response = await api.patch<GuiaProgramada>('/schedules/asignar-recursos', params);
+    return response.data;
+  },
+
+  /**
+   * Genera la plancha creando un viaje de retorno debajo del viaje inicial.
+   */
+  async crearViajeRetorno(params: {
+    idOrdenOrigen: string;
+    nroTransporte: string;
+    idPuntoDestino?: string;
+    fechaProgramadaCarga?: string;
+    montoFlete?: number;
+    observaciones?: string;
+  }): Promise<GuiaProgramada> {
+    const response = await api.post<GuiaProgramada>('/schedules/crear-retorno', params);
+    return response.data;
+  },
+
+  /**
+   * Obtiene los recargos guardados de una guía en guias_viajes_recargos.
+   */
+  async getRecargosViaje(idOrden: string): Promise<GuiaViajeRecargoItem[]> {
+    const response = await api.get<GuiaViajeRecargoItem[]>(`/schedules/${idOrden}/recargos`);
+    return response.data;
+  },
+
+  /**
+   * Guarda / sincroniza los recargos aplicados a un viaje en guias_viajes_recargos.
+   */
+  async guardarRecargosViaje(
+    idOrden: string,
+    recargos: Array<{
+      idViajeRecargo?: string;
+      idRecargo?: string | null;
+      concepto?: string;
+      monto: number | string;
+      observaciones?: string | null;
+      estado?: 'Pendiente' | 'Procesado' | 'Rechazado';
+    }>,
+  ): Promise<GuiaViajeRecargoItem[]> {
+    const response = await api.post<GuiaViajeRecargoItem[]>(`/schedules/${idOrden}/recargos`, { recargos });
+    return response.data;
+  },
+
+  /**
+   * Elimina un recargo individual de guias_viajes_recargos.
+   */
+  async eliminarRecargoViaje(idViajeRecargo: string): Promise<void> {
+    await api.delete(`/schedules/recargos/${idViajeRecargo}`);
+  },
+
+  /**
+   * Obtiene el catálogo de recargos disponibles (rutas_recargos y recargos_generales).
+   */
+  async getCatalogoRecargos(idRuta?: string): Promise<RecargosCatalogoResponse> {
+    const response = await api.get<RecargosCatalogoResponse>('/schedules/recargos-catalogo', {
+      params: idRuta ? { idRuta } : undefined,
     });
     return response.data;
   },

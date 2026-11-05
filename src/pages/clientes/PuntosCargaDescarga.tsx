@@ -39,6 +39,7 @@ import {
 } from '../../services/puntosCargaService';
 import {
   clientesService,
+  ordenarClientesPorFechaCreacion,
   type Cliente,
 } from '../../services/clientesService';
 import { getApiErrorMessage } from '../../services/api';
@@ -231,7 +232,11 @@ export default function PuntosCargaDescarga() {
       }
 
       if (clientesApi.status === 'fulfilled' && clientesApi.value) {
-        setClientes(clientesApi.value);
+        const sorted = ordenarClientesPorFechaCreacion(clientesApi.value);
+        setClientes(sorted);
+        if (!clienteIdUrl && sorted.length > 0) {
+          setSelectedClienteId((prev) => prev || sorted[0].idCliente);
+        }
       }
 
       setPuntos(puntosCargados);

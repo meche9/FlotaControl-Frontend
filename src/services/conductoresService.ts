@@ -212,6 +212,10 @@ export const conductoresService = {
     return response.data.map(enriquecerConductor);
   },
 
+  async obtenerConductores(): Promise<Conductor[]> {
+    return this.getConductores();
+  },
+
   async getConductor(id: string): Promise<Conductor> {
     const response = await api.get<Conductor>(`/conductores/${id}`);
     return enriquecerConductor(response.data);

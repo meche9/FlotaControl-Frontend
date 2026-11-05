@@ -115,10 +115,23 @@ export function obtenerCodigoAvatar(cliente: Partial<Cliente>): { codigo: string
   return { codigo: codigo.toUpperCase(), estilo };
 }
 
+/**
+ * Ordena clientes por fecha de creación ascendente (tomando en cuenta día y hora exacta).
+ * El primer cliente creado en la base de datos aparecerá siempre de primero (índice 0).
+ */
+export function ordenarClientesPorFechaCreacion(clientes: Cliente[]): Cliente[] {
+  return [...clientes].sort((a, b) => {
+    const timeA = a.fechaCreacion ? new Date(a.fechaCreacion).getTime() : 0;
+    const timeB = b.fechaCreacion ? new Date(b.fechaCreacion).getTime() : 0;
+    if (timeA !== timeB) return timeA - timeB;
+    return (a.idCliente || '').localeCompare(b.idCliente || '');
+  });
+}
+
 export const clientesService = {
   getClientes: async (): Promise<Cliente[]> => {
     const response = await api.get<Cliente[]>('/clientes');
-    return response.data;
+    return ordenarClientesPorFechaCreacion(response.data || []);
   },
 
   getClienteById: async (id: string): Promise<Cliente> => {

@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { programacionService, type TripItem } from '../../services/programacionService';
-import { clientesService, obtenerCodigoAvatar, type Cliente } from '../../services/clientesService';
+import { clientesService, obtenerCodigoAvatar, ordenarClientesPorFechaCreacion, type Cliente } from '../../services/clientesService';
 import { rutasService, type Ruta } from '../../services/rutasService';
 
 interface RegistrarDespachoModalProps {
@@ -210,13 +210,10 @@ export const RegistrarDespachoModal: React.FC<RegistrarDespachoModalProps> = ({
         if (!isMounted) return;
 
         if (cls && cls.length > 0) {
-          setClientesList(cls);
-          // Buscar Polar o tomar el primero
-          const matched = cls.find(c =>
-            c.razonSocial.toLowerCase().includes('polar') ||
-            (c.nombreComercial && c.nombreComercial.toLowerCase().includes('polar'))
-          );
-          const initialClient = matched || cls[0];
+          const sortedCls = ordenarClientesPorFechaCreacion(cls);
+          setClientesList(sortedCls);
+          // Mostrar siempre el primero que se ha creado en base de datos
+          const initialClient = sortedCls[0];
           setClienteSeleccionadoObj(initialClient);
           setIdClienteSeleccionado(initialClient.idCliente);
           setClienteNombre(`${initialClient.razonSocial}${initialClient.nombreComercial ? ` • ${initialClient.nombreComercial}` : ''}`);
@@ -573,31 +570,28 @@ export const RegistrarDespachoModal: React.FC<RegistrarDespachoModalProps> = ({
                   </div>
 
                   <div className="max-h-52 overflow-y-auto space-y-1 pr-0.5">
-                    {/* Opción predeterminada si clientesList está vacía o no tiene Polar */}
-                    {(!clientesList.some(c => c.razonSocial.toLowerCase().includes('polar')) || clientesList.length === 0) && (
+                    {/* Opción predeterminada si clientesList está vacía */}
+                    {clientesList.length === 0 && (
                       <div
-                        onClick={() => handleCambiarCliente(null, 'Empresas Polar • C.A. Distribuidora Nacional')}
+                        onClick={() => handleCambiarCliente(null, 'Sin clientes registrados')}
                         className={`p-2.5 rounded-xl cursor-pointer font-medium flex items-center justify-between transition ${!clienteSeleccionadoObj
                           ? 'bg-orange-50 border border-orange-200/80 text-orange-950 font-bold'
                           : 'hover:bg-slate-50 text-slate-700'
                           }`}
                       >
                         <div className="flex items-center gap-2.5 truncate pr-2">
-                          <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-800 border border-sky-200/80 font-black text-xs flex items-center justify-center shrink-0">
-                            POL
+                          <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 border border-slate-200/80 font-black text-xs flex items-center justify-center shrink-0">
+                            CLI
                           </div>
                           <div className="truncate text-left">
                             <div className="truncate font-bold text-xs text-slate-900">
-                              Empresas Polar
+                              Sin clientes registrados
                             </div>
                             <div className="text-[10px] text-slate-500 truncate">
-                              C.A. Distribuidora Nacional • RIF: J-00041312-1
+                              Registre un cliente en el módulo de Clientes
                             </div>
                           </div>
                         </div>
-                        <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md shrink-0">
-                          Default
-                        </span>
                       </div>
                     )}
 

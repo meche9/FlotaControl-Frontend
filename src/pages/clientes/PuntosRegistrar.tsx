@@ -24,6 +24,7 @@ import {
 } from '../../services/puntosCargaService';
 import {
   clientesService,
+  ordenarClientesPorFechaCreacion,
   type Cliente,
 } from '../../services/clientesService';
 import { getApiErrorMessage } from '../../services/api';
@@ -139,12 +140,13 @@ export default function PuntosRegistrar() {
       try {
         const res = await clientesService.getClientes();
         if (res && res.length > 0) {
-          setClientes(res);
-          // Si no hay idCliente seleccionado aún y vino clienteIdUrl o el primero
+          const sorted = ordenarClientesPorFechaCreacion(res);
+          setClientes(sorted);
+          // Si no hay idCliente seleccionado aún y vino clienteIdUrl o el primero creado en BD
           if (!formData.idCliente) {
             setFormData((prev) => ({
               ...prev,
-              idCliente: clienteIdUrl || res[0].idCliente,
+              idCliente: clienteIdUrl || sorted[0].idCliente,
             }));
           }
         }

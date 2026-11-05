@@ -434,11 +434,11 @@ export default function InicialProgramacion() {
                                 type="button"
                                 onMouseEnter={() => setHoverBtn3(true)}
                                 onMouseLeave={() => setHoverBtn3(false)}
-                                onClick={() => mostrarToast('Asignación de Unidades, Bateas & Diésel: Módulo en preparación')}
+                                onClick={() => navigate('/viajes/asignacion-recursos')}
                                 className="w-full bg-[#0b6641] hover:bg-[#074e30] active:bg-[#053823] text-white text-xs sm:text-sm font-bold py-3.5 px-4 rounded-xl shadow-md shadow-emerald-950/20 hover:shadow-xl hover:shadow-emerald-900/40 flex items-center justify-center space-x-2 transition-all duration-200 transform hover:scale-[1.03] active:scale-[0.98] cursor-pointer"
                             >
                                 <Truck className="w-4 h-4 text-white shrink-0" strokeWidth={2.2} />
-                                <span>Asignación de Recursos</span>
+                                <span>Asignación de Recursos & Recargos</span>
                             </button>
 
                             <div className="flex items-center justify-between text-[11.5px] text-slate-500 pt-1">

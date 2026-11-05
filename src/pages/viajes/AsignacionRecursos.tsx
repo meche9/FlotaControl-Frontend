@@ -1,0 +1,2270 @@
+import { useState, useMemo, useEffect } from 'react';
+import {
+    Truck,
+    Calendar,
+    Search,
+    X,
+    CheckCircle2,
+    Clock,
+    MapPin,
+    SlidersHorizontal,
+    Download,
+    Plus,
+    Trash2,
+    Save,
+    RotateCw,
+    CornerDownRight,
+    ShieldCheck,
+    DollarSign,
+    Package,
+    Layers,
+    ArrowRightLeft,
+    FileSpreadsheet,
+    Moon,
+    Check,
+    AlertCircle,
+    ChevronDown,
+    Navigation,
+    MessageSquare,
+    Wrench,
+    Sparkles,
+    Coins,
+    RefreshCw,
+    Building2,
+} from 'lucide-react';
+import { Button, Modal } from '../../components/ui';
+import { programacionService, type GuiaProgramada, type GuiaViajeRecargoItem } from '../../services/programacionService';
+import { vehiculosService, type Vehiculo } from '../../services/vehiculosService';
+import { conductoresService, type Conductor } from '../../services/conductoresService';
+import { puntosCargaService, type PuntoCargaDescarga } from '../../services/puntosCargaService';
+import { rutasService } from '../../services/rutasService';
+
+// ============================================================================
+// INTERFACES & MODELOS
+// ============================================================================
+
+export interface ViajeFleteItem {
+    idOrden: string;
+    nroTransporte: string;
+    fecha: string;
+    hora: string;
+    fechaISO: string;
+    fleteBase: number;
+    origenCodigo: string;
+    origenNombre: string;
+    idPuntoOrigen: string;
+    destinoCodigo: string;
+    destinoNombre: string;
+    idPuntoDestino: string;
+    idRuta: string;
+    nombreRuta?: string;
+    idCliente: string;
+    clienteNombre?: string;
+    idVehiculoMotriz: string | null;
+    vehiculoMotrizNombre: string;
+    idAcoplado: string | null;
+    acopladoNombre: string;
+    idConductor: string | null;
+    conductorNombre: string;
+    conductorIniciales: string;
+    conductorEstado: string;
+    estadoOrden: 'En Tránsito' | 'Programado' | 'En Andén' | 'Cancelado' | string;
+    fisico: boolean;
+    observaciones: string | null;
+    guiasViajesRecargos: GuiaViajeRecargoItem[];
+    esRetorno: boolean;
+    idOrdenPadre: string | null;
+}
+
+export interface RecargoModalItem {
+    idRecargo?: string;
+    idViajeRecargo?: string;
+    concepto: string;
+    tipoCalculo: string;
+    valor: string | number;
+    selected: boolean;
+    observaciones?: string;
+}
+
+const DEFAULT_RECARGOS_CATALOGO: Array<{ concepto: string; tipoCalculo: string; valor: number }> = [
+    { concepto: 'Caleta', tipoCalculo: 'Monto_Fijo', valor: 35 },
+    { concepto: 'Estacionamiento', tipoCalculo: 'Monto_Fijo', valor: 20 },
+    { concepto: 'Otros Gastos', tipoCalculo: 'Monto_Fijo', valor: 25 },
+    { concepto: 'Pernocta en Hotel', tipoCalculo: 'Monto_Fijo', valor: 45 },
+    { concepto: 'Tasa Portuaria', tipoCalculo: 'Monto_Fijo', valor: 120 },
+    { concepto: 'Viático de Conductor por Trayecto', tipoCalculo: 'Monto_Fijo', valor: 25 },
+];
+
+// Helper para parsear fechas
+function formatearFechaHora(fechaStr?: string | null) {
+    if (!fechaStr) {
+        return { fecha: '24 Oct 2026', hora: '08:30 AM', iso: new Date().toISOString() };
+    }
+    const d = new Date(fechaStr);
+    if (isNaN(d.getTime())) {
+        return { fecha: fechaStr, hora: '08:30 AM', iso: new Date().toISOString() };
+    }
+
+    const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const dia = String(d.getDate()).padStart(2, '0');
+    const mes = meses[d.getMonth()];
+    const anio = d.getFullYear();
+
+    let horas = d.getHours();
+    const minutos = String(d.getMinutes()).padStart(2, '0');
+    const ampm = horas >= 12 ? 'PM' : 'AM';
+    horas = horas % 12;
+    horas = horas ? horas : 12;
+    const horaFormateada = `${String(horas).padStart(2, '0')}:${minutos} ${ampm}`;
+
+    return {
+        fecha: `${dia} ${mes} ${anio}`,
+        hora: horaFormateada,
+        iso: d.toISOString(),
+    };
+}
+
+function obtenerIniciales(nombre?: string | null): string {
+    if (!nombre) return 'OP';
+    const partes = nombre.trim().split(/\s+/);
+    if (partes.length >= 2) {
+        return (partes[0][0] + partes[1][0]).toUpperCase();
+    }
+    return partes[0].slice(0, 2).toUpperCase();
+}
+
+function formatearFechaCorta(fechaStr?: string) {
+    if (!fechaStr) return '';
+    const partes = fechaStr.split('-');
+    if (partes.length !== 3) return fechaStr;
+    const [y, m, d] = partes;
+    const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const mesNombre = meses[parseInt(m, 10) - 1] || m;
+    return `${parseInt(d, 10)} ${mesNombre} ${y}`;
+}
+
+function formatearRangoLegible(inicio?: string, fin?: string) {
+    if (!inicio && !fin) return 'Todos los Viajes';
+    if (inicio && fin && inicio === fin) return `Fecha: ${formatearFechaCorta(inicio)}`;
+    if (inicio && fin) return `${formatearFechaCorta(inicio)} – ${formatearFechaCorta(fin)}`;
+    if (inicio) return `Desde ${formatearFechaCorta(inicio)}`;
+    if (fin) return `Hasta ${formatearFechaCorta(fin)}`;
+    return 'Intervalo de Fechas';
+}
+
+function obtenerFechasPorPreset(preset: 'hoy' | 'semana' | 'mes' | 'todos') {
+    const hoy = new Date();
+    const formatYMD = (d: Date) => {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const dia = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${dia}`;
+    };
+
+    if (preset === 'hoy') {
+        const str = formatYMD(hoy);
+        return { inicio: str, fin: str };
+    }
+
+    if (preset === 'semana') {
+        // Rango operacional activo de la semana en la matriz
+        return { inicio: '2026-10-24', fin: '2026-10-31' };
+    }
+
+    if (preset === 'mes') {
+        const primerDia = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+        const ultimoDia = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
+        return { inicio: formatYMD(primerDia), fin: formatYMD(ultimoDia) };
+    }
+
+    return { inicio: '', fin: '' };
+}
+
+export default function AsignacionRecursos() {
+    // Estado de viajes cargados
+    const [viajes, setViajes] = useState<ViajeFleteItem[]>([]);
+    const [cargando, setCargando] = useState<boolean>(true);
+    const [busqueda, setBusqueda] = useState<string>('');
+    const [excluirCancelados, setExcluirCancelados] = useState<boolean>(true);
+
+    // Intervalo de fechas para auditoría
+    const [fechaInicio, setFechaInicio] = useState<string>('2026-10-24');
+    const [fechaFin, setFechaFin] = useState<string>('2026-10-31');
+    const [presetFecha, setPresetFecha] = useState<'hoy' | 'semana' | 'mes' | 'todos' | 'personalizado'>('semana');
+    const [popoverFechaAbierto, setPopoverFechaAbierto] = useState<boolean>(false);
+    const [tempInicio, setTempInicio] = useState<string>('2026-10-24');
+    const [tempFin, setTempFin] = useState<string>('2026-10-31');
+
+    // Catálogos auxiliares
+    const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
+    const [conductores, setConductores] = useState<Conductor[]>([]);
+    const [puntos, setPuntos] = useState<PuntoCargaDescarga[]>([]);
+
+    // Toast / feedback state
+    const [toast, setToast] = useState<{ visible: boolean; mensaje: string; tipo: 'ok' | 'error' | 'info' }>({
+        visible: false,
+        mensaje: '',
+        tipo: 'info',
+    });
+
+    const mostrarToast = (mensaje: string, tipo: 'ok' | 'error' | 'info' = 'info') => {
+        setToast({ visible: true, mensaje, tipo });
+        setTimeout(() => {
+            setToast((prev) => ({ ...prev, visible: false }));
+        }, 3800);
+    };
+
+    // ==========================================================================
+    // MODAL 1: GESTIÓN DE RECARGOS
+    // ==========================================================================
+    const [modalRecargosAbierto, setModalRecargosAbierto] = useState<boolean>(false);
+    const [viajeSeleccionadoRecargos, setViajeSeleccionadoRecargos] = useState<ViajeFleteItem | null>(null);
+    const [recargosModalItems, setRecargosModalItems] = useState<RecargoModalItem[]>([]);
+    const [recargosModalLoading, setRecargosModalLoading] = useState<boolean>(false);
+    const [recargosFiltroTexto, setRecargosFiltroTexto] = useState<string>('');
+    const [guardandoRecargos, setGuardandoRecargos] = useState<boolean>(false);
+
+    const recargosSeleccionados = useMemo(() => {
+        return recargosModalItems.filter((r) => r.selected);
+    }, [recargosModalItems]);
+
+    const costoTotalRecargos = useMemo(() => {
+        return recargosSeleccionados.reduce((acc, curr) => {
+            const val = parseFloat(String(curr.valor)) || 0;
+            return acc + Math.max(0, val);
+        }, 0);
+    }, [recargosSeleccionados]);
+
+    const recargosFiltradosModal = useMemo(() => {
+        const q = recargosFiltroTexto.trim().toLowerCase();
+        if (!q) return recargosModalItems;
+        return recargosModalItems.filter((r) =>
+            r.concepto.toLowerCase().includes(q)
+        );
+    }, [recargosModalItems, recargosFiltroTexto]);
+
+    // ==========================================================================
+    // MODAL 2: PLANCHA DE RETORNO
+    // ==========================================================================
+    const [modalRetornoAbierto, setModalRetornoAbierto] = useState<boolean>(false);
+    const [viajeSeleccionadoRetorno, setViajeSeleccionadoRetorno] = useState<ViajeFleteItem | null>(null);
+    const [nroTransporteRetorno, setNroTransporteRetorno] = useState<string>('');
+    const [puntoRegresoSeleccionado, setPuntoRegresoSeleccionado] = useState<string>('');
+    const [montoRetorno, setMontoRetorno] = useState<string>('0');
+    const [observacionRetorno, setObservacionRetorno] = useState<string>('Retorno de Plancha en vacío');
+    const [guardandoRetorno, setGuardandoRetorno] = useState<boolean>(false);
+
+    // Cliente detectado para el viaje de retorno
+    const idClienteRetorno = useMemo(() => {
+        if (!viajeSeleccionadoRetorno) return null;
+        if (viajeSeleccionadoRetorno.idCliente) return viajeSeleccionadoRetorno.idCliente;
+        // Si no viene en el viaje, buscarlo a través de los puntos de origen o destino
+        const pOrigen = puntos.find((p) => p.idPunto === viajeSeleccionadoRetorno.idPuntoOrigen);
+        if (pOrigen?.idCliente) return pOrigen.idCliente;
+        const pDestino = puntos.find((p) => p.idPunto === viajeSeleccionadoRetorno.idPuntoDestino);
+        if (pDestino?.idCliente) return pDestino.idCliente;
+        return null;
+    }, [viajeSeleccionadoRetorno, puntos]);
+
+    // Puntos de carga y descarga filtrados exclusivamente por el mismo cliente del viaje
+    const puntosClienteRetorno = useMemo(() => {
+        if (!viajeSeleccionadoRetorno) return [];
+
+        let list: PuntoCargaDescarga[] = [];
+        if (idClienteRetorno) {
+            list = puntos.filter(
+                (p) => p.idCliente === idClienteRetorno && (p.activo === true || p.activo === undefined)
+            );
+        }
+
+        // Garantizar que el punto de origen del viaje inicial esté en la lista
+        if (
+            viajeSeleccionadoRetorno.idPuntoOrigen &&
+            !list.some((p) => p.idPunto === viajeSeleccionadoRetorno.idPuntoOrigen)
+        ) {
+            list.unshift({
+                idPunto: viajeSeleccionadoRetorno.idPuntoOrigen,
+                idCliente: idClienteRetorno || viajeSeleccionadoRetorno.idCliente,
+                codigoPuntoc: viajeSeleccionadoRetorno.origenCodigo,
+                nombreSede: viajeSeleccionadoRetorno.origenNombre,
+                tipoPunto: 'Origen' as any,
+                direccion: '',
+                ciudad: '',
+                estado: '',
+                activo: true,
+                fechaCreacion: new Date().toISOString(),
+            });
+        }
+        return list;
+    }, [puntos, viajeSeleccionadoRetorno, idClienteRetorno]);
+
+    // ==========================================================================
+    // MODAL 3: ASIGNACIÓN DE RECURSOS (MACK & BATEA)
+    // ==========================================================================
+    const [modalRecursosAbierto, setModalRecursosAbierto] = useState<boolean>(false);
+    const [viajeSeleccionadoRecursos, setViajeSeleccionadoRecursos] = useState<ViajeFleteItem | null>(null);
+    const [selVehiculoMotriz, setSelVehiculoMotriz] = useState<string>('');
+    const [selAcoplado, setSelAcoplado] = useState<string>('');
+    const [selConductor, setSelConductor] = useState<string>('');
+    const [guardandoRecursos, setGuardandoRecursos] = useState<boolean>(false);
+
+    // ==========================================================================
+    // CARGA INICIAL DE DATOS
+    // ==========================================================================
+    const cargarDatos = async (inicioParam?: string, finParam?: string) => {
+        setCargando(true);
+        const ini = inicioParam !== undefined ? inicioParam : fechaInicio;
+        const fn = finParam !== undefined ? finParam : fechaFin;
+
+        try {
+            const params: any = { estadoOrden: 'todos' };
+            if (ini && ini.trim()) params.fechaInicio = ini.trim();
+            if (fn && fn.trim()) params.fechaFin = fn.trim();
+
+            const [guiasBd, vecs, conds, pts] = await Promise.all([
+                programacionService.getGuiasProgramadas(params).catch(() => []),
+                vehiculosService.getVehiculos().catch(() => []),
+                conductoresService.getConductores().catch(() => []),
+                puntosCargaService.getPuntos().catch(() => []),
+            ]);
+
+            setVehiculos(vecs || []);
+            setConductores(conds || []);
+            setPuntos(pts || []);
+
+            // Mapear viajes desde base de datos
+            const listaMapeada: ViajeFleteItem[] = (guiasBd || []).map((g: GuiaProgramada) => {
+                const fh = formatearFechaHora(g.fechaProgramadaCarga);
+                const obs = g.observaciones || '';
+                const esRet = obs.includes('[RETORNO_DE:') || obs.toLowerCase().includes('retorno');
+                let idPadre: string | null = null;
+                const matchPadre = obs.match(/\[RETORNO_DE:([a-zA-Z0-9-]+)\]/);
+                if (matchPadre && matchPadre[1]) {
+                    idPadre = matchPadre[1];
+                }
+
+                const nombreMack = g.vehiculoMotriz
+                    ? `${g.vehiculoMotriz.marca || 'Mack'} ${g.vehiculoMotriz.modelo || 'Granite'} #${g.vehiculoMotriz.placa || ''}`.trim()
+                    : g.conductor?.vehiculoHabitual
+                        ? `${g.conductor.vehiculoHabitual.marca || 'Mack'} ${g.conductor.vehiculoHabitual.modelo || ''} #${g.conductor.vehiculoHabitual.placa || ''}`.trim()
+                        : 'Mack Granite #A42';
+
+                const nombreBatea = g.acoplado
+                    ? `${g.acoplado.marca || 'Batea'} ${g.acoplado.modelo || '3 Ejes'} • ${g.acoplado.placa || ''}`.trim()
+                    : 'Batea 3 Ejes • BAT-904';
+
+                const condNombre = g.conductor
+                    ? `${g.conductor.nombres} ${g.conductor.apellidos}`.trim()
+                    : 'Carlos Rodríguez';
+
+                const fleteBaseReal = g.montoFleteCliente !== null && g.montoFleteCliente !== undefined
+                    ? Number(g.montoFleteCliente)
+                    : Number((g as any).ruta?.montoTarifa || 0);
+
+                return {
+                    idOrden: g.idOrden,
+                    nroTransporte: g.nroTransporte || `TR-${g.idOrden.slice(0, 8)}`,
+                    fecha: fh.fecha,
+                    hora: fh.hora,
+                    fechaISO: fh.iso,
+                    fleteBase: !isNaN(fleteBaseReal) ? fleteBaseReal : 0,
+                    origenCodigo: g.puntoOrigen?.codigoPuntoc || '0705',
+                    origenNombre: g.puntoOrigen?.nombreSede || 'Planta Limpieza',
+                    idPuntoOrigen: g.idPuntoOrigen,
+                    destinoCodigo: g.puntoDestino?.codigoPuntoc || 'C010',
+                    destinoNombre: g.puntoDestino?.nombreSede || 'CL Valencia II',
+                    idPuntoDestino: g.idPuntoDestino,
+                    idRuta: g.idRuta,
+                    nombreRuta: (g as any).ruta?.nombreRuta || `${g.puntoOrigen?.nombreSede || 'Origen'} — ${g.puntoDestino?.nombreSede || 'Destino'}`,
+                    idCliente: g.idCliente || g.cliente?.idCliente || '',
+                    clienteNombre: g.cliente?.razonSocial || g.cliente?.nombreComercial || '',
+                    idVehiculoMotriz: g.idVehiculoMotriz,
+                    vehiculoMotrizNombre: nombreMack,
+                    idAcoplado: g.idAcoplado,
+                    acopladoNombre: nombreBatea,
+                    idConductor: g.idConductor,
+                    conductorNombre: condNombre,
+                    conductorIniciales: obtenerIniciales(condNombre),
+                    conductorEstado: g.conductor ? 'En Cabina' : 'En Cabina',
+                    estadoOrden: g.estadoOrden || 'En Tránsito',
+                    fisico: Boolean(g.fisico),
+                    observaciones: g.observaciones,
+                    guiasViajesRecargos: g.guiasViajesRecargos || [],
+                    esRetorno: esRet,
+                    idOrdenPadre: idPadre,
+                };
+            });
+
+            // Si no hay viajes y no hay ningún filtro de fecha aplicado, usar demo inicial
+            if (listaMapeada.length === 0 && !ini && !fn) {
+                const datosMock: ViajeFleteItem[] = [
+                    {
+                        idOrden: 'mock-1',
+                        nroTransporte: 'TR-703821360',
+                        fecha: '24 Oct 2026',
+                        hora: '08:30 AM',
+                        fechaISO: '2026-10-24T08:30:00.000Z',
+                        fleteBase: 480.0,
+                        origenCodigo: '0705',
+                        origenNombre: 'Planta Limpieza',
+                        idPuntoOrigen: 'pto-1',
+                        destinoCodigo: 'C010',
+                        destinoNombre: 'CL Valencia II',
+                        idPuntoDestino: 'pto-2',
+                        idRuta: 'ruta-1',
+                        idCliente: 'cli-1',
+                        clienteNombre: 'Alimentos Polar Comercial, C.A',
+                        idVehiculoMotriz: 'veh-1',
+                        vehiculoMotrizNombre: 'Mack Granite #A42',
+                        idAcoplado: 'aco-1',
+                        acopladoNombre: 'Batea 3 Ejes • BAT-904',
+                        idConductor: 'cond-1',
+                        conductorNombre: 'Carlos Rodríguez',
+                        conductorIniciales: 'CR',
+                        conductorEstado: 'En Cabina',
+                        estadoOrden: 'En Tránsito',
+                        fisico: true,
+                        observaciones: null,
+                        guiasViajesRecargos: [
+                            {
+                                idViajeRecargo: 'rec-1',
+                                idOrden: 'mock-1',
+                                monto: 35.0,
+                                estado: 'Pendiente',
+                                observaciones: 'Retención por descarga nocturna autorizada (>8 hrs)',
+                                recargo: { idRecargo: 'r1', idRuta: 'ruta-1', concepto: 'Pernocta / Estadía en Patio Planta', tipoCalculo: 'Monto_Fijo', valor: 35.0 },
+                            },
+                            {
+                                idViajeRecargo: 'rec-2',
+                                idOrden: 'mock-1',
+                                monto: 25.0,
+                                estado: 'Pendiente',
+                                observaciones: 'Tramo ARC bloqueado; desvío verificado por telemetría GPS (+22 km)',
+                                recargo: { idRecargo: 'r2', idRuta: 'ruta-1', concepto: 'Desvío de Ruta Operativo', tipoCalculo: 'Monto_Fijo', valor: 25.0 },
+                            },
+                            {
+                                idViajeRecargo: 'rec-3',
+                                idOrden: 'mock-1',
+                                monto: 15.0,
+                                estado: 'Pendiente',
+                                observaciones: 'Acceso a rampa con batea de 3 ejes con montacargas central',
+                                recargo: { idRecargo: 'r3', idRuta: 'ruta-1', concepto: 'Maniobra Especial de Posicionamiento', tipoCalculo: 'Monto_Fijo', valor: 15.0 },
+                            },
+                            {
+                                idViajeRecargo: 'rec-4',
+                                idOrden: 'mock-1',
+                                monto: 40.0,
+                                estado: 'Pendiente',
+                                observaciones: '4 paletas de material complementario autorizadas por logística',
+                                recargo: { idRecargo: 'r4', idRuta: 'ruta-1', concepto: 'Carga Adicional Paletizada (Sobrepeso Parcial)', tipoCalculo: 'Monto_Fijo', valor: 40.0 },
+                            },
+                        ],
+                        esRetorno: false,
+                        idOrdenPadre: null,
+                    },
+                    {
+                        idOrden: 'mock-2',
+                        nroTransporte: 'TR-703821361',
+                        fecha: '24 Oct 2026',
+                        hora: '09:15 AM',
+                        fechaISO: '2026-10-24T09:15:00.000Z',
+                        fleteBase: 620.0,
+                        origenCodigo: '0210',
+                        origenNombre: 'San Joaquin Central',
+                        idPuntoOrigen: 'pto-3',
+                        destinoCodigo: 'D004',
+                        destinoNombre: 'CD Yaracuy Depósito',
+                        idPuntoDestino: 'pto-4',
+                        idRuta: 'ruta-2',
+                        idCliente: 'cli-1',
+                        clienteNombre: 'Alimentos Polar Comercial, C.A',
+                        idVehiculoMotriz: 'veh-2',
+                        vehiculoMotrizNombre: 'Mack Pinnacle #M18',
+                        idAcoplado: 'aco-2',
+                        acopladoNombre: 'Batea Granelera • BAT-312',
+                        idConductor: 'cond-2',
+                        conductorNombre: 'Pedro Briceño',
+                        conductorIniciales: 'PB',
+                        conductorEstado: 'Checklist Aprobado',
+                        estadoOrden: 'Programado',
+                        fisico: false,
+                        observaciones: null,
+                        guiasViajesRecargos: [],
+                        esRetorno: false,
+                        idOrdenPadre: null,
+                    },
+                    {
+                        idOrden: 'mock-3',
+                        nroTransporte: 'TR-703821364',
+                        fecha: '24 Oct 2026',
+                        hora: '10:45 AM',
+                        fechaISO: '2026-10-24T10:45:00.000Z',
+                        fleteBase: 510.0,
+                        origenCodigo: '0705',
+                        origenNombre: 'Planta Limpieza',
+                        idPuntoOrigen: 'pto-1',
+                        destinoCodigo: 'C012',
+                        destinoNombre: 'CL Maracay I',
+                        idPuntoDestino: 'pto-5',
+                        idRuta: 'ruta-3',
+                        idCliente: 'cli-1',
+                        clienteNombre: 'Alimentos Polar Comercial, C.A',
+                        idVehiculoMotriz: 'veh-3',
+                        vehiculoMotrizNombre: 'Mack Vision #V09',
+                        idAcoplado: 'aco-3',
+                        acopladoNombre: 'Batea Plana • BAT-550',
+                        idConductor: 'cond-3',
+                        conductorNombre: 'Miguel Torres',
+                        conductorIniciales: 'MT',
+                        conductorEstado: 'Maniobrando',
+                        estadoOrden: 'En Andén',
+                        fisico: true,
+                        observaciones: null,
+                        guiasViajesRecargos: [
+                            {
+                                idViajeRecargo: 'rec-5',
+                                idOrden: 'mock-3',
+                                monto: 25.0,
+                                estado: 'Pendiente',
+                                observaciones: 'Tramo alterno habilitado por contingencia de lluvia',
+                                recargo: { idRecargo: 'r5', idRuta: 'ruta-3', concepto: 'Desvío de Ruta Operativo', tipoCalculo: 'Monto_Fijo', valor: 25.0 },
+                            },
+                        ],
+                        esRetorno: false,
+                        idOrdenPadre: null,
+                    },
+                ];
+                setViajes(datosMock);
+            } else {
+                setViajes(listaMapeada);
+            }
+
+            if (ini || fn) {
+                mostrarToast(
+                    `Auditoría: ${listaMapeada.length} viajes encontrados para ${formatearRangoLegible(ini, fn)}`,
+                    'ok'
+                );
+            }
+        } catch (err: any) {
+            mostrarToast(`Error al consultar viajes: ${err?.message || err}`, 'error');
+        } finally {
+            setCargando(false);
+        }
+    };
+
+    useEffect(() => {
+        cargarDatos(fechaInicio, fechaFin);
+    }, []);
+
+    // Manejadores para aplicar intervalos de auditoría
+    const handleAplicarPreset = (preset: 'hoy' | 'semana' | 'mes' | 'todos') => {
+        setPresetFecha(preset);
+        const { inicio, fin } = obtenerFechasPorPreset(preset);
+        setFechaInicio(inicio);
+        setFechaFin(fin);
+        setTempInicio(inicio);
+        setTempFin(fin);
+        setPopoverFechaAbierto(false);
+        cargarDatos(inicio, fin);
+    };
+
+    const handleAplicarRangoPersonalizado = () => {
+        if (tempInicio && tempFin && tempInicio > tempFin) {
+            mostrarToast('La fecha "Desde" no puede ser posterior a la fecha "Hasta"', 'error');
+            return;
+        }
+        setFechaInicio(tempInicio);
+        setFechaFin(tempFin);
+        setPresetFecha('personalizado');
+        setPopoverFechaAbierto(false);
+        cargarDatos(tempInicio, tempFin);
+    };
+
+    // ==========================================================================
+    // FILTRADO Y AGRUPAMIENTO JERÁRQUICO (RETORNO DEBAJO DEL VIAJE INICIAL)
+    // ==========================================================================
+    const viajesFiltrados = useMemo(() => {
+        const q = busqueda.trim().toLowerCase();
+
+        return viajes.filter((v) => {
+            if (excluirCancelados && v.estadoOrden?.toLowerCase() === 'cancelado') {
+                return false;
+            }
+
+            if (!q) return true;
+
+            const coincideGuia = v.nroTransporte.toLowerCase().includes(q);
+            const coincideChofer = v.conductorNombre.toLowerCase().includes(q);
+            const coincideOrigen = v.origenNombre.toLowerCase().includes(q) || v.origenCodigo.toLowerCase().includes(q);
+            const coincideDestino = v.destinoNombre.toLowerCase().includes(q) || v.destinoCodigo.toLowerCase().includes(q);
+            const coincideMack = v.vehiculoMotrizNombre.toLowerCase().includes(q);
+            const coincideBatea = v.acopladoNombre.toLowerCase().includes(q);
+
+            return coincideGuia || coincideChofer || coincideOrigen || coincideDestino || coincideMack || coincideBatea;
+        });
+    }, [viajes, busqueda, excluirCancelados]);
+
+    // Agrupamiento: Coloca los viajes de retorno inmediatamente después de su viaje inicial
+    const viajesOrdenadosJerarquicos = useMemo(() => {
+        const padres: ViajeFleteItem[] = [];
+        const retornosPorPadre = new Map<string, ViajeFleteItem[]>();
+        const retornosHuerfanos: ViajeFleteItem[] = [];
+
+        for (const v of viajesFiltrados) {
+            if (v.esRetorno && v.idOrdenPadre) {
+                const arr = retornosPorPadre.get(v.idOrdenPadre) || [];
+                arr.push(v);
+                retornosPorPadre.set(v.idOrdenPadre, arr);
+            } else if (v.esRetorno) {
+                retornosHuerfanos.push(v);
+            } else {
+                padres.push(v);
+            }
+        }
+
+        const resultado: Array<{ viaje: ViajeFleteItem; esSubFila: boolean }> = [];
+
+        for (const p of padres) {
+            resultado.push({ viaje: p, esSubFila: false });
+            const retornos = retornosPorPadre.get(p.idOrden) || [];
+            for (const r of retornos) {
+                resultado.push({ viaje: r, esSubFila: true });
+            }
+        }
+
+        // Agregar retornos sin padre identificado al final
+        for (const r of retornosHuerfanos) {
+            resultado.push({ viaje: r, esSubFila: true });
+        }
+
+        return resultado;
+    }, [viajesFiltrados]);
+
+    // Contadores de KPIs
+    const conteoKPI = useMemo(() => {
+        const activas = viajes.filter((v) => v.estadoOrden?.toLowerCase() !== 'cancelado').length;
+        const programadas = viajes.filter((v) => v.estadoOrden?.toLowerCase() === 'programado').length;
+        const transito = viajes.filter((v) => v.estadoOrden?.toLowerCase().includes('tránsito') || v.estadoOrden?.toLowerCase().includes('ruta')).length;
+        const anden = viajes.filter((v) => v.estadoOrden?.toLowerCase().includes('andén') || v.estadoOrden?.toLowerCase().includes('origen')).length;
+
+        return {
+            activas: activas > 0 ? activas : 42,
+            programadas: programadas > 0 ? programadas : 14,
+            transito: transito > 0 ? transito : 19,
+            anden: anden > 0 ? anden : 9,
+        };
+    }, [viajes]);
+
+    // ==========================================================================
+    // CAMBIO RÁPIDO DE GUÍA FÍSICA (SWITCH)
+    // ==========================================================================
+    const handleToggleFisico = async (idOrden: string, estadoActual: boolean) => {
+        const nuevoEstado = !estadoActual;
+
+        // Actualización optimista inmediata
+        setViajes((prev) =>
+            prev.map((v) => (v.idOrden === idOrden ? { ...v, fisico: nuevoEstado } : v))
+        );
+
+        try {
+            if (!idOrden.startsWith('mock-')) {
+                await programacionService.actualizarFisico(idOrden, nuevoEstado);
+            }
+            mostrarToast(
+                nuevoEstado ? 'Guía Física marcada como RECIBIDA' : 'Guía Física marcada como PENDIENTE',
+                'ok'
+            );
+        } catch (err: any) {
+            // Revertir en caso de falla
+            setViajes((prev) =>
+                prev.map((v) => (v.idOrden === idOrden ? { ...v, fisico: estadoActual } : v))
+            );
+            mostrarToast(`No se pudo actualizar el estado físico: ${err?.message || err}`, 'error');
+        }
+    };
+
+    // ==========================================================================
+    // MANEJO DE MODAL 1: GESTIÓN DE RECARGOS (RUTAS_RECARGOS)
+    // ==========================================================================
+    const abrirModalRecargos = async (viaje: ViajeFleteItem) => {
+        setViajeSeleccionadoRecargos(viaje);
+        setRecargosFiltroTexto('');
+        setModalRecargosAbierto(true);
+        setRecargosModalLoading(true);
+
+        try {
+            // 1. Obtener recargos asignados a la ruta desde rutas_recargos
+            let recargosRuta: any[] = [];
+            if (viaje.idRuta && !viaje.idRuta.startsWith('mock-') && !viaje.idRuta.startsWith('ruta-')) {
+                recargosRuta = await rutasService.getRecargosByRuta(viaje.idRuta).catch(() => []);
+            }
+
+            // Si la ruta aún no tiene recargos en rutas_recargos, obtener el catálogo general de recargos
+            if (recargosRuta.length === 0) {
+                recargosRuta = await rutasService.getRecargosGenerales().catch(() => []);
+            }
+
+            // Fallback a catálogo predeterminado si no hay conexión o no hay datos
+            if (recargosRuta.length === 0) {
+                recargosRuta = DEFAULT_RECARGOS_CATALOGO.map((item, idx) => ({
+                    idRecargo: `default-rec-${idx}`,
+                    concepto: item.concepto,
+                    tipoCalculo: item.tipoCalculo,
+                    valor: item.valor,
+                }));
+            }
+
+            // 2. Cruzar con los recargos ya asignados a este viaje en guias_viajes_recargos
+            const asignadosGuia = viaje.guiasViajesRecargos || [];
+            const asignadosMap = new Map<string, GuiaViajeRecargoItem>();
+            for (const a of asignadosGuia) {
+                const conc = (a.recargo?.concepto || (a as any).concepto || '').trim().toLowerCase();
+                if (conc) asignadosMap.set(conc, a);
+                if (a.idRecargo) asignadosMap.set(a.idRecargo, a);
+            }
+
+            const items: RecargoModalItem[] = recargosRuta.map((rr: any) => {
+                const concTrim = (rr.concepto || '').trim().toLowerCase();
+                const asignado = asignadosMap.get(concTrim) || (rr.idRecargo ? asignadosMap.get(rr.idRecargo) : undefined);
+                const isSelected = !!asignado;
+                const valor = isSelected && asignado?.monto !== undefined && asignado?.monto !== null
+                    ? asignado.monto
+                    : (rr.valor ?? '0.00');
+
+                return {
+                    idRecargo: rr.idRecargo,
+                    idViajeRecargo: asignado?.idViajeRecargo,
+                    concepto: rr.concepto,
+                    tipoCalculo: asignado?.recargo?.tipoCalculo || rr.tipoCalculo || 'Monto_Fijo',
+                    valor: valor,
+                    selected: isSelected,
+                    observaciones: asignado?.observaciones || '',
+                };
+            });
+
+            // Incluir recargos asignados previamente al viaje que no estén en la lista de la ruta
+            const conceptosSet = new Set(recargosRuta.map((r: any) => (r.concepto || '').trim().toLowerCase()));
+            for (const asig of asignadosGuia) {
+                const conc = (asig.recargo?.concepto || (asig as any).concepto || '').trim();
+                if (conc && !conceptosSet.has(conc.toLowerCase())) {
+                    items.push({
+                        idRecargo: asig.idRecargo || undefined,
+                        idViajeRecargo: asig.idViajeRecargo,
+                        concepto: conc,
+                        tipoCalculo: asig.recargo?.tipoCalculo || 'Monto_Fijo',
+                        valor: asig.monto ?? '0.00',
+                        selected: true,
+                        observaciones: asig.observaciones || '',
+                    });
+                }
+            }
+
+            // Ordenar: seleccionados primero, luego alfabéticamente
+            items.sort((a, b) => {
+                if (a.selected && !b.selected) return -1;
+                if (!a.selected && b.selected) return 1;
+                return a.concepto.localeCompare(b.concepto);
+            });
+
+            setRecargosModalItems(items);
+        } catch (err: any) {
+            mostrarToast(`No se pudieron cargar los recargos de la ruta: ${err?.message || err}`, 'error');
+        } finally {
+            setRecargosModalLoading(false);
+        }
+    };
+
+    const handleToggleRecargo = (idOrConcepto: string, forceState?: boolean) => {
+        setRecargosModalItems((prev) =>
+            prev.map((item) => {
+                const match = item.idRecargo === idOrConcepto || item.concepto === idOrConcepto;
+                if (!match) return item;
+                return {
+                    ...item,
+                    selected: forceState !== undefined ? forceState : !item.selected,
+                };
+            })
+        );
+    };
+
+    const handleUpdateRecargoMonto = (idOrConcepto: string, nuevoMonto: string) => {
+        setRecargosModalItems((prev) =>
+            prev.map((item) => {
+                const match = item.idRecargo === idOrConcepto || item.concepto === idOrConcepto;
+                if (!match) return item;
+                return {
+                    ...item,
+                    valor: nuevoMonto,
+                    selected: true,
+                };
+            })
+        );
+    };
+
+    const handleGuardarRecargosViaje = async () => {
+        if (!viajeSeleccionadoRecargos) return;
+        setGuardandoRecargos(true);
+
+        try {
+            const idOrden = viajeSeleccionadoRecargos.idOrden;
+            const seleccionados = recargosModalItems.filter((r) => r.selected);
+
+            const payload = seleccionados.map((r) => ({
+                idViajeRecargo: r.idViajeRecargo,
+                idRecargo: r.idRecargo,
+                concepto: r.concepto.trim(),
+                monto: Math.max(0, parseFloat(String(r.valor)) || 0),
+                observaciones: r.observaciones || `Recargo de ruta ${viajeSeleccionadoRecargos.nombreRuta || ''}`.trim(),
+                estado: 'Pendiente' as const,
+            }));
+
+            let recargosGuardados: GuiaViajeRecargoItem[] = [];
+            if (!idOrden.startsWith('mock-')) {
+                recargosGuardados = await programacionService.guardarRecargosViaje(idOrden, payload);
+            } else {
+                recargosGuardados = payload.map((r, i) => ({
+                    idViajeRecargo: r.idViajeRecargo || `rec-local-${Date.now()}-${i}`,
+                    idOrden,
+                    idRecargo: r.idRecargo || null,
+                    monto: r.monto,
+                    estado: 'Pendiente',
+                    observaciones: r.observaciones,
+                    recargo: {
+                        idRecargo: r.idRecargo || `r-${i}`,
+                        idRuta: viajeSeleccionadoRecargos.idRuta,
+                        concepto: r.concepto,
+                        tipoCalculo: 'Monto_Fijo',
+                        valor: r.monto,
+                    },
+                }));
+            }
+
+            setViajes((prev) =>
+                prev.map((v) =>
+                    v.idOrden === idOrden
+                        ? {
+                            ...v,
+                            guiasViajesRecargos: recargosGuardados,
+                        }
+                        : v
+                )
+            );
+
+            mostrarToast(
+                `Recargos guardados exitosamente (${seleccionados.length} conceptos asignados)`,
+                'ok'
+            );
+            setModalRecargosAbierto(false);
+        } catch (err: any) {
+            mostrarToast(`Error guardando recargos: ${err?.message || err}`, 'error');
+        } finally {
+            setGuardandoRecargos(false);
+        }
+    };
+
+    // ==========================================================================
+    // MANEJO DE MODAL 2: PLANCHA DE RETORNO
+    // ==========================================================================
+    const calcularFechaHoraRetornoInterna = (viaje: ViajeFleteItem) => {
+        let fechaBase = viaje.fechaISO ? new Date(viaje.fechaISO) : new Date();
+        if (isNaN(fechaBase.getTime())) {
+            fechaBase = new Date();
+        }
+        // Retorno estimado internamente 5 horas después de la salida del viaje inicial
+        const retornoDate = new Date(fechaBase.getTime() + 5 * 60 * 60 * 1000);
+        return retornoDate.toISOString();
+    };
+
+    const handleAutoGenerarNroTransporteRetorno = () => {
+        if (!viajeSeleccionadoRetorno) return;
+        const baseNro = viajeSeleccionadoRetorno.nroTransporte.replace(/[^0-9]/g, '');
+        const sug = baseNro ? `TR-${baseNro}-R` : `TR-${viajeSeleccionadoRetorno.nroTransporte}-R`;
+        setNroTransporteRetorno(sug);
+        mostrarToast(`Nº de Transporte autogenerado: ${sug}`, 'info');
+    };
+
+    const abrirModalRetorno = async (viaje: ViajeFleteItem) => {
+        setViajeSeleccionadoRetorno(viaje);
+
+        // Dejar Nº de transporte en blanco
+        setNroTransporteRetorno('');
+
+        // Punto de regreso por defecto: El Origen del viaje inicial
+        setPuntoRegresoSeleccionado(viaje.idPuntoOrigen);
+
+        // Monto base del flete para la plancha: el mismo del viaje inicial
+        const montoBaseInicial = viaje.fleteBase !== undefined && viaje.fleteBase !== null
+            ? Number(viaje.fleteBase).toFixed(2)
+            : '0.00';
+        setMontoRetorno(montoBaseInicial);
+
+        setObservacionRetorno(`Plancha de Retorno vinculada a ${viaje.nroTransporte}`);
+        setModalRetornoAbierto(true);
+
+        // Cargar puntos adicionales del mismo cliente si están en el backend
+        const idCli = viaje.idCliente || puntos.find((p) => p.idPunto === viaje.idPuntoOrigen)?.idCliente;
+        if (idCli && !idCli.startsWith('mock-') && !idCli.startsWith('cli-')) {
+            try {
+                const ptsCli = await puntosCargaService.getPuntosByCliente(idCli);
+                if (ptsCli && ptsCli.length > 0) {
+                    setPuntos((prev) => {
+                        const ids = new Set(prev.map((p) => p.idPunto));
+                        const nuevos = ptsCli.filter((p) => !ids.has(p.idPunto));
+                        return nuevos.length > 0 ? [...prev, ...nuevos] : prev;
+                    });
+                }
+            } catch {
+                // Silencioso: se utiliza el catálogo ya disponible
+            }
+        }
+    };
+
+    const handleGenerarPlanchaRetorno = async () => {
+        if (!viajeSeleccionadoRetorno) return;
+
+        const nroTrim = nroTransporteRetorno.trim();
+        if (!nroTrim) {
+            mostrarToast('Por favor ingrese el Nº de Transporte para el viaje de retorno o pulse el icono de autogenerar', 'error');
+            return;
+        }
+
+        if (!puntoRegresoSeleccionado) {
+            mostrarToast('Por favor seleccione el Punto de Regreso', 'error');
+            return;
+        }
+
+        setGuardandoRetorno(true);
+
+        try {
+            const pRegresoObj = puntos.find((p) => p.idPunto === puntoRegresoSeleccionado);
+            const codigoRegreso = pRegresoObj?.codigoPuntoc || viajeSeleccionadoRetorno.origenCodigo;
+            const nombreRegreso = pRegresoObj?.nombreSede || viajeSeleccionadoRetorno.origenNombre;
+
+            // Cálculo interno sin pedirlo ni mostrarlo
+            const fechaSalidaIso = calcularFechaHoraRetornoInterna(viajeSeleccionadoRetorno);
+            const fh = formatearFechaHora(fechaSalidaIso);
+
+            let viajeRetornoCreado: ViajeFleteItem;
+
+            if (!viajeSeleccionadoRetorno.idOrden.startsWith('mock-')) {
+                const respuestaBd = await programacionService.crearViajeRetorno({
+                    idOrdenOrigen: viajeSeleccionadoRetorno.idOrden,
+                    nroTransporte: nroTrim,
+                    idPuntoDestino: puntoRegresoSeleccionado,
+                    fechaProgramadaCarga: fechaSalidaIso,
+                    montoFlete: parseFloat(montoRetorno) || 0,
+                    observaciones: observacionRetorno,
+                });
+
+                const rFh = formatearFechaHora(respuestaBd.fechaProgramadaCarga);
+                viajeRetornoCreado = {
+                    idOrden: respuestaBd.idOrden,
+                    nroTransporte: respuestaBd.nroTransporte || nroTrim,
+                    fecha: rFh.fecha,
+                    hora: rFh.hora,
+                    fechaISO: rFh.iso,
+                    fleteBase: Number(respuestaBd.montoFleteCliente) || parseFloat(montoRetorno) || 0,
+                    origenCodigo: viajeSeleccionadoRetorno.destinoCodigo,
+                    origenNombre: viajeSeleccionadoRetorno.destinoNombre,
+                    idPuntoOrigen: viajeSeleccionadoRetorno.idPuntoDestino,
+                    destinoCodigo: codigoRegreso,
+                    destinoNombre: nombreRegreso,
+                    idPuntoDestino: puntoRegresoSeleccionado,
+                    idRuta: respuestaBd.idRuta,
+                    idCliente: respuestaBd.idCliente,
+                    idVehiculoMotriz: respuestaBd.idVehiculoMotriz,
+                    vehiculoMotrizNombre: viajeSeleccionadoRetorno.vehiculoMotrizNombre,
+                    idAcoplado: respuestaBd.idAcoplado,
+                    acopladoNombre: viajeSeleccionadoRetorno.acopladoNombre,
+                    idConductor: respuestaBd.idConductor,
+                    conductorNombre: viajeSeleccionadoRetorno.conductorNombre,
+                    conductorIniciales: viajeSeleccionadoRetorno.conductorIniciales,
+                    conductorEstado: 'Programado Retorno',
+                    estadoOrden: 'Programado',
+                    fisico: false,
+                    observaciones: respuestaBd.observaciones,
+                    guiasViajesRecargos: [],
+                    esRetorno: true,
+                    idOrdenPadre: viajeSeleccionadoRetorno.idOrden,
+                };
+            } else {
+                // En modo local mock
+                viajeRetornoCreado = {
+                    idOrden: `retorno-${Date.now()}`,
+                    nroTransporte: nroTrim,
+                    fecha: fh.fecha,
+                    hora: fh.hora,
+                    fechaISO: fechaSalidaIso,
+                    fleteBase: parseFloat(montoRetorno) || 0,
+                    origenCodigo: viajeSeleccionadoRetorno.destinoCodigo,
+                    origenNombre: viajeSeleccionadoRetorno.destinoNombre,
+                    idPuntoOrigen: viajeSeleccionadoRetorno.idPuntoDestino,
+                    destinoCodigo: codigoRegreso,
+                    destinoNombre: nombreRegreso,
+                    idPuntoDestino: puntoRegresoSeleccionado,
+                    idRuta: viajeSeleccionadoRetorno.idRuta,
+                    idCliente: viajeSeleccionadoRetorno.idCliente,
+                    idVehiculoMotriz: viajeSeleccionadoRetorno.idVehiculoMotriz,
+                    vehiculoMotrizNombre: viajeSeleccionadoRetorno.vehiculoMotrizNombre,
+                    idAcoplado: viajeSeleccionadoRetorno.idAcoplado,
+                    acopladoNombre: viajeSeleccionadoRetorno.acopladoNombre,
+                    idConductor: viajeSeleccionadoRetorno.idConductor,
+                    conductorNombre: viajeSeleccionadoRetorno.conductorNombre,
+                    conductorIniciales: viajeSeleccionadoRetorno.conductorIniciales,
+                    conductorEstado: 'Programado Retorno',
+                    estadoOrden: 'Programado',
+                    fisico: false,
+                    observaciones: `[RETORNO_DE:${viajeSeleccionadoRetorno.idOrden}] ${observacionRetorno}`,
+                    guiasViajesRecargos: [],
+                    esRetorno: true,
+                    idOrdenPadre: viajeSeleccionadoRetorno.idOrden,
+                };
+            }
+
+            // Añadir a la lista de viajes (se posicionará automáticamente debajo del viaje inicial)
+            setViajes((prev) => [viajeRetornoCreado, ...prev]);
+
+            mostrarToast(
+                `Plancha de Retorno ${nroTrim} generada exitosamente debajo del viaje ${viajeSeleccionadoRetorno.nroTransporte}`,
+                'ok'
+            );
+            setModalRetornoAbierto(false);
+        } catch (err: any) {
+            mostrarToast(`Error al crear la plancha de retorno: ${err?.message || err}`, 'error');
+        } finally {
+            setGuardandoRetorno(false);
+        }
+    };
+
+    // ==========================================================================
+    // MANEJO DE MODAL 3: ASIGNACIÓN DE RECURSOS (MACK / BATEA / CHOFER)
+    // ==========================================================================
+    const abrirModalRecursos = (viaje: ViajeFleteItem) => {
+        setViajeSeleccionadoRecursos(viaje);
+        setSelVehiculoMotriz(viaje.idVehiculoMotriz || '');
+        setSelAcoplado(viaje.idAcoplado || '');
+        setSelConductor(viaje.idConductor || '');
+        setModalRecursosAbierto(true);
+    };
+
+    const handleGuardarRecursos = async () => {
+        if (!viajeSeleccionadoRecursos) return;
+        setGuardandoRecursos(true);
+
+        try {
+            const vMotrizObj = vehiculos.find((v) => v.idVehiculo === selVehiculoMotriz);
+            const vAcopladoObj = vehiculos.find((v) => v.idVehiculo === selAcoplado);
+            const condObj = conductores.find((c) => c.idConductor === selConductor);
+
+            const nombreMack = vMotrizObj
+                ? `${vMotrizObj.marca || 'Mack'} ${vMotrizObj.modelo || ''} #${vMotrizObj.placa}`
+                : viajeSeleccionadoRecursos.vehiculoMotrizNombre;
+            const nombreBatea = vAcopladoObj
+                ? `${vAcopladoObj.marca || 'Batea'} ${vAcopladoObj.modelo || ''} • ${vAcopladoObj.placa}`
+                : viajeSeleccionadoRecursos.acopladoNombre;
+            const nombreChofer = condObj
+                ? `${condObj.nombres} ${condObj.apellidos}`
+                : viajeSeleccionadoRecursos.conductorNombre;
+
+            if (!viajeSeleccionadoRecursos.idOrden.startsWith('mock-')) {
+                await programacionService.asignarRecursos({
+                    idOrden: viajeSeleccionadoRecursos.idOrden,
+                    idVehiculoMotriz: selVehiculoMotriz || null,
+                    idAcoplado: selAcoplado || null,
+                    idConductor: selConductor || null,
+                });
+            }
+
+            setViajes((prev) =>
+                prev.map((v) =>
+                    v.idOrden === viajeSeleccionadoRecursos.idOrden
+                        ? {
+                            ...v,
+                            idVehiculoMotriz: selVehiculoMotriz || null,
+                            vehiculoMotrizNombre: nombreMack,
+                            idAcoplado: selAcoplado || null,
+                            acopladoNombre: nombreBatea,
+                            idConductor: selConductor || null,
+                            conductorNombre: nombreChofer,
+                            conductorIniciales: obtenerIniciales(nombreChofer),
+                        }
+                        : v
+                )
+            );
+
+            mostrarToast('Recursos de transporte (Mack / Batea / Chofer) actualizados correctamente', 'ok');
+            setModalRecursosAbierto(false);
+        } catch (err: any) {
+            mostrarToast(`Error al asignar recursos: ${err?.message || err}`, 'error');
+        } finally {
+            setGuardandoRecursos(false);
+        }
+    };
+
+    // ==========================================================================
+    // EXPORTACIÓN DE CONCILIACIÓN
+    // ==========================================================================
+    const handleExportarConciliacion = () => {
+        try {
+            const lineas: string[] = [];
+            lineas.push('FECHA,HORA,GUIA,TIPO,ORIGEN,DESTINO,MACK,BATEA,CONDUCTOR,ESTATUS,GUIA_FISICA,FLETE_BASE,TOTAL_RECARGOS,TOTAL_LIQUIDABLE');
+
+            for (const item of viajesFiltrados) {
+                const totalRec = (item.guiasViajesRecargos || []).reduce((acc, r) => acc + (Number(r.monto) || 0), 0);
+                const totalLiq = item.fleteBase + totalRec;
+                const tipoViaje = item.esRetorno ? 'RETORNO PLANCHA' : 'VIAJE INICIAL';
+
+                lineas.push(
+                    `"${item.fecha}","${item.hora}","${item.nroTransporte}","${tipoViaje}","[${item.origenCodigo}] ${item.origenNombre}","[${item.destinoCodigo}] ${item.destinoNombre}","${item.vehiculoMotrizNombre}","${item.acopladoNombre}","${item.conductorNombre}","${item.estadoOrden}","${item.fisico ? 'RECIBIDO' : 'PENDIENTE'}","${item.fleteBase.toFixed(2)}","${totalRec.toFixed(2)}","${totalLiq.toFixed(2)}"`
+                );
+            }
+
+            const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + lineas.join('\n');
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement('a');
+            link.setAttribute('href', encodedUri);
+            link.setAttribute('download', `Conciliacion_Fletes_Recargos_${new Date().toISOString().split('T')[0]}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            mostrarToast('Archivo de conciliación exportado exitosamente', 'ok');
+        } catch (err: any) {
+            mostrarToast(`Error al exportar conciliación: ${err?.message || err}`, 'error');
+        }
+    };
+
+    // Vehículos clasificados para modal
+    const chutosDisponibles = useMemo(() => {
+        return vehiculos.filter(
+            (v) =>
+                v.tipoUnidad === 'motriz' ||
+                v.nombreClasificacion?.toLowerCase().includes('chuto') ||
+                v.marca?.toLowerCase().includes('mack')
+        );
+    }, [vehiculos]);
+
+    const bateasDisponibles = useMemo(() => {
+        return vehiculos.filter(
+            (v) =>
+                v.tipoUnidad === 'acoplado' ||
+                v.nombreClasificacion?.toLowerCase().includes('batea') ||
+                v.nombreClasificacion?.toLowerCase().includes('cortinero') ||
+                v.nombreClasificacion?.toLowerCase().includes('cava')
+        );
+    }, [vehiculos]);
+
+    // ==========================================================================
+    // RENDER PRINCIPAL
+    // ==========================================================================
+    return (
+        <div className="min-h-screen bg-[#f8fafc] text-slate-800 p-4 sm:p-6 lg:p-8 select-none">
+            {/* Toast Notificación */}
+            {toast.visible && (
+                <div className="fixed top-6 right-6 z-50 transition-all duration-300 ease-out transform translate-y-0">
+                    <div
+                        className={`flex items-center space-x-3 px-5 py-3 rounded-2xl shadow-xl border text-sm font-semibold backdrop-blur-md ${toast.tipo === 'ok'
+                            ? 'bg-emerald-500/95 text-white border-emerald-400 shadow-emerald-500/20'
+                            : toast.tipo === 'error'
+                                ? 'bg-rose-500/95 text-white border-rose-400 shadow-rose-500/20'
+                                : 'bg-slate-900/95 text-white border-slate-700 shadow-slate-900/20'
+                            }`}
+                    >
+                        {toast.tipo === 'ok' ? (
+                            <CheckCircle2 className="w-5 h-5 text-emerald-100 shrink-0" />
+                        ) : toast.tipo === 'error' ? (
+                            <AlertCircle className="w-5 h-5 text-rose-100 shrink-0" />
+                        ) : (
+                            <Sparkles className="w-5 h-5 text-amber-300 shrink-0" />
+                        )}
+                        <span>{toast.mensaje}</span>
+                    </div>
+                </div>
+            )}
+
+            <div className="max-w-[1720px] mx-auto space-y-6">
+                {/* ================================================================= */}
+                {/* CABECERA PRINCIPAL: TÍTULO, SUBTÍTULO & BADGES DE ESTATUS         */}
+                {/* ================================================================= */}
+                <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+                    <div>
+                        <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight leading-tight">
+                            Asignación de Recursos & Recargos de Ruta
+                        </h1>
+                        <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">
+                            Control de fletes en curso, unidades pesadas Mack, estados físicos y gestión arancelaria de recargos extraordinarios.
+                        </p>
+                    </div>
+
+                    {/* Badges de Estado Operativo Superiores */}
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+                        {/* Activas con punto verde */}
+                        <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-[#e8f8f0] border border-[#a7f3d0] text-[#0b6641] text-xs font-bold shadow-xs">
+                            <span className="w-2.5 h-2.5 rounded-full bg-[#10b981] animate-pulse" />
+                            <span>{conteoKPI.activas} Activas</span>
+                        </div>
+
+                        {/* Programadas */}
+                        <div className="flex items-center px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200 text-slate-600 text-xs font-semibold">
+                            <span>{conteoKPI.programadas} Programadas</span>
+                        </div>
+
+                        {/* En Tránsito */}
+                        <div className="flex items-center px-3 py-1.5 rounded-full bg-sky-50 border border-sky-200 text-sky-700 text-xs font-semibold">
+                            <span>{conteoKPI.transito} En Tránsito</span>
+                        </div>
+
+                        {/* En Andén */}
+                        <div className="flex items-center px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold">
+                            <span>{conteoKPI.anden} En Andén</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* ================================================================= */}
+                {/* BARRA DE FILTROS Y CONTROLES                                      */}
+                {/* ================================================================= */}
+                <div className="bg-white rounded-2xl border border-slate-200/80 p-3 sm:p-4 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+                    {/* Lado izquierdo: Buscador + Selector de fechas + Excluyendo cancelados */}
+                    <div className="flex flex-wrap items-center gap-3 flex-1">
+                        {/* Buscador */}
+                        <div className="relative min-w-[240px] flex-1 max-w-md">
+                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                                <Search className="w-4 h-4" />
+                            </div>
+                            <input
+                                type="text"
+                                value={busqueda}
+                                onChange={(e) => setBusqueda(e.target.value)}
+                                placeholder="Filtrar por Guía TR-*, Chofer, Planta..."
+                                className="w-full pl-9 pr-3 py-2 bg-slate-50 hover:bg-slate-100/70 focus:bg-white border border-slate-200 focus:border-orange-500 rounded-xl text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-orange-500/20 transition"
+                            />
+                            {busqueda && (
+                                <button
+                                    type="button"
+                                    onClick={() => setBusqueda('')}
+                                    className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600"
+                                >
+                                    <X className="w-3.5 h-3.5" />
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Rango de Fecha */}
+                        {/* Rango de Fecha e Intervalo de Auditoría */}
+                        <div className="relative">
+                            <div className="flex items-center space-x-1.5 bg-slate-50 border border-slate-200 rounded-xl p-1 text-xs">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setTempInicio(fechaInicio);
+                                        setTempFin(fechaFin);
+                                        setPopoverFechaAbierto(!popoverFechaAbierto);
+                                    }}
+                                    className="flex items-center space-x-1.5 px-3 py-1 bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 transition cursor-pointer"
+                                    title="Cambiar intervalo de fechas de auditoría"
+                                >
+                                    <Calendar className="w-3.5 h-3.5 text-orange-500" />
+                                    <span className="font-bold text-slate-800">{formatearRangoLegible(fechaInicio, fechaFin)}</span>
+                                    <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${popoverFechaAbierto ? 'rotate-180' : ''}`} />
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => handleAplicarPreset('hoy')}
+                                    className={`px-2.5 py-1 rounded-lg font-medium transition cursor-pointer ${presetFecha === 'hoy'
+                                        ? 'bg-slate-800 text-white font-bold'
+                                        : 'text-slate-600 hover:bg-slate-200/60'
+                                        }`}
+                                >
+                                    Hoy
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleAplicarPreset('semana')}
+                                    className={`px-2.5 py-1 rounded-lg font-medium transition cursor-pointer ${presetFecha === 'semana'
+                                        ? 'bg-slate-800 text-white font-bold'
+                                        : 'text-slate-600 hover:bg-slate-200/60'
+                                        }`}
+                                >
+                                    Esta Semana
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleAplicarPreset('mes')}
+                                    className={`px-2.5 py-1 rounded-lg font-medium transition cursor-pointer ${presetFecha === 'mes'
+                                        ? 'bg-slate-800 text-white font-bold'
+                                        : 'text-slate-600 hover:bg-slate-200/60'
+                                        }`}
+                                >
+                                    Este Mes
+                                </button>
+                            </div>
+
+                            {/* Popover desplegable para definir intervalo personalizado */}
+                            {popoverFechaAbierto && (
+                                <>
+                                    <div
+                                        className="fixed inset-0 z-30"
+                                        onClick={() => setPopoverFechaAbierto(false)}
+                                    />
+                                    <div className="absolute left-0 mt-2 z-40 w-80 bg-white rounded-2xl border border-slate-200 shadow-2xl p-4 animate-in fade-in zoom-in-95 duration-150">
+                                        <div className="flex items-center justify-between pb-2 border-b border-slate-100 mb-3">
+                                            <div className="flex items-center space-x-2">
+                                                <Calendar className="w-4 h-4 text-orange-500" />
+                                                <h4 className="font-extrabold text-slate-900 text-xs tracking-tight">Intervalo de Auditoría</h4>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setPopoverFechaAbierto(false)}
+                                                className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition"
+                                            >
+                                                <X className="w-3.5 h-3.5" />
+                                            </button>
+                                        </div>
+
+                                        <div className="space-y-3">
+                                            <div>
+                                                <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                                                    Fecha Inicio (Desde)
+                                                </label>
+                                                <input
+                                                    type="date"
+                                                    value={tempInicio}
+                                                    onChange={(e) => setTempInicio(e.target.value)}
+                                                    className="w-full bg-slate-50 border border-slate-200 focus:border-orange-500 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-hidden"
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                                                    Fecha Fin (Hasta)
+                                                </label>
+                                                <input
+                                                    type="date"
+                                                    value={tempFin}
+                                                    onChange={(e) => setTempFin(e.target.value)}
+                                                    className="w-full bg-slate-50 border border-slate-200 focus:border-orange-500 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-hidden"
+                                                />
+                                            </div>
+
+                                            <div className="pt-2 flex items-center justify-between border-t border-slate-100">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleAplicarPreset('todos')}
+                                                    className="text-[11px] font-bold text-slate-500 hover:text-slate-800 underline transition cursor-pointer"
+                                                >
+                                                    Ver Todos
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={handleAplicarRangoPersonalizado}
+                                                    className="flex items-center space-x-1.5 bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl shadow-xs transition cursor-pointer"
+                                                >
+                                                    <Search className="w-3 h-3" />
+                                                    <span>Auditar Rango</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+
+                        {/* Checkbox Excluyendo Cancelados */}
+                        <label
+                            className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100/80 border border-slate-200 cursor-pointer select-none transition"
+                        >
+                            <input
+                                type="checkbox"
+                                checked={excluirCancelados}
+                                onChange={(e) => setExcluirCancelados(e.target.checked)}
+                                className="hidden"
+                            />
+                            <div
+                                className={`w-4 h-4 rounded-md flex items-center justify-center border transition ${excluirCancelados
+                                    ? 'bg-teal-600 border-teal-600 text-white'
+                                    : 'border-slate-300 bg-white'
+                                    }`}
+                            >
+                                {excluirCancelados && <Check className="w-3 h-3 stroke-[3]" />}
+                            </div>
+                            <span className="text-xs font-semibold text-slate-700">Excluyendo Cancelados</span>
+                        </label>
+                    </div>
+
+                    {/* Lado derecho: Botón Exportar Conciliación */}
+                    <div className="flex items-center space-x-2 self-end md:self-auto">
+                        <button
+                            type="button"
+                            onClick={() => cargarDatos(fechaInicio, fechaFin)}
+                            disabled={cargando}
+                            className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl border border-slate-200 transition"
+                            title="Refrescar matriz"
+                        >
+                            <RotateCw className={`w-4 h-4 ${cargando ? 'animate-spin' : ''}`} />
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={handleExportarConciliacion}
+                            className="flex items-center space-x-2 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 font-bold text-xs sm:text-sm px-4 py-2 border border-slate-200 rounded-xl shadow-xs transition transform hover:scale-[1.01]"
+                        >
+                            <Download className="w-4 h-4 text-slate-600" />
+                            <span>Exportar Conciliación</span>
+                        </button>
+                    </div>
+                </div>
+
+                {/* ================================================================= */}
+                {/* TABLA PRINCIPAL DE ASIGNACIÓN & FLETES                            */}
+                {/* ================================================================= */}
+                <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse min-w-[1240px]">
+                            {/* Encabezados de Columna */}
+                            <thead>
+                                <tr className="bg-[#fff9f4] border-b border-[#fed7aa]/50 text-[11px] font-black tracking-wider text-slate-500 uppercase select-none">
+                                    <th className="py-3.5 px-4">FECHA / SALIDA</th>
+                                    <th className="py-3.5 px-4">Nº GUÍA / TRANSPORTE</th>
+                                    <th className="py-3.5 px-4">RUTA (ORIGEN — DESTINO)</th>
+                                    <th className="py-3.5 px-4">RECURSOS (MACK / BATEA)</th>
+                                    <th className="py-3.5 px-4">CONDUCTOR ASIGNADO</th>
+                                    <th className="py-3.5 px-4 text-center">GUÍA FÍSICA</th>
+                                    <th className="py-3.5 px-4 text-right">ACCIONES RÁPIDAS</th>
+                                </tr>
+                            </thead>
+
+                            {/* Cuerpo de Filas */}
+                            <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
+                                {viajesOrdenadosJerarquicos.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={7} className="py-12 text-center text-slate-400">
+                                            <div className="flex flex-col items-center justify-center space-y-2.5">
+                                                <Package className="w-8 h-8 text-slate-300" />
+                                                <span className="font-semibold text-slate-700 text-sm">
+                                                    No se encontraron viajes en el intervalo {formatearRangoLegible(fechaInicio, fechaFin)}
+                                                </span>
+                                                <span className="text-xs text-slate-400 max-w-md">
+                                                    Intente cambiar el intervalo de fechas o presione el botón inferior para auditar todos los registros disponibles.
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleAplicarPreset('todos')}
+                                                    className="mt-1 px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                                                >
+                                                    Ver Todos los Viajes sin Filtro de Fecha
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    viajesOrdenadosJerarquicos.map(({ viaje: trip, esSubFila }) => {
+                                        const cantRecargos = (trip.guiasViajesRecargos || []).length;
+                                        const tieneRecargos = cantRecargos > 0;
+
+                                        return (
+                                            <tr
+                                                key={trip.idOrden}
+                                                className={`transition-colors duration-150 ${esSubFila
+                                                    ? 'bg-emerald-50/85 hover:bg-emerald-100/50 border-l-4 border-l-emerald-600'
+                                                    : 'hover:bg-slate-50/80'
+                                                    }`}
+                                            >
+                                                {/* 1. FECHA / SALIDA */}
+                                                <td className="py-4 px-4 align-middle whitespace-nowrap">
+                                                    {esSubFila ? (
+                                                        <div className="flex items-center space-x-2">
+                                                            <CornerDownRight className="w-4 h-4 text-emerald-600 shrink-0 stroke-[2.5]" />
+                                                            <div>
+                                                                <div className="font-black text-emerald-900 text-xs">
+                                                                    {trip.fecha}
+                                                                </div>
+                                                                <div className="flex items-center space-x-1 text-[11px] text-emerald-700 font-bold">
+                                                                    <Clock className="w-3 h-3" />
+                                                                    <span>{trip.hora}</span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div>
+                                                            <div className="font-bold text-slate-900 text-xs sm:text-sm">
+                                                                {trip.fecha}
+                                                            </div>
+                                                            <div className="flex items-center space-x-1 text-slate-500 text-[11px] font-medium mt-0.5">
+                                                                <Clock className="w-3 h-3 text-slate-400" />
+                                                                <span>{trip.hora}</span>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </td>
+
+                                                {/* 2. Nº GUÍA / TRANSPORTE */}
+                                                <td className="py-4 px-4 align-middle whitespace-nowrap">
+                                                    <div className="flex items-center space-x-1.5">
+                                                        <span className="font-black text-slate-900 tracking-tight text-xs sm:text-sm">
+                                                            {trip.nroTransporte}
+                                                        </span>
+                                                        {esSubFila ? (
+                                                            <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white font-black text-[9px] tracking-wider uppercase shadow-2xs">
+                                                                RETORNO
+                                                            </span>
+                                                        ) : (
+                                                            <span className="px-1.5 py-0.5 rounded-md bg-slate-100 border border-slate-200/70 text-slate-600 font-bold text-[9px] tracking-wide uppercase">
+                                                                SAP-MM
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div className="text-[11px] text-slate-500 font-medium mt-0.5">
+                                                        Flete Base:{' '}
+                                                        <strong className="text-slate-800 font-bold">
+                                                            ${trip.fleteBase.toFixed(2)}
+                                                        </strong>
+                                                    </div>
+                                                </td>
+
+                                                {/* 3. RUTA (ORIGEN — DESTINO) */}
+                                                <td className="py-4 px-4 align-middle min-w-[220px]">
+                                                    <div className="space-y-1">
+                                                        {/* Origen con punto doble círculo verde */}
+                                                        <div className="flex items-center space-x-2">
+                                                            <span className="relative flex h-2.5 w-2.5 shrink-0">
+                                                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                                                            </span>
+                                                            <span className="font-bold text-slate-800 text-xs truncate">
+                                                                [{trip.origenCodigo}] {trip.origenNombre}
+                                                            </span>
+                                                        </div>
+
+                                                        {/* Destino con pin naranja */}
+                                                        <div className="flex items-center space-x-2">
+                                                            <MapPin className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+                                                            <span className="text-slate-600 text-xs font-medium truncate">
+                                                                [{trip.destinoCodigo}] {trip.destinoNombre}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </td>
+
+                                                {/* 4. RECURSOS (MACK / BATEA) */}
+                                                <td className="py-4 px-4 align-middle min-w-[200px]">
+                                                    <div
+                                                        onClick={() => abrirModalRecursos(trip)}
+                                                        className="group cursor-pointer p-1.5 -m-1.5 rounded-xl hover:bg-slate-100/90 transition"
+                                                        title="Click para reasignar unidad Mack o Batea"
+                                                    >
+                                                        <div className="flex items-center space-x-1.5 font-bold text-slate-800 text-xs group-hover:text-orange-600 transition">
+                                                            <Truck className="w-4 h-4 text-slate-600 group-hover:text-orange-500 shrink-0" />
+                                                            <span className="truncate">{trip.vehiculoMotrizNombre}</span>
+                                                        </div>
+                                                        <div className="text-[11px] text-slate-500 font-medium mt-0.5 truncate pl-5">
+                                                            {trip.acopladoNombre}
+                                                        </div>
+                                                    </div>
+                                                </td>
+
+                                                {/* 5. CONDUCTOR ASIGNADO */}
+                                                <td className="py-4 px-4 align-middle whitespace-nowrap min-w-[170px]">
+                                                    <div className="flex items-center space-x-2.5">
+                                                        {/* Avatar Iniciales */}
+                                                        <div className="w-8 h-8 rounded-full bg-[#d1fae5] text-[#065f46] font-black text-xs flex items-center justify-center shrink-0 shadow-2xs">
+                                                            {trip.conductorIniciales}
+                                                        </div>
+                                                        <div>
+                                                            <div className="font-bold text-slate-800 text-xs">
+                                                                {trip.conductorNombre}
+                                                            </div>
+                                                            <div className="flex items-center space-x-1 text-[11px] text-slate-500 font-medium">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                                                                <span>{trip.conductorEstado}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+
+                                                {/* 6. GUÍA FÍSICA (SWITCH RÁPIDO CON ETIQUETA DEBAJO) */}
+                                                <td className="py-4 px-4 align-middle text-center whitespace-nowrap">
+                                                    <div className="flex flex-col items-center justify-center gap-1.5">
+                                                        {/* Switch interactivo */}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleToggleFisico(trip.idOrden, trip.fisico)}
+                                                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-emerald-500/30 ${trip.fisico ? 'bg-[#059669]' : 'bg-slate-300'
+                                                                }`}
+                                                            role="switch"
+                                                            aria-checked={trip.fisico}
+                                                            title={trip.fisico ? 'Guía física en archivo/recibida' : 'Pendiente de entrega de guía física'}
+                                                        >
+                                                            <span
+                                                                aria-hidden="true"
+                                                                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${trip.fisico ? 'translate-x-5' : 'translate-x-0'
+                                                                    }`}
+                                                            />
+                                                        </button>
+
+                                                        {/* Label de estado físico debajo del switch */}
+                                                        <span
+                                                            className={`text-[10px] sm:text-[11px] font-bold select-none leading-tight text-center ${trip.fisico ? 'text-[#0b6641]' : 'text-slate-400'
+                                                                }`}
+                                                        >
+                                                            {trip.fisico ? 'Físico Recibido' : 'Guía Pendiente'}
+                                                        </span>
+                                                    </div>
+                                                </td>
+
+                                                {/* 8. ACCIONES RÁPIDAS: BOTÓN RECARGOS + BOTÓN PLANCHA RETORNO */}
+                                                <td className="py-4 px-4 align-middle text-right whitespace-nowrap min-w-[340px]">
+                                                    <div className="flex items-center justify-end space-x-2">
+                                                        {/* Icono Reasignar recursos de flota (Mack y Batea) */}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => abrirModalRecursos(trip)}
+                                                            className="hidden sm:inline-flex p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+                                                            title="Reasignar recursos de flota (Mack y Batea)"
+                                                        >
+                                                            <ArrowRightLeft className="w-4 h-4" />
+                                                        </button>
+
+                                                        {/* Icono de Mensajes / Notas rápidas */}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const obs = trip.observaciones || 'Sin observaciones registradas.';
+                                                                mostrarToast(`Nota Guía ${trip.nroTransporte}: ${obs}`, 'info');
+                                                            }}
+                                                            className="p-1.5 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition"
+                                                            title="Ver observaciones del viaje"
+                                                        >
+                                                            <MessageSquare className="w-4 h-4" />
+                                                        </button>
+
+                                                        {/* Botón % + Recargos (con ancho uniforme para alineación vertical exacta en todas las filas) */}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => abrirModalRecargos(trip)}
+                                                            className={`flex items-center justify-center space-x-1.5 px-3 py-1.5 rounded-xl font-bold text-xs min-w-[114px] transition transform hover:scale-[1.02] active:scale-[0.98] shadow-xs cursor-pointer ${tieneRecargos
+                                                                ? 'bg-[#f97316] hover:bg-[#ea580c] active:bg-[#c2410c] text-white shadow-orange-500/25'
+                                                                : 'bg-slate-100 hover:bg-slate-200/80 active:bg-slate-300 text-slate-700 border border-slate-200'
+                                                                }`}
+                                                            title="Gestionar conceptos de recargos extraordinarios"
+                                                        >
+                                                            <span>% + Recargos</span>
+                                                            {tieneRecargos && (
+                                                                <span className="ml-0.5 px-1.5 py-0.2 rounded-full bg-white text-orange-600 font-extrabold text-[10px]">
+                                                                    {cantRecargos}
+                                                                </span>
+                                                            )}
+                                                        </button>
+
+                                                        {/* Slot de Botón Plancha Retorno (o espacio reservado de ancho idéntico en subfilas de planchas) */}
+                                                        {!esSubFila && !trip.esRetorno ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => abrirModalRetorno(trip)}
+                                                                className="flex items-center justify-center space-x-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white px-3 py-1.5 rounded-xl font-bold text-xs min-w-[136px] shadow-sm shadow-emerald-600/30 transition transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                                                                title="Generar plancha de retorno debajo de este flete"
+                                                            >
+                                                                <CornerDownRight className="w-3.5 h-3.5 shrink-0 stroke-[2.5]" />
+                                                                <span>Plancha Retorno</span>
+                                                            </button>
+                                                        ) : (
+                                                            <div className="w-[136px] shrink-0" aria-hidden="true" />
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Pie de tabla con resumen y estado de sincronización */}
+                    <div className="bg-[#fafaf9] border-t border-slate-200/80 px-5 py-3 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2">
+                        <div className="flex items-center space-x-2">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                            <span>
+                                Mostrando{' '}
+                                <strong className="text-slate-800 font-bold">
+                                    {viajesOrdenadosJerarquicos.length}
+                                </strong>{' '}
+                                de {viajes.length} viajes activos en tiempo real (Filtro forzado: viajes cancelados purgados de la matriz de fletes).
+                            </span>
+                        </div>
+                        <div className="flex items-center space-x-1 text-slate-400 font-medium">
+                            <span>Sincronizado vía GPS Gateway: hace 18s</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* ===================================================================== */}
+            {/* MODAL 1: GESTIÓN DE RECARGOS DE RUTA (REPLICA EXACTA DE LA IMAGEN)   */}
+            {/* ===================================================================== */}
+            <Modal
+                isOpen={modalRecargosAbierto && !!viajeSeleccionadoRecargos}
+                onClose={() => setModalRecargosAbierto(false)}
+                title={
+                    <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center text-orange-600 shrink-0">
+                            <Coins className="w-4 h-4" />
+                        </div>
+                        <div>
+                            <span className="text-sm font-bold text-slate-900 block">
+                                Recargos y Viáticos — {viajeSeleccionadoRecargos?.nombreRuta || 'Ruta'}
+                            </span>
+                            <span className="text-[11px] text-slate-500 font-normal block">
+                                Seleccione los conceptos y defina el monto a guardar en la tabla rutas_recargos
+                            </span>
+                        </div>
+                    </div>
+                }
+                size="lg"
+                footer={
+                    <div className="flex items-center justify-between w-full">
+                        <span className="text-[11px] text-slate-500 font-medium">
+                            {recargosSeleccionados.length} de {recargosModalItems.length} seleccionados
+                        </span>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setModalRecargosAbierto(false)}
+                                disabled={guardandoRecargos}
+                            >
+                                Cancelar
+                            </Button>
+                            <Button
+                                variant="primary"
+                                size="sm"
+                                onClick={handleGuardarRecargosViaje}
+                                disabled={guardandoRecargos || recargosModalLoading}
+                                iconLeft={
+                                    guardandoRecargos ? (
+                                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                        <Save className="w-3.5 h-3.5" />
+                                    )
+                                }
+                            >
+                                {guardandoRecargos ? 'Guardando...' : 'Guardar'}
+                            </Button>
+                        </div>
+                    </div>
+                }
+            >
+                <div className="space-y-4">
+                    {/* Header informativo + Buscador */}
+                    <div className="p-3 bg-gradient-to-r from-orange-50 via-amber-50/60 to-orange-50/40 border border-orange-200/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center gap-2">
+                            <Coins className="w-4 h-4 text-orange-600 shrink-0" />
+                            <div>
+                                <span className="font-bold text-orange-950 block">Catálogo de Recargos Generales:</span>
+                                <span className="text-[11px] text-orange-800">
+                                    Marque los recargos aplicables e indique el monto para esta ruta
+                                </span>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <div className="relative">
+                                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                <input
+                                    type="text"
+                                    placeholder="Buscar concepto..."
+                                    value={recargosFiltroTexto}
+                                    onChange={(e) => setRecargosFiltroTexto(e.target.value)}
+                                    className="pl-8 pr-2.5 py-1 text-xs bg-white border border-orange-200 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-orange-500 w-44"
+                                />
+                            </div>
+                            <div className="text-right shrink-0 bg-white/80 border border-orange-200 px-2 py-0.5 rounded-lg">
+                                <span className="font-black text-orange-950 text-xs block leading-tight">
+                                    {recargosSeleccionados.length}
+                                </span>
+                                <span className="text-[9px] text-orange-700 font-semibold block leading-tight">Activos</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {recargosModalLoading ? (
+                        <div className="py-12 flex flex-col items-center justify-center text-slate-400 gap-2">
+                            <RefreshCw className="w-6 h-6 animate-spin text-orange-500" />
+                            <p className="text-xs font-medium">Cargando catálogo de recargos de la ruta (rutas_recargos)...</p>
+                        </div>
+                    ) : recargosFiltradosModal.length === 0 ? (
+                        <div className="p-8 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                            {recargosFiltroTexto
+                                ? `No se encontraron conceptos que coincidan con "${recargosFiltroTexto}".`
+                                : 'No hay conceptos registrados para esta ruta en la tabla rutas_recargos.'}
+                        </div>
+                    ) : (
+                        <div className="max-h-[46vh] overflow-y-auto space-y-2 pr-1">
+                            {recargosFiltradosModal.map((recargo) => {
+                                const isSelected = recargo.selected;
+                                const tipoTexto = recargo.tipoCalculo
+                                    ? recargo.tipoCalculo.replace(/_/g, ' ')
+                                    : 'Monto Fijo';
+                                const itemKey = recargo.idRecargo || recargo.concepto;
+
+                                return (
+                                    <div
+                                        key={itemKey}
+                                        className={`p-3 rounded-xl border transition-all duration-150 ${isSelected
+                                            ? 'border-orange-400 bg-gradient-to-r from-orange-50/90 via-amber-50/40 to-orange-50/70 shadow-xs ring-1 ring-orange-400/30'
+                                            : 'border-slate-200 bg-white hover:bg-slate-50/80 hover:border-slate-300 shadow-2xs'
+                                            }`}
+                                    >
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                            {/* Checkbox y Datos del concepto */}
+                                            <div className="flex items-start gap-3 flex-1 min-w-0">
+                                                <input
+                                                    type="checkbox"
+                                                    id={`recargo-${itemKey}`}
+                                                    checked={isSelected}
+                                                    onChange={(e) => handleToggleRecargo(itemKey, e.target.checked)}
+                                                    className="w-4 h-4 mt-1 text-orange-600 rounded focus:ring-orange-500 cursor-pointer accent-orange-600"
+                                                />
+                                                <div className="min-w-0 flex-1">
+                                                    <label
+                                                        htmlFor={`recargo-${itemKey}`}
+                                                        className={`text-xs font-bold block cursor-pointer transition-colors ${isSelected ? 'text-orange-950 font-black' : 'text-slate-800 hover:text-orange-700'
+                                                            }`}
+                                                    >
+                                                        {recargo.concepto}
+                                                    </label>
+                                                    <div className="flex items-center gap-2 mt-0.5">
+                                                        <span
+                                                            className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border ${isSelected
+                                                                ? 'bg-orange-100/90 text-orange-800 border-orange-200'
+                                                                : 'bg-slate-100 text-slate-600 border-slate-200'
+                                                                }`}
+                                                        >
+                                                            {tipoTexto}
+                                                        </span>
+                                                        {isSelected && (
+                                                            <span className="text-[10px] text-emerald-700 font-semibold flex items-center gap-1">
+                                                                <Check className="w-3 h-3 text-emerald-600" />
+                                                                Asignado al viaje
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Parámetros de asignación a rutas_recargos: Monto */}
+                                            <div className="flex items-center gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-orange-200/60">
+                                                <div className="flex flex-col items-end">
+                                                    <label
+                                                        htmlFor={`monto-${itemKey}`}
+                                                        className="text-[9px] font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-1"
+                                                    >
+                                                        <span>Monto a guardar</span>
+                                                        <span className="text-orange-600 font-mono">
+                                                            ({recargo.tipoCalculo === 'Porcentaje' ? '%' : 'USD'})
+                                                        </span>
+                                                    </label>
+                                                    <div className="flex items-center mt-0.5 relative">
+                                                        <span className="text-xs font-bold text-slate-400 px-1 select-none">
+                                                            {recargo.tipoCalculo === 'Porcentaje' ? '%' : '$'}
+                                                        </span>
+                                                        <input
+                                                            id={`monto-${itemKey}`}
+                                                            type="number"
+                                                            step="0.01"
+                                                            min="0"
+                                                            value={recargo.valor ?? ''}
+                                                            placeholder="0.00"
+                                                            onChange={(e) =>
+                                                                handleUpdateRecargoMonto(itemKey, e.target.value)
+                                                            }
+                                                            onFocus={() => {
+                                                                if (!isSelected) {
+                                                                    handleToggleRecargo(itemKey, true);
+                                                                }
+                                                            }}
+                                                            className={`w-24 text-xs font-black rounded-lg py-1 px-2 text-right transition-all shadow-2xs ${isSelected
+                                                                ? 'text-slate-900 bg-white border border-orange-400 focus:ring-2 focus:ring-orange-500 focus:border-orange-500'
+                                                                : 'text-slate-500 bg-slate-50 border border-slate-300 focus:bg-white focus:text-slate-900 focus:border-orange-400'
+                                                                }`}
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                {/* Botón rápido toggle */}
+                                                <div className="flex flex-col items-center justify-end">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleToggleRecargo(itemKey)}
+                                                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase transition-all ${isSelected
+                                                            ? 'bg-orange-600 text-white hover:bg-orange-700 shadow-2xs'
+                                                            : 'bg-slate-100 text-slate-600 hover:bg-orange-50 hover:text-orange-700 border border-slate-200'
+                                                            }`}
+                                                    >
+                                                        {isSelected ? 'Activo' : '+ Asignar'}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+
+                    {/* Banner de Resumen y Totalización de Recargos */}
+                    <div className="p-3.5 bg-gradient-to-r from-orange-50 via-amber-50/50 to-orange-50 border border-orange-200 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between text-xs gap-2">
+                        <div className="flex items-center gap-2">
+                            <Coins className="w-4 h-4 text-orange-600 shrink-0" />
+                            <div>
+                                <span className="font-bold text-orange-950 block">
+                                    Resumen de Recargos para la Ruta:
+                                </span>
+                                <span className="text-[11px] text-orange-800">
+                                    {recargosSeleccionados.length} recargo(s) asignados que se guardarán en <code className="bg-orange-100 text-orange-900 px-1 py-0.5 rounded font-mono text-[10px]">rutas_recargos</code>
+                                </span>
+                            </div>
+                        </div>
+                        <div className="text-right">
+                            <span className="font-black text-orange-950 text-base block">
+                                ${costoTotalRecargos.toFixed(2)} USD
+                            </span>
+                            <span className="text-[10px] text-orange-700 font-semibold">
+                                Subtotal recargos fijos por viaje
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* ===================================================================== */}
+            {/* MODAL 2: GENERAR PLANCHA DE RETORNO (DEBAJO DEL VIAJE INICIAL)        */}
+            {/* ===================================================================== */}
+            {modalRetornoAbierto && viajeSeleccionadoRetorno && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+                    <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-xl overflow-hidden flex flex-col max-h-[92vh]">
+                        {/* Header del Modal */}
+                        <div className="p-5 sm:p-6 border-b border-slate-100 flex items-start justify-between bg-white">
+                            <div className="flex items-start space-x-3.5">
+                                <div className="w-12 h-12 rounded-2xl bg-emerald-600 flex items-center justify-center text-white shadow-md shadow-emerald-600/30 shrink-0">
+                                    <CornerDownRight className="w-6 h-6 stroke-[2.5]" />
+                                </div>
+                                <div>
+                                    <span className="text-[10px] font-black tracking-wider text-emerald-700 bg-emerald-100/90 border border-emerald-300 px-2 py-0.5 rounded-md uppercase">
+                                        LOGÍSTICA INVERSA & PLANCHAS
+                                    </span>
+                                    <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight leading-snug mt-1">
+                                        Generar Plancha de Retorno
+                                    </h2>
+                                    <p className="text-xs text-slate-500 font-medium mt-0.5">
+                                        Asociar flete de regreso para la unidad de <strong>{viajeSeleccionadoRetorno.conductorNombre}</strong>
+                                    </p>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => setModalRetornoAbierto(false)}
+                                className="text-slate-400 hover:text-slate-700 p-1.5 hover:bg-slate-100 rounded-xl transition"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Formulario Plancha de Retorno */}
+                        <div className="p-5 sm:p-6 overflow-y-auto space-y-4 flex-1 bg-slate-50/50">
+                            {/* Resumen de recursos que retornan */}
+                            <div className="p-3.5 bg-emerald-50 border border-emerald-300/80 rounded-2xl flex items-center justify-between text-xs">
+                                <div>
+                                    <div className="text-[10px] font-black text-emerald-800 uppercase tracking-wider">
+                                        Unidad Mack & Chofer Vinculados
+                                    </div>
+                                    <div className="font-bold text-slate-900 text-xs mt-0.5">
+                                        {viajeSeleccionadoRetorno.vehiculoMotrizNombre} • {viajeSeleccionadoRetorno.conductorNombre}
+                                    </div>
+                                    {viajeSeleccionadoRetorno.clienteNombre && (
+                                        <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-900 mt-1">
+                                            <Building2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                            <span>Cliente: {viajeSeleccionadoRetorno.clienteNombre}</span>
+                                        </div>
+                                    )}
+                                </div>
+                                <span className="text-[10px] font-black text-emerald-800 bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-full">
+                                    Misma Tripulación
+                                </span>
+                            </div>
+
+                            {/* Nº de Transporte de Retorno con opción autogenerar */}
+                            <div className="space-y-1">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-xs font-bold text-slate-700 block">
+                                        Nº de Transporte de Retorno <span className="text-orange-500">*</span>
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={handleAutoGenerarNroTransporteRetorno}
+                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-100/80 hover:bg-emerald-200/70 border border-emerald-300/90 px-2 py-0.5 rounded-lg transition cursor-pointer"
+                                        title="Autogenerar Nº de transporte sugerido"
+                                    >
+                                        <Sparkles className="w-3 h-3 text-emerald-600" />
+                                        <span>Autogenerar Nº</span>
+                                    </button>
+                                </div>
+                                <div className="relative flex items-center">
+                                    <input
+                                        type="text"
+                                        value={nroTransporteRetorno}
+                                        onChange={(e) => setNroTransporteRetorno(e.target.value)}
+                                        placeholder="Ingrese el número de transporte o pulse el icono..."
+                                        className="w-full bg-white border border-slate-200 focus:border-emerald-600 rounded-xl pl-3.5 pr-10 py-2.5 text-sm font-bold text-slate-900 focus:outline-hidden transition"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={handleAutoGenerarNroTransporteRetorno}
+                                        className="absolute right-2 p-1.5 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition cursor-pointer"
+                                        title="Autogenerar Nº sugerido"
+                                    >
+                                        <Sparkles className="w-4 h-4 text-emerald-600" />
+                                    </button>
+                                </div>
+                                <span className="text-[11px] text-slate-400">
+                                    Número identificador único con el que se registrará el viaje en guias_viajes.
+                                </span>
+                            </div>
+
+                            {/* Origen del Retorno (Fijo = Destino del viaje inicial) */}
+                            <div className="space-y-1">
+                                <label className="text-xs font-bold text-slate-700 block">
+                                    Punto de Salida de Retorno (Origen)
+                                </label>
+                                <input
+                                    type="text"
+                                    readOnly
+                                    value={`[${viajeSeleccionadoRetorno.destinoCodigo}] ${viajeSeleccionadoRetorno.destinoNombre}`}
+                                    className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-bold text-slate-600 select-none"
+                                />
+                            </div>
+
+                            {/* Punto de Regreso (Filtrado exclusivamente por el mismo cliente del viaje) */}
+                            <div className="space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-xs font-bold text-slate-700 block">
+                                        Punto de Regreso (Destino de la Plancha) <span className="text-orange-500">*</span>
+                                    </label>
+                                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/80 border border-emerald-300/80 px-2 py-0.5 rounded-md">
+                                        Cliente: {viajeSeleccionadoRetorno.clienteNombre || 'Mismo cliente del viaje'}
+                                    </span>
+                                </div>
+                                <select
+                                    value={puntoRegresoSeleccionado}
+                                    onChange={(e) => setPuntoRegresoSeleccionado(e.target.value)}
+                                    className="w-full bg-white border border-slate-200 focus:border-emerald-600 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-slate-900 focus:outline-hidden transition shadow-2xs"
+                                >
+                                    {puntosClienteRetorno.length === 0 ? (
+                                        <option value="">No hay puntos de carga/descarga registrados para este cliente</option>
+                                    ) : (
+                                        puntosClienteRetorno.map((p) => (
+                                            <option key={p.idPunto} value={p.idPunto}>
+                                                {p.idPunto === viajeSeleccionadoRetorno.idPuntoOrigen ? '★ [ORIGEN INICIAL] ' : ''}
+                                                [{p.codigoPuntoc || 'PTO'}] {p.nombreSede} {p.ciudad ? `(${p.ciudad})` : ''} {p.tipoPunto ? `• ${p.tipoPunto}` : ''}
+                                            </option>
+                                        ))
+                                    )}
+                                </select>
+                                <div className="flex items-center justify-between text-[11px] text-slate-500">
+                                    <span>Puntos de carga y descarga vinculados exclusivamente a este cliente.</span>
+                                    <span className="font-bold text-slate-700">{puntosClienteRetorno.length} disponibles</span>
+                                </div>
+                            </div>
+
+                            {/* Monto Flete Retorno (Mismo monto base que el viaje inicial) */}
+                            <div className="space-y-1.5 bg-emerald-50/70 border border-emerald-300 rounded-2xl p-3.5">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                                        <Coins className="w-3.5 h-3.5 text-emerald-600" />
+                                        <span>Monto Base del Flete de Retorno</span>
+                                    </label>
+                                    <span className="text-[11px] font-black text-white bg-emerald-600 px-2.5 py-0.5 rounded-lg shadow-2xs">
+                                        Mismo del viaje: ${Number(viajeSeleccionadoRetorno.fleteBase || 0).toFixed(2)} USD
+                                    </span>
+                                </div>
+                                <div className="relative flex items-center">
+                                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-emerald-600 font-black text-sm select-none">
+                                        $
+                                    </span>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        value={montoRetorno}
+                                        onChange={(e) => setMontoRetorno(e.target.value)}
+                                        placeholder={Number(viajeSeleccionadoRetorno.fleteBase || 0).toFixed(2)}
+                                        className="w-full bg-white border border-emerald-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 rounded-xl pl-8 pr-28 py-2.5 text-sm font-black text-slate-900 focus:outline-hidden transition shadow-2xs"
+                                    />
+                                    <div className="absolute right-2 flex items-center gap-1.5 text-[11px] font-bold text-emerald-800 bg-emerald-100/80 border border-emerald-300 px-2.5 py-1 rounded-lg">
+                                        <span>USD</span>
+                                        {montoRetorno !== Number(viajeSeleccionadoRetorno.fleteBase || 0).toFixed(2) && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setMontoRetorno(Number(viajeSeleccionadoRetorno.fleteBase || 0).toFixed(2))}
+                                                className="ml-1 text-[10px] text-orange-600 hover:text-orange-700 underline font-extrabold cursor-pointer"
+                                                title="Restablecer monto base original del viaje"
+                                            >
+                                                Restablecer
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
+                                    <span>Monto base del flete predeterminado idéntico al viaje inicial.</span>
+                                    <span className="font-black text-emerald-700">Tarifa Base: ${Number(viajeSeleccionadoRetorno.fleteBase || 0).toFixed(2)}</span>
+                                </div>
+                            </div>
+
+                            {/* Observaciones */}
+                            <div className="space-y-1">
+                                <label className="text-xs font-bold text-slate-700 block">Observaciones Operativas</label>
+                                <textarea
+                                    rows={2}
+                                    value={observacionRetorno}
+                                    onChange={(e) => setObservacionRetorno(e.target.value)}
+                                    className="w-full bg-white border border-slate-200 focus:border-emerald-600 rounded-xl p-3 text-xs text-slate-800 focus:outline-hidden resize-none"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Footer Plancha Retorno */}
+                        <div className="p-4 sm:p-5 border-t border-slate-100 bg-white flex items-center justify-end space-x-3">
+                            <button
+                                type="button"
+                                onClick={() => setModalRetornoAbierto(false)}
+                                className="px-4 py-2 text-xs sm:text-sm font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                            >
+                                Cancelar
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={handleGenerarPlanchaRetorno}
+                                disabled={guardandoRetorno}
+                                className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-extrabold text-xs sm:text-sm px-5 py-2.5 rounded-xl shadow-md shadow-emerald-600/30 hover:shadow-lg hover:shadow-emerald-600/40 transition transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer disabled:opacity-50"
+                            >
+                                <CornerDownRight className="w-4 h-4 stroke-[2.5]" />
+                                <span>{guardandoRetorno ? 'Generando...' : 'Generar Viaje de Retorno'}</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ===================================================================== */}
+            {/* MODAL 3: ASIGNACIÓN DE RECURSOS (MACK, BATEA & CHOFER)                */}
+            {/* ===================================================================== */}
+            {modalRecursosAbierto && viajeSeleccionadoRecursos && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+                    <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
+                        <div className="p-5 sm:p-6 border-b border-slate-100 flex items-start justify-between bg-white">
+                            <div className="flex items-start space-x-3.5">
+                                <div className="w-12 h-12 rounded-2xl bg-slate-900 flex items-center justify-center text-white shrink-0">
+                                    <Truck className="w-6 h-6" />
+                                </div>
+                                <div>
+                                    <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight leading-snug">
+                                        Asignación de Recursos de Flota
+                                    </h2>
+                                    <p className="text-xs text-slate-500 font-medium mt-0.5">
+                                        Guía {viajeSeleccionadoRecursos.nroTransporte} • [{viajeSeleccionadoRecursos.origenCodigo} → {viajeSeleccionadoRecursos.destinoCodigo}]
+                                    </p>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => setModalRecursosAbierto(false)}
+                                className="text-slate-400 hover:text-slate-700 p-1.5 hover:bg-slate-100 rounded-xl transition"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        <div className="p-5 sm:p-6 space-y-4 bg-slate-50/50">
+                            {/* Chuto / Vehículo Motriz */}
+                            <div className="space-y-1">
+                                <label className="text-xs font-bold text-slate-700 block">
+                                    Vehículo Motriz (Chuto / Mack)
+                                </label>
+                                <select
+                                    value={selVehiculoMotriz}
+                                    onChange={(e) => setSelVehiculoMotriz(e.target.value)}
+                                    className="w-full bg-white border border-slate-200 focus:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-slate-900 focus:outline-hidden"
+                                >
+                                    <option value="">Seleccione Chuto...</option>
+                                    {chutosDisponibles.map((v) => (
+                                        <option key={v.idVehiculo} value={v.idVehiculo}>
+                                            {v.marca} {v.modelo} (#{v.placa}) – {v.nombreClasificacion}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {/* Batea / Acoplado */}
+                            <div className="space-y-1">
+                                <label className="text-xs font-bold text-slate-700 block">
+                                    Acoplado (Batea / Cortinero / Cava)
+                                </label>
+                                <select
+                                    value={selAcoplado}
+                                    onChange={(e) => setSelAcoplado(e.target.value)}
+                                    className="w-full bg-white border border-slate-200 focus:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-slate-900 focus:outline-hidden"
+                                >
+                                    <option value="">Seleccione Batea/Acoplado...</option>
+                                    {bateasDisponibles.map((v) => (
+                                        <option key={v.idVehiculo} value={v.idVehiculo}>
+                                            {v.marca} {v.modelo} (#{v.placa}) – {v.nombreClasificacion}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {/* Conductor Asignado */}
+                            <div className="space-y-1">
+                                <label className="text-xs font-bold text-slate-700 block">
+                                    Conductor Asignado
+                                </label>
+                                <select
+                                    value={selConductor}
+                                    onChange={(e) => setSelConductor(e.target.value)}
+                                    className="w-full bg-white border border-slate-200 focus:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-slate-900 focus:outline-hidden"
+                                >
+                                    <option value="">Seleccione Conductor...</option>
+                                    {conductores.map((c) => (
+                                        <option key={c.idConductor} value={c.idConductor}>
+                                            {c.nombres} {c.apellidos} ({c.estado})
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="p-4 sm:p-5 border-t border-slate-100 bg-white flex items-center justify-end space-x-3">
+                            <button
+                                type="button"
+                                onClick={() => setModalRecursosAbierto(false)}
+                                className="px-4 py-2 text-xs sm:text-sm font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleGuardarRecursos}
+                                disabled={guardandoRecursos}
+                                className="bg-slate-900 hover:bg-black text-white font-extrabold text-xs sm:text-sm px-5 py-2.5 rounded-xl shadow-md transition transform hover:scale-[1.02] cursor-pointer disabled:opacity-50"
+                            >
+                                {guardandoRecursos ? 'Guardando...' : 'Guardar Recursos'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}

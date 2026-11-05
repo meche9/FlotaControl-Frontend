@@ -40,7 +40,7 @@ import {
   TableHead,
   TableCell,
 } from '../../components/ui';
-import { clientesService, type Cliente, obtenerCodigoAvatar } from '../../services/clientesService';
+import { clientesService, type Cliente, obtenerCodigoAvatar, ordenarClientesPorFechaCreacion } from '../../services/clientesService';
 import { puntosCargaService, type PuntoCargaDescarga } from '../../services/puntosCargaService';
 import {
   rutasService,
@@ -177,21 +177,17 @@ export default function RutasRegistro() {
     async function loadInitial() {
       try {
         const clientesList = await clientesService.getClientes();
-        setClientes(clientesList);
+        const sortedClientes = ordenarClientesPorFechaCreacion(clientesList);
+        setClientes(sortedClientes);
 
-        // Preseleccionar cliente de URL o Polar si existe, o el primero
+        // Preseleccionar cliente de URL o siempre el primero que se ha creado en base de datos
         const urlClienteId = searchParams.get('clienteId');
         let initialId = '';
 
-        if (urlClienteId && clientesList.some((c) => c.idCliente === urlClienteId)) {
+        if (urlClienteId && sortedClientes.some((c) => c.idCliente === urlClienteId)) {
           initialId = urlClienteId;
         } else {
-          const polar = clientesList.find(
-            (c) =>
-              c.razonSocial.toLowerCase().includes('polar') ||
-              c.rif.includes('00006372')
-          );
-          initialId = polar ? polar.idCliente : clientesList[0]?.idCliente || '';
+          initialId = sortedClientes[0]?.idCliente || '';
         }
 
         setSelectedClienteId(initialId);

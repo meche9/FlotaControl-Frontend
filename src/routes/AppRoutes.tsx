@@ -18,6 +18,7 @@ import RutasRegistro from '../pages/rutas/RutasRegistro';
 import Programacion from '../pages/viajes/Programacion';
 import InicialProgramacion from '../pages/viajes/InicialProgramacion';
 import AsignacionConductores from '../pages/viajes/AsignacionConductores';
+import AsignacionRecursos from '../pages/viajes/AsignacionRecursos';
 import PaginaEnConstruccion from '../componentes/common/PaginaEnConstruccion';
 
 export default function AppRoutes() {
@@ -77,6 +78,10 @@ export default function AppRoutes() {
                         <Route path="/programacion/asignacion-conductores" element={<AsignacionConductores />} />
                         <Route path="/viajes/asignacion-conductores" element={<AsignacionConductores />} />
                         <Route path="/asignacion-conductores" element={<AsignacionConductores />} />
+                        <Route path="/viajes/programacion/asignacion-recursos" element={<AsignacionRecursos />} />
+                        <Route path="/programacion/asignacion-recursos" element={<AsignacionRecursos />} />
+                        <Route path="/viajes/asignacion-recursos" element={<AsignacionRecursos />} />
+                        <Route path="/asignacion-recursos" element={<AsignacionRecursos />} />
 
                         {/* Financiero */}
                         <Route path="/proformas" element={<PaginaEnConstruccion titulo="Proformas" descripcion="Generación y gestión de proformas de liquidación de fletes." />} />
