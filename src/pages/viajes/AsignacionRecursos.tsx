@@ -21,13 +21,14 @@ import {
     Coins,
     RefreshCw,
     Building2,
+    Pencil,
 } from 'lucide-react';
 import { Button, Modal } from '../../components/ui';
 import { programacionService, type GuiaProgramada, type GuiaViajeRecargoItem } from '../../services/programacionService';
 import { vehiculosService, type Vehiculo } from '../../services/vehiculosService';
 import { conductoresService, type Conductor } from '../../services/conductoresService';
 import { puntosCargaService, type PuntoCargaDescarga } from '../../services/puntosCargaService';
-import { rutasService } from '../../services/rutasService';
+import { rutasService, type Ruta } from '../../services/rutasService';
 
 // ============================================================================
 // INTERFACES & MODELOS
@@ -189,6 +190,7 @@ export default function AsignacionRecursos() {
     const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
     const [conductores, setConductores] = useState<Conductor[]>([]);
     const [puntos, setPuntos] = useState<PuntoCargaDescarga[]>([]);
+    const [rutasCatalogo, setRutasCatalogo] = useState<Ruta[]>([]);
 
     // Toast / feedback state
     const [toast, setToast] = useState<{ visible: boolean; mensaje: string; tipo: 'ok' | 'error' | 'info' }>({
@@ -234,15 +236,68 @@ export default function AsignacionRecursos() {
     }, [recargosModalItems, recargosFiltroTexto]);
 
     // ==========================================================================
-    // MODAL 2: PLANCHA DE RETORNO
+    // MODAL 2: PLANCHA DE RETORNO (CREACIÓN Y EDICIÓN)
     // ==========================================================================
     const [modalRetornoAbierto, setModalRetornoAbierto] = useState<boolean>(false);
     const [viajeSeleccionadoRetorno, setViajeSeleccionadoRetorno] = useState<ViajeFleteItem | null>(null);
+    const [planchaEditando, setPlanchaEditando] = useState<ViajeFleteItem | null>(null);
     const [nroTransporteRetorno, setNroTransporteRetorno] = useState<string>('');
     const [puntoRegresoSeleccionado, setPuntoRegresoSeleccionado] = useState<string>('');
     const [montoRetorno, setMontoRetorno] = useState<string>('0');
     const [observacionRetorno, setObservacionRetorno] = useState<string>('Retorno de Plancha en vacío');
     const [guardandoRetorno, setGuardandoRetorno] = useState<boolean>(false);
+
+    // Helper: dado que la plancha va de Origen B -> Destino C,
+    // busca en la tabla rutas la ruta inversa registrada (Origen C -> Destino B)
+    const buscarRutaContraria = (
+        idOrigenPlanchaB: string,
+        idDestinoPlanchaC: string,
+        listaRutas: Ruta[] = rutasCatalogo
+    ): Ruta | null => {
+        if (!idOrigenPlanchaB || !idDestinoPlanchaC) return null;
+
+        // 1. Priorizar ruta C -> B (destino de la plancha como origen en tabla rutas, y origen de la plancha como destino)
+        const exactaInversa = listaRutas.find(
+            (r) => r.idPuntoOrigen === idDestinoPlanchaC && r.idPuntoDestino === idOrigenPlanchaB
+        );
+        if (exactaInversa) return exactaInversa;
+
+        // 2. Fallback por códigos de sede si algún punto difiere en UUID pero coincide en código
+        const pOrigB = puntos.find((p) => p.idPunto === idOrigenPlanchaB);
+        const pDestC = puntos.find((p) => p.idPunto === idDestinoPlanchaC);
+        if (pOrigB?.codigoPuntoc && pDestC?.codigoPuntoc) {
+            const porCodigoInversa = listaRutas.find(
+                (r) =>
+                    r.puntoOrigen?.codigoPuntoc === pDestC.codigoPuntoc &&
+                    r.puntoDestino?.codigoPuntoc === pOrigB.codigoPuntoc
+            );
+            if (porCodigoInversa) return porCodigoInversa;
+        }
+
+        // 3. Fallback secundario: si existiera registrada directamente B -> C
+        const directa = listaRutas.find(
+            (r) => r.idPuntoOrigen === idOrigenPlanchaB && r.idPuntoDestino === idDestinoPlanchaC
+        );
+        return directa || null;
+    };
+
+    // Ruta contraria C -> B detectada para la selección actual en el modal de plancha
+    const rutaContrariaActiva = useMemo(() => {
+        if (!viajeSeleccionadoRetorno || !puntoRegresoSeleccionado) return null;
+        return buscarRutaContraria(
+            viajeSeleccionadoRetorno.idPuntoDestino,
+            puntoRegresoSeleccionado,
+            rutasCatalogo
+        );
+    }, [viajeSeleccionadoRetorno, puntoRegresoSeleccionado, rutasCatalogo, puntos]);
+
+    const tarifaReferenciaRuta = useMemo(() => {
+        if (rutaContrariaActiva && rutaContrariaActiva.montoTarifa !== undefined && rutaContrariaActiva.montoTarifa !== null) {
+            const val = Number(rutaContrariaActiva.montoTarifa);
+            if (!isNaN(val)) return val;
+        }
+        return Number(viajeSeleccionadoRetorno?.fleteBase || 0);
+    }, [rutaContrariaActiva, viajeSeleccionadoRetorno]);
 
     // Cliente detectado para el viaje de retorno
     const idClienteRetorno = useMemo(() => {
@@ -311,16 +366,18 @@ export default function AsignacionRecursos() {
             if (ini && ini.trim()) params.fechaInicio = ini.trim();
             if (fn && fn.trim()) params.fechaFin = fn.trim();
 
-            const [guiasBd, vecs, conds, pts] = await Promise.all([
+            const [guiasBd, vecs, conds, pts, rts] = await Promise.all([
                 programacionService.getGuiasProgramadas(params).catch(() => []),
                 vehiculosService.getVehiculos().catch(() => []),
                 conductoresService.getConductores().catch(() => []),
                 puntosCargaService.getPuntos().catch(() => []),
+                rutasService.getRutas().catch(() => []),
             ]);
 
             setVehiculos(vecs || []);
             setConductores(conds || []);
             setPuntos(pts || []);
+            setRutasCatalogo(rts || []);
 
             // Mapear viajes desde base de datos
             const listaMapeada: ViajeFleteItem[] = (guiasBd || []).map((g: GuiaProgramada) => {
@@ -594,6 +651,17 @@ export default function AsignacionRecursos() {
         });
     }, [viajes, busqueda, excluirCancelados]);
 
+    // Conjunto de viajes iniciales que ya tienen al menos una plancha de retorno asignada
+    const padresConPlancha = useMemo(() => {
+        const ids = new Set<string>();
+        for (const v of viajes) {
+            if (v.esRetorno && v.idOrdenPadre) {
+                ids.add(v.idOrdenPadre);
+            }
+        }
+        return ids;
+    }, [viajes]);
+
     // Agrupamiento: Coloca los viajes de retorno inmediatamente después de su viaje inicial
     const viajesOrdenadosJerarquicos = useMemo(() => {
         const padres: ViajeFleteItem[] = [];
@@ -856,13 +924,12 @@ export default function AsignacionRecursos() {
     // MANEJO DE MODAL 2: PLANCHA DE RETORNO
     // ==========================================================================
     const calcularFechaHoraRetornoInterna = (viaje: ViajeFleteItem) => {
+        // Utilizar exactamente la misma fecha_programada_carga del viaje inicial
         let fechaBase = viaje.fechaISO ? new Date(viaje.fechaISO) : new Date();
         if (isNaN(fechaBase.getTime())) {
             fechaBase = new Date();
         }
-        // Retorno estimado internamente 5 horas después de la salida del viaje inicial
-        const retornoDate = new Date(fechaBase.getTime() + 5 * 60 * 60 * 1000);
-        return retornoDate.toISOString();
+        return fechaBase.toISOString();
     };
 
     const handleAutoGenerarNroTransporteRetorno = () => {
@@ -873,40 +940,141 @@ export default function AsignacionRecursos() {
         mostrarToast(`Nº de Transporte autogenerado: ${sug}`, 'info');
     };
 
+    const handleChangePuntoRegreso = (nuevoIdPuntoDestinoC: string) => {
+        setPuntoRegresoSeleccionado(nuevoIdPuntoDestinoC);
+        if (!viajeSeleccionadoRetorno) return;
+
+        // Plancha tiene Origen B = viajeSeleccionadoRetorno.idPuntoDestino y Destino C = nuevoIdPuntoDestinoC
+        // Se busca en la tabla rutas el flete de la ruta C --> B
+        const rutaInversa = buscarRutaContraria(
+            viajeSeleccionadoRetorno.idPuntoDestino,
+            nuevoIdPuntoDestinoC,
+            rutasCatalogo
+        );
+
+        if (rutaInversa && rutaInversa.montoTarifa !== undefined && rutaInversa.montoTarifa !== null) {
+            const tarifaNum = Number(rutaInversa.montoTarifa);
+            if (!isNaN(tarifaNum)) {
+                setMontoRetorno(tarifaNum.toFixed(2));
+                return;
+            }
+        }
+
+        // Si regresa al origen inicial del viaje padre y no se halló en catálogo local, usar el fleteBase del padre
+        if (nuevoIdPuntoDestinoC === viajeSeleccionadoRetorno.idPuntoOrigen) {
+            setMontoRetorno(Number(viajeSeleccionadoRetorno.fleteBase || 0).toFixed(2));
+        }
+    };
+
+    const cargarCatalogosClienteRetorno = async (
+        idCli: string | undefined,
+        idOrigenPlanchaB: string,
+        idDestinoPlanchaC: string,
+        actualizarMontoAutomatico: boolean
+    ) => {
+        if (!idCli || idCli.startsWith('mock-') || idCli.startsWith('cli-')) return;
+        try {
+            const [ptsCli, rutasCli] = await Promise.all([
+                puntosCargaService.getPuntosByCliente(idCli).catch(() => []),
+                rutasService.getRutasByCliente(idCli).catch(() => []),
+            ]);
+
+            if (ptsCli && ptsCli.length > 0) {
+                setPuntos((prev) => {
+                    const ids = new Set(prev.map((p) => p.idPunto));
+                    const nuevos = ptsCli.filter((p) => !ids.has(p.idPunto));
+                    return nuevos.length > 0 ? [...prev, ...nuevos] : prev;
+                });
+            }
+
+            if (rutasCli && rutasCli.length > 0) {
+                setRutasCatalogo((prev) => {
+                    const ids = new Set(prev.map((r) => r.idRuta));
+                    const nuevas = rutasCli.filter((r) => !ids.has(r.idRuta));
+                    const combinadas = nuevas.length > 0 ? [...prev, ...nuevas] : prev;
+
+                    if (actualizarMontoAutomatico) {
+                        const rInv = buscarRutaContraria(idOrigenPlanchaB, idDestinoPlanchaC, combinadas);
+                        if (rInv && rInv.montoTarifa !== undefined && rInv.montoTarifa !== null) {
+                            const t = Number(rInv.montoTarifa);
+                            if (!isNaN(t)) {
+                                setMontoRetorno(t.toFixed(2));
+                            }
+                        }
+                    }
+
+                    return combinadas;
+                });
+            }
+        } catch {
+            // Silencioso: se utiliza el catálogo ya disponible
+        }
+    };
+
     const abrirModalRetorno = async (viaje: ViajeFleteItem) => {
+        setPlanchaEditando(null);
         setViajeSeleccionadoRetorno(viaje);
 
-        // Dejar Nº de transporte en blanco
+        // Dejar Nº de transporte en blanco para nueva plancha
         setNroTransporteRetorno('');
 
-        // Punto de regreso por defecto: El Origen del viaje inicial
-        setPuntoRegresoSeleccionado(viaje.idPuntoOrigen);
+        // Punto de regreso por defecto (C): El Origen del viaje inicial
+        const destinoDefectoC = viaje.idPuntoOrigen;
+        setPuntoRegresoSeleccionado(destinoDefectoC);
 
-        // Monto base del flete para la plancha: el mismo del viaje inicial
-        const montoBaseInicial = viaje.fleteBase !== undefined && viaje.fleteBase !== null
-            ? Number(viaje.fleteBase).toFixed(2)
-            : '0.00';
-        setMontoRetorno(montoBaseInicial);
+        // Buscar flete en tabla rutas según ruta contraria C -> B (donde B = destino del viaje inicial)
+        const rutaInversa = buscarRutaContraria(viaje.idPuntoDestino, destinoDefectoC, rutasCatalogo);
+        const montoInicial =
+            rutaInversa && rutaInversa.montoTarifa !== undefined && rutaInversa.montoTarifa !== null
+                ? Number(rutaInversa.montoTarifa).toFixed(2)
+                : viaje.fleteBase !== undefined && viaje.fleteBase !== null
+                    ? Number(viaje.fleteBase).toFixed(2)
+                    : '0.00';
 
+        setMontoRetorno(montoInicial);
         setObservacionRetorno(`Plancha de Retorno vinculada a ${viaje.nroTransporte}`);
         setModalRetornoAbierto(true);
 
-        // Cargar puntos adicionales del mismo cliente si están en el backend
         const idCli = viaje.idCliente || puntos.find((p) => p.idPunto === viaje.idPuntoOrigen)?.idCliente;
-        if (idCli && !idCli.startsWith('mock-') && !idCli.startsWith('cli-')) {
-            try {
-                const ptsCli = await puntosCargaService.getPuntosByCliente(idCli);
-                if (ptsCli && ptsCli.length > 0) {
-                    setPuntos((prev) => {
-                        const ids = new Set(prev.map((p) => p.idPunto));
-                        const nuevos = ptsCli.filter((p) => !ids.has(p.idPunto));
-                        return nuevos.length > 0 ? [...prev, ...nuevos] : prev;
-                    });
-                }
-            } catch {
-                // Silencioso: se utiliza el catálogo ya disponible
-            }
-        }
+        await cargarCatalogosClienteRetorno(idCli, viaje.idPuntoDestino, destinoDefectoC, true);
+    };
+
+    const abrirModalEditarRetorno = async (plancha: ViajeFleteItem) => {
+        setPlanchaEditando(plancha);
+
+        // Localizar el viaje padre (o reconstruir el contexto de origen/destino si el padre no está en vista)
+        const viajePadre = viajes.find((v) => v.idOrden === plancha.idOrdenPadre);
+        const contextoViaje: ViajeFleteItem = viajePadre || {
+            ...plancha,
+            // En la plancha: su origen (B) era el destino del viaje inicial
+            idPuntoDestino: plancha.idPuntoOrigen,
+            destinoCodigo: plancha.origenCodigo,
+            destinoNombre: plancha.origenNombre,
+            idPuntoOrigen: plancha.idPuntoDestino,
+            origenCodigo: plancha.destinoCodigo,
+            origenNombre: plancha.destinoNombre,
+        };
+
+        setViajeSeleccionadoRetorno(contextoViaje);
+
+        // Cargar los datos ya guardados de la plancha
+        setNroTransporteRetorno(plancha.nroTransporte || '');
+        setPuntoRegresoSeleccionado(plancha.idPuntoDestino);
+        setMontoRetorno(Number(plancha.fleteBase || 0).toFixed(2));
+
+        const obsLimpia = (plancha.observaciones || '')
+            .replace(/^\[RETORNO_DE:[^\]]+\]\s*/i, '')
+            .replace(/^\[RETORNO\]\s*/i, '')
+            .trim();
+        setObservacionRetorno(obsLimpia);
+
+        setModalRetornoAbierto(true);
+
+        const idCli =
+            plancha.idCliente ||
+            contextoViaje.idCliente ||
+            puntos.find((p) => p.idPunto === plancha.idPuntoOrigen)?.idCliente;
+        await cargarCatalogosClienteRetorno(idCli, plancha.idPuntoOrigen, plancha.idPuntoDestino, false);
     };
 
     const handleGenerarPlanchaRetorno = async () => {
@@ -929,8 +1097,55 @@ export default function AsignacionRecursos() {
             const pRegresoObj = puntos.find((p) => p.idPunto === puntoRegresoSeleccionado);
             const codigoRegreso = pRegresoObj?.codigoPuntoc || viajeSeleccionadoRetorno.origenCodigo;
             const nombreRegreso = pRegresoObj?.nombreSede || viajeSeleccionadoRetorno.origenNombre;
+            const idRutaCalculada = rutaContrariaActiva?.idRuta || planchaEditando?.idRuta || viajeSeleccionadoRetorno.idRuta;
 
-            // Cálculo interno sin pedirlo ni mostrarlo
+            // MODO EDICIÓN DE PLANCHA EXISTENTE
+            if (planchaEditando) {
+                const esLocal = planchaEditando.idOrden.startsWith('mock-') || planchaEditando.idOrden.startsWith('retorno-');
+                let montoActualizado = parseFloat(montoRetorno) || 0;
+                let obsActualizada = planchaEditando.idOrdenPadre
+                    ? `[RETORNO_DE:${planchaEditando.idOrdenPadre}] ${observacionRetorno}`.trim()
+                    : observacionRetorno;
+
+                if (!esLocal) {
+                    const respuestaBd = await programacionService.actualizarViajeRetorno({
+                        idOrden: planchaEditando.idOrden,
+                        nroTransporte: nroTrim,
+                        idPuntoDestino: puntoRegresoSeleccionado,
+                        montoFlete: parseFloat(montoRetorno) || 0,
+                        observaciones: observacionRetorno,
+                    });
+                    montoActualizado =
+                        respuestaBd.montoFleteCliente !== undefined && respuestaBd.montoFleteCliente !== null
+                            ? Number(respuestaBd.montoFleteCliente)
+                            : montoActualizado;
+                    obsActualizada = respuestaBd.observaciones || obsActualizada;
+                }
+
+                setViajes((prev) =>
+                    prev.map((v) =>
+                        v.idOrden === planchaEditando.idOrden
+                            ? {
+                                ...v,
+                                nroTransporte: nroTrim,
+                                destinoCodigo: codigoRegreso,
+                                destinoNombre: nombreRegreso,
+                                idPuntoDestino: puntoRegresoSeleccionado,
+                                idRuta: idRutaCalculada,
+                                fleteBase: montoActualizado,
+                                observaciones: obsActualizada,
+                            }
+                            : v
+                    )
+                );
+
+                mostrarToast(`Plancha de Retorno ${nroTrim} actualizada exitosamente`, 'ok');
+                setModalRetornoAbierto(false);
+                setPlanchaEditando(null);
+                return;
+            }
+
+            // MODO CREACIÓN DE NUEVA PLANCHA
             const fechaSalidaIso = calcularFechaHoraRetornoInterna(viajeSeleccionadoRetorno);
             const fh = formatearFechaHora(fechaSalidaIso);
 
@@ -992,7 +1207,7 @@ export default function AsignacionRecursos() {
                     destinoCodigo: codigoRegreso,
                     destinoNombre: nombreRegreso,
                     idPuntoDestino: puntoRegresoSeleccionado,
-                    idRuta: viajeSeleccionadoRetorno.idRuta,
+                    idRuta: idRutaCalculada,
                     idCliente: viajeSeleccionadoRetorno.idCliente,
                     idVehiculoMotriz: viajeSeleccionadoRetorno.idVehiculoMotriz,
                     vehiculoMotrizNombre: viajeSeleccionadoRetorno.vehiculoMotrizNombre,
@@ -1020,7 +1235,10 @@ export default function AsignacionRecursos() {
             );
             setModalRetornoAbierto(false);
         } catch (err: any) {
-            mostrarToast(`Error al crear la plancha de retorno: ${err?.message || err}`, 'error');
+            mostrarToast(
+                `Error al ${planchaEditando ? 'actualizar' : 'crear'} la plancha de retorno: ${err?.message || err}`,
+                'error'
+            );
         } finally {
             setGuardandoRetorno(false);
         }
@@ -1453,6 +1671,7 @@ export default function AsignacionRecursos() {
                                     viajesOrdenadosJerarquicos.map(({ viaje: trip, esSubFila }) => {
                                         const cantRecargos = (trip.guiasViajesRecargos || []).length;
                                         const tieneRecargos = cantRecargos > 0;
+                                        const tienePlanchaAsignada = padresConPlancha.has(trip.idOrden);
 
                                         return (
                                             <tr
@@ -1647,8 +1866,18 @@ export default function AsignacionRecursos() {
                                                             )}
                                                         </button>
 
-                                                        {/* Slot de Botón Plancha Retorno (o espacio reservado de ancho idéntico en subfilas de planchas) */}
-                                                        {!esSubFila && !trip.esRetorno ? (
+                                                        {/* Slot de Botón Plancha Retorno (en viaje sin plancha) o Botón Editar (solo en la plancha) */}
+                                                        {esSubFila || trip.esRetorno ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => abrirModalEditarRetorno(trip)}
+                                                                className="flex items-center justify-center space-x-1.5 bg-white hover:bg-emerald-50 active:bg-emerald-100 text-emerald-800 border border-emerald-300 px-3 py-1.5 rounded-xl font-bold text-xs min-w-[136px] shadow-2xs transition transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                                                                title="Editar los datos de esta plancha de retorno"
+                                                            >
+                                                                <Pencil className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                                                <span>Editar Plancha</span>
+                                                            </button>
+                                                        ) : !tienePlanchaAsignada ? (
                                                             <button
                                                                 type="button"
                                                                 onClick={() => abrirModalRetorno(trip)}
@@ -1937,24 +2166,35 @@ export default function AsignacionRecursos() {
                         <div className="p-5 sm:p-6 border-b border-slate-100 flex items-start justify-between bg-white">
                             <div className="flex items-start space-x-3.5">
                                 <div className="w-12 h-12 rounded-2xl bg-emerald-600 flex items-center justify-center text-white shadow-md shadow-emerald-600/30 shrink-0">
-                                    <CornerDownRight className="w-6 h-6 stroke-[2.5]" />
+                                    {planchaEditando ? (
+                                        <Pencil className="w-5 h-5 stroke-[2.5]" />
+                                    ) : (
+                                        <CornerDownRight className="w-6 h-6 stroke-[2.5]" />
+                                    )}
                                 </div>
                                 <div>
                                     <span className="text-[10px] font-black tracking-wider text-emerald-700 bg-emerald-100/90 border border-emerald-300 px-2 py-0.5 rounded-md uppercase">
-                                        LOGÍSTICA INVERSA & PLANCHAS
+                                        {planchaEditando ? 'EDICIÓN DE PLANCHA REGISTRADA' : 'LOGÍSTICA INVERSA & PLANCHAS'}
                                     </span>
                                     <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight leading-snug mt-1">
-                                        Generar Plancha de Retorno
+                                        {planchaEditando ? `Editar Plancha ${planchaEditando.nroTransporte}` : 'Generar Plancha de Retorno'}
                                     </h2>
                                     <p className="text-xs text-slate-500 font-medium mt-0.5">
-                                        Asociar flete de regreso para la unidad de <strong>{viajeSeleccionadoRetorno.conductorNombre}</strong>
+                                        {planchaEditando ? (
+                                            <>Modificar datos de la plancha asociada a la unidad de <strong>{viajeSeleccionadoRetorno.conductorNombre}</strong></>
+                                        ) : (
+                                            <>Asociar flete de regreso para la unidad de <strong>{viajeSeleccionadoRetorno.conductorNombre}</strong></>
+                                        )}
                                     </p>
                                 </div>
                             </div>
 
                             <button
                                 type="button"
-                                onClick={() => setModalRetornoAbierto(false)}
+                                onClick={() => {
+                                    setModalRetornoAbierto(false);
+                                    setPlanchaEditando(null);
+                                }}
                                 className="text-slate-400 hover:text-slate-700 p-1.5 hover:bg-slate-100 rounded-xl transition"
                             >
                                 <X className="w-5 h-5" />
@@ -2022,60 +2262,103 @@ export default function AsignacionRecursos() {
                                 </span>
                             </div>
 
-                            {/* Origen del Retorno (Fijo = Destino del viaje inicial) */}
-                            <div className="space-y-1">
-                                <label className="text-xs font-bold text-slate-700 block">
-                                    Punto de Salida de Retorno (Origen)
-                                </label>
-                                <input
-                                    type="text"
-                                    readOnly
-                                    value={`[${viajeSeleccionadoRetorno.destinoCodigo}] ${viajeSeleccionadoRetorno.destinoNombre}`}
-                                    className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-bold text-slate-600 select-none"
-                                />
-                            </div>
-
-                            {/* Punto de Regreso (Filtrado exclusivamente por el mismo cliente del viaje) */}
-                            <div className="space-y-1.5">
-                                <div className="flex items-center justify-between">
-                                    <label className="text-xs font-bold text-slate-700 block">
-                                        Punto de Regreso (Destino de la Plancha) <span className="text-orange-500">*</span>
-                                    </label>
-                                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/80 border border-emerald-300/80 px-2 py-0.5 rounded-md">
-                                        Cliente: {viajeSeleccionadoRetorno.clienteNombre || 'Mismo cliente del viaje'}
+                            {/* Card Ruta de Retorno (Origen -> Destino de la Plancha) */}
+                            <div className="bg-linear-to-br from-orange-50/95 via-amber-50/80 to-orange-100/60 border border-orange-200/90 rounded-2xl p-4 space-y-3.5 shadow-2xs">
+                                {/* Encabezado de la sección */}
+                                <div className="flex items-center justify-between border-b border-orange-200/70 pb-2.5">
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-7 h-7 rounded-xl bg-orange-500/15 border border-orange-300/80 flex items-center justify-center text-orange-600 shrink-0">
+                                            <ArrowRightLeft className="w-3.5 h-3.5 stroke-[2.5]" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-xs font-black text-orange-950 uppercase tracking-wide leading-none">
+                                                Tramo de Retorno
+                                            </h3>
+                                            <p className="text-[11px] text-orange-800/80 font-medium mt-0.5">
+                                                Definición de salida y destino para la plancha de regreso
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-orange-900 bg-orange-200/60 border border-orange-300/90 px-2.5 py-1 rounded-full shrink-0">
+                                        <Building2 className="w-3 h-3 text-orange-700" />
+                                        <span className="truncate max-w-[150px]">
+                                            {viajeSeleccionadoRetorno.clienteNombre || 'Mismo cliente'}
+                                        </span>
                                     </span>
                                 </div>
-                                <select
-                                    value={puntoRegresoSeleccionado}
-                                    onChange={(e) => setPuntoRegresoSeleccionado(e.target.value)}
-                                    className="w-full bg-white border border-slate-200 focus:border-emerald-600 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-slate-900 focus:outline-hidden transition shadow-2xs"
-                                >
-                                    {puntosClienteRetorno.length === 0 ? (
-                                        <option value="">No hay puntos de carga/descarga registrados para este cliente</option>
-                                    ) : (
-                                        puntosClienteRetorno.map((p) => (
-                                            <option key={p.idPunto} value={p.idPunto}>
-                                                {p.idPunto === viajeSeleccionadoRetorno.idPuntoOrigen ? '★ [ORIGEN INICIAL] ' : ''}
-                                                [{p.codigoPuntoc || 'PTO'}] {p.nombreSede} {p.ciudad ? `(${p.ciudad})` : ''} {p.tipoPunto ? `• ${p.tipoPunto}` : ''}
-                                            </option>
-                                        ))
-                                    )}
-                                </select>
-                                <div className="flex items-center justify-between text-[11px] text-slate-500">
-                                    <span>Puntos de carga y descarga vinculados exclusivamente a este cliente.</span>
-                                    <span className="font-bold text-slate-700">{puntosClienteRetorno.length} disponibles</span>
+
+                                {/* Punto 1: Origen del Retorno (Fijo = Destino del viaje inicial) */}
+                                <div className="bg-white/85 border border-orange-200/80 rounded-xl p-3 space-y-1.5">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-xs font-extrabold text-orange-950 flex items-center gap-1.5">
+                                            <span className="w-4 h-4 rounded-full bg-orange-200 text-orange-800 text-[10px] font-black flex items-center justify-center">
+                                                1
+                                            </span>
+                                            <span>Punto de Salida de Retorno (Origen)</span>
+                                        </label>
+                                        <span className="text-[10px] font-bold text-orange-700 bg-orange-100/90 px-2 py-0.5 rounded-md">
+                                            Fijo • Destino Inicial
+                                        </span>
+                                    </div>
+                                    <div className="relative flex items-center">
+                                        <MapPin className="w-4 h-4 text-orange-500 absolute left-3 pointer-events-none" />
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            value={`[${viajeSeleccionadoRetorno.destinoCodigo}] ${viajeSeleccionadoRetorno.destinoNombre}`}
+                                            className="w-full bg-orange-50/60 border border-orange-200/80 rounded-lg pl-9 pr-3.5 py-2 text-xs font-bold text-slate-700 select-none"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Punto 2: Punto de Regreso (Filtrado exclusivamente por el mismo cliente del viaje) */}
+                                <div className="bg-white border border-orange-300/90 rounded-xl p-3 space-y-2 shadow-2xs">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-xs font-extrabold text-orange-950 flex items-center gap-1.5">
+                                            <span className="w-4 h-4 rounded-full bg-orange-500 text-white text-[10px] font-black flex items-center justify-center">
+                                                2
+                                            </span>
+                                            <span>
+                                                Punto de Regreso (Destino de la Plancha) <span className="text-orange-600">*</span>
+                                            </span>
+                                        </label>
+                                        <span className="text-[10px] font-extrabold text-orange-800 bg-orange-100 border border-orange-200 px-2 py-0.5 rounded-md">
+                                            {puntosClienteRetorno.length} disponibles
+                                        </span>
+                                    </div>
+                                    <select
+                                        value={puntoRegresoSeleccionado}
+                                        onChange={(e) => handleChangePuntoRegreso(e.target.value)}
+                                        className="w-full bg-orange-50/30 hover:bg-white focus:bg-white border border-orange-300 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 rounded-lg px-3 py-2.5 text-xs sm:text-sm font-bold text-slate-900 focus:outline-hidden transition cursor-pointer"
+                                    >
+                                        {puntosClienteRetorno.length === 0 ? (
+                                            <option value="">No hay puntos de carga/descarga registrados para este cliente</option>
+                                        ) : (
+                                            puntosClienteRetorno.map((p) => (
+                                                <option key={p.idPunto} value={p.idPunto}>
+                                                    {p.idPunto === viajeSeleccionadoRetorno.idPuntoOrigen ? '★ [ORIGEN INICIAL] ' : ''}
+                                                    [{p.codigoPuntoc || 'PTO'}] {p.nombreSede} {p.ciudad ? `(${p.ciudad})` : ''} {p.tipoPunto ? `• ${p.tipoPunto}` : ''}
+                                                </option>
+                                            ))
+                                        )}
+                                    </select>
+                                    <p className="text-[11px] text-orange-800/80 font-medium">
+                                        Puntos de carga y descarga vinculados exclusivamente a este cliente.
+                                    </p>
                                 </div>
                             </div>
 
-                            {/* Monto Flete Retorno (Mismo monto base que el viaje inicial) */}
+                            {/* Monto Flete Retorno (Sujeto a la ruta inversa C -> B registrada en la tabla rutas) */}
                             <div className="space-y-1.5 bg-emerald-50/70 border border-emerald-300 rounded-2xl p-3.5">
-                                <div className="flex items-center justify-between">
+                                <div className="flex items-center justify-between gap-2">
                                     <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                                         <Coins className="w-3.5 h-3.5 text-emerald-600" />
                                         <span>Monto Base del Flete de Retorno</span>
                                     </label>
-                                    <span className="text-[11px] font-black text-white bg-emerald-600 px-2.5 py-0.5 rounded-lg shadow-2xs">
-                                        Mismo del viaje: ${Number(viajeSeleccionadoRetorno.fleteBase || 0).toFixed(2)} USD
+                                    <span className="text-[11px] font-black text-white bg-emerald-600 px-2.5 py-0.5 rounded-lg shadow-2xs truncate max-w-[250px]">
+                                        {rutaContrariaActiva
+                                            ? `Ruta C→B: $${tarifaReferenciaRuta.toFixed(2)} USD`
+                                            : `Referencia: $${tarifaReferenciaRuta.toFixed(2)} USD`}
                                     </span>
                                 </div>
                                 <div className="relative flex items-center">
@@ -2087,26 +2370,32 @@ export default function AsignacionRecursos() {
                                         step="0.01"
                                         value={montoRetorno}
                                         onChange={(e) => setMontoRetorno(e.target.value)}
-                                        placeholder={Number(viajeSeleccionadoRetorno.fleteBase || 0).toFixed(2)}
+                                        placeholder={tarifaReferenciaRuta.toFixed(2)}
                                         className="w-full bg-white border border-emerald-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 rounded-xl pl-8 pr-28 py-2.5 text-sm font-black text-slate-900 focus:outline-hidden transition shadow-2xs"
                                     />
                                     <div className="absolute right-2 flex items-center gap-1.5 text-[11px] font-bold text-emerald-800 bg-emerald-100/80 border border-emerald-300 px-2.5 py-1 rounded-lg">
                                         <span>USD</span>
-                                        {montoRetorno !== Number(viajeSeleccionadoRetorno.fleteBase || 0).toFixed(2) && (
+                                        {montoRetorno !== tarifaReferenciaRuta.toFixed(2) && (
                                             <button
                                                 type="button"
-                                                onClick={() => setMontoRetorno(Number(viajeSeleccionadoRetorno.fleteBase || 0).toFixed(2))}
+                                                onClick={() => setMontoRetorno(tarifaReferenciaRuta.toFixed(2))}
                                                 className="ml-1 text-[10px] text-orange-600 hover:text-orange-700 underline font-extrabold cursor-pointer"
-                                                title="Restablecer monto base original del viaje"
+                                                title="Restablecer monto según tarifa de la ruta C→B"
                                             >
                                                 Restablecer
                                             </button>
                                         )}
                                     </div>
                                 </div>
-                                <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
-                                    <span>Monto base del flete predeterminado idéntico al viaje inicial.</span>
-                                    <span className="font-black text-emerald-700">Tarifa Base: ${Number(viajeSeleccionadoRetorno.fleteBase || 0).toFixed(2)}</span>
+                                <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5 gap-2">
+                                    <span className="truncate">
+                                        {rutaContrariaActiva
+                                            ? `Tarifa tomada de ruta inversa registrada: ${rutaContrariaActiva.nombreRuta}`
+                                            : 'Tarifa calculada según ruta inversa (Destino → Origen) en tabla rutas.'}
+                                    </span>
+                                    <span className="font-black text-emerald-700 shrink-0">
+                                        Tarifa Ruta: ${tarifaReferenciaRuta.toFixed(2)}
+                                    </span>
                                 </div>
                             </div>
 
@@ -2126,7 +2415,10 @@ export default function AsignacionRecursos() {
                         <div className="p-4 sm:p-5 border-t border-slate-100 bg-white flex items-center justify-end space-x-3">
                             <button
                                 type="button"
-                                onClick={() => setModalRetornoAbierto(false)}
+                                onClick={() => {
+                                    setModalRetornoAbierto(false);
+                                    setPlanchaEditando(null);
+                                }}
                                 className="px-4 py-2 text-xs sm:text-sm font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition cursor-pointer"
                             >
                                 Cancelar
@@ -2138,8 +2430,20 @@ export default function AsignacionRecursos() {
                                 disabled={guardandoRetorno}
                                 className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-extrabold text-xs sm:text-sm px-5 py-2.5 rounded-xl shadow-md shadow-emerald-600/30 hover:shadow-lg hover:shadow-emerald-600/40 transition transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer disabled:opacity-50"
                             >
-                                <CornerDownRight className="w-4 h-4 stroke-[2.5]" />
-                                <span>{guardandoRetorno ? 'Generando...' : 'Generar Viaje de Retorno'}</span>
+                                {planchaEditando ? (
+                                    <Save className="w-4 h-4 stroke-[2.5]" />
+                                ) : (
+                                    <CornerDownRight className="w-4 h-4 stroke-[2.5]" />
+                                )}
+                                <span>
+                                    {guardandoRetorno
+                                        ? planchaEditando
+                                            ? 'Guardando...'
+                                            : 'Generando...'
+                                        : planchaEditando
+                                            ? 'Guardar Cambios de Plancha'
+                                            : 'Generar Viaje de Retorno'}
+                                </span>
                             </button>
                         </div>
                     </div>

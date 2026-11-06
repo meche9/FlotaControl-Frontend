@@ -22,6 +22,7 @@ export interface VehiculoHabitual {
   marca: string;
   modelo?: string | null;
   anio?: number;
+  idAcopladoActual?: string | null;
   clasificacion?: {
     idClasificacion?: number;
     nombreClasificacion?: string;

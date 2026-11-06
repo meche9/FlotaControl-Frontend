@@ -32,6 +32,7 @@ import {
 import {
   clientesService,
   obtenerCodigoAvatar,
+  ordenarClientesPorFechaCreacion,
   type Cliente,
   type CreateClienteDto,
 } from '../../services/clientesService';
@@ -354,7 +355,7 @@ export default function Clientes() {
     setGuardando(true);
     try {
       const nuevo = await clientesService.createCliente(formData);
-      setClientes((prev) => [nuevo, ...prev]);
+      setClientes((prev) => ordenarClientesPorFechaCreacion([...prev, nuevo]));
       setIsCrearModalOpen(false);
       triggerSuccessToast(`Cliente "${nuevo.razonSocial}" registrado satisfactoriamente`);
     } catch (err: unknown) {

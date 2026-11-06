@@ -448,8 +448,8 @@ export default function Programacion() {
   // Métricas calculadas
   const metricas = useMemo(() => {
     const total = trips.length;
-    const colisiones = trips.filter((t) => t.yaExiste || t.colision).length;
-    const seleccionadosValidos = trips.filter((t) => !t.colision).length;
+    const colisiones = trips.filter((t) => (t.yaExiste || t.colision) && !t.registradoEnSesion).length;
+    const seleccionadosValidos = trips.filter((t) => !t.colision && !t.yaExiste && !t.registradoEnSesion).length;
     return { total, colisiones, seleccionadosValidos };
   }, [trips]);
 
@@ -457,7 +457,7 @@ export default function Programacion() {
   const tripsFiltrados = useMemo(() => {
     return trips.filter((t) => {
       // Filtro de colisión
-      if (filtroSoloColisiones && !t.colision) return false;
+      if (filtroSoloColisiones && (!t.colision || t.registradoEnSesion)) return false;
 
       // Filtro según la vista activa
       if (modoVista === 'dia') {
@@ -588,9 +588,9 @@ export default function Programacion() {
 
   // Guardar / Confirmar en base de datos
   const handleConfirmarYGuardar = async () => {
-    const validos = trips.filter((t) => !t.colision);
+    const validos = trips.filter((t) => !t.colision && !t.yaExiste && !t.registradoEnSesion);
     if (validos.length === 0) {
-      mostrarToast('warn', 'No hay viajes válidos para registrar (o todos presentan colisión con guias_viajes).');
+      mostrarToast('warn', 'No hay viajes pendientes por registrar.');
       return;
     }
 
@@ -599,10 +599,12 @@ export default function Programacion() {
       const res = await programacionService.confirmarProgramacion(validos, clienteActivo?.idCliente);
       if (res.success) {
         mostrarToast('ok', `Éxito: Se registraron ${res.guardados} viajes en la tabla guias_viajes.`);
+        const validosIds = new Set(validos.map((v) => v.id));
+        const validosNros = new Set(validos.map((v) => v.nroTransporte));
         setTrips((prev) =>
           prev.map((t) => {
-            if (validos.some((v) => v.nroTransporte === t.nroTransporte)) {
-              return { ...t, yaExiste: true, colision: true };
+            if (validosIds.has(t.id) || validosNros.has(t.nroTransporte)) {
+              return { ...t, registradoEnSesion: true, yaExiste: false, colision: false };
             }
             return t;
           })
@@ -620,6 +622,10 @@ export default function Programacion() {
 
   // Guardar un viaje individual directamente en BD
   const handleGuardarViajeIndividual = async (trip: TripItem) => {
+    if (trip.registradoEnSesion) {
+      mostrarToast('ok', `El viaje ${trip.nroTransporte} ya fue registrado en esta sesión.`);
+      return;
+    }
     if (trip.colision || trip.yaExiste) {
       mostrarToast('warn', `El viaje ${trip.nroTransporte} ya existe en la base de datos (colisión).`);
       return;
@@ -634,7 +640,11 @@ export default function Programacion() {
       if (res.success && res.guardados > 0) {
         mostrarToast('ok', `Viaje ${trip.nroTransporte} registrado con éxito en base de datos.`);
         setTrips((prev) =>
-          prev.map((t) => (t.id === trip.id ? { ...t, yaExiste: true, colision: true } : t))
+          prev.map((t) =>
+            t.id === trip.id
+              ? { ...t, registradoEnSesion: true, yaExiste: false, colision: false }
+              : t
+          )
         );
       } else {
         mostrarToast('warn', res.message || `No se pudo registrar el viaje ${trip.nroTransporte}.`);
@@ -655,7 +665,7 @@ export default function Programacion() {
 
   // Guardar/confirmar en BD únicamente los viajes de un grupo (día específico o planta)
   const handleGuardarGrupo = async (viajesGrupo: TripItem[], nombreGrupo: string, grupoKey: string) => {
-    const validos = viajesGrupo.filter((t) => !t.colision && !t.yaExiste);
+    const validos = viajesGrupo.filter((t) => !t.colision && !t.yaExiste && !t.registradoEnSesion);
     if (validos.length === 0) {
       mostrarToast('warn', `No hay viajes pendientes o aptos para registrar en ${nombreGrupo}.`);
       return;
@@ -671,7 +681,7 @@ export default function Programacion() {
         setTrips((prev) =>
           prev.map((t) => {
             if (validosIds.has(t.id) || validosNros.has(t.nroTransporte)) {
-              return { ...t, yaExiste: true, colision: true };
+              return { ...t, registradoEnSesion: true, yaExiste: false, colision: false };
             }
             return t;
           })
@@ -704,13 +714,18 @@ export default function Programacion() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {viajesGrupo.map((trip) => {
-              const esColision = trip.yaExiste || trip.colision;
+              const esRegistrado = Boolean(trip.registradoEnSesion);
+              const esColision = !esRegistrado && (trip.yaExiste || trip.colision);
 
               return (
                 <tr
                   key={`${grupoId}-${trip.id}`}
                   className={`transition hover:bg-orange-50/40 ${
-                    esColision ? 'bg-rose-50/30' : 'bg-white'
+                    esRegistrado
+                      ? 'bg-emerald-50/30'
+                      : esColision
+                        ? 'bg-rose-50/30'
+                        : 'bg-white'
                   }`}
                 >
                   {/* N° Guía / Despacho */}
@@ -720,7 +735,14 @@ export default function Programacion() {
                         <span className="font-extrabold text-gray-900 tracking-tight text-xs">
                           {trip.nroTransporte}
                         </span>
-                        {esColision ? (
+                        {esRegistrado ? (
+                          <span
+                            title="Este viaje acaba de ser registrado exitosamente en guias_viajes"
+                            className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-1.5 py-0.2 rounded border border-emerald-300"
+                          >
+                            ✓ Registrado
+                          </span>
+                        ) : esColision ? (
                           <span
                             title="Este viaje ya está registrado en la tabla guias_viajes"
                             className="bg-rose-100 text-rose-800 text-[10px] font-black px-1.5 py-0.2 rounded border border-rose-300"
@@ -782,7 +804,12 @@ export default function Programacion() {
 
                   {/* Estado Ingesta */}
                   <td className="py-3 px-3">
-                    {esColision ? (
+                    {esRegistrado ? (
+                      <span className="inline-flex items-center space-x-1 bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-md border border-emerald-300">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-700 shrink-0" />
+                        <span>Registrado en BD</span>
+                      </span>
+                    ) : esColision ? (
                       <span className="inline-flex items-center space-x-1 bg-rose-100 text-rose-800 text-[10px] font-black px-2 py-0.5 rounded-md border border-rose-200">
                         <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
                         <span>Colisión en BD</span>
@@ -802,14 +829,16 @@ export default function Programacion() {
                       <button
                         type="button"
                         onClick={() => handleGuardarViajeIndividual(trip)}
-                        disabled={esColision || guardandoTripId === trip.id}
+                        disabled={esColision || esRegistrado || guardandoTripId === trip.id}
                         title={
-                          esColision
-                            ? 'Este viaje ya está registrado en base de datos'
-                            : 'Guardar / Registrar este viaje en base de datos'
+                          esRegistrado
+                            ? 'Este viaje ya fue registrado exitosamente'
+                            : esColision
+                              ? 'Este viaje ya está registrado en base de datos'
+                              : 'Guardar / Registrar este viaje en base de datos'
                         }
                         className={`w-7 h-7 rounded-lg flex items-center justify-center transition ${
-                          esColision
+                          esColision || esRegistrado
                             ? 'bg-gray-100 text-gray-300 border border-gray-200 cursor-not-allowed opacity-60'
                             : 'bg-orange-50 hover:bg-orange-100 text-orange-600 hover:text-orange-700 border border-orange-300 shadow-xs cursor-pointer active:scale-95'
                         }`}
@@ -1258,7 +1287,7 @@ export default function Programacion() {
             // VISTA: CORTE POR DÍA
             gruposCronologicos.map((grupo) => {
               const estaAbierto = seccionesAbiertas[grupo.isoKey] !== undefined ? seccionesAbiertas[grupo.isoKey] : true;
-              const viajesAptos = grupo.viajes.filter((v) => !v.colision).length;
+              const viajesAptos = grupo.viajes.filter((v) => !v.colision && !v.yaExiste && !v.registradoEnSesion).length;
               const viajesTotal = grupo.viajes.length;
 
               return (
@@ -1331,7 +1360,7 @@ export default function Programacion() {
             // VISTA: CORTE POR PLANTA
             gruposPorPlanta.map((grupo) => {
               const estaAbierto = seccionesAbiertas[grupo.key] !== undefined ? seccionesAbiertas[grupo.key] : true;
-              const viajesAptos = grupo.viajes.filter((v) => !v.colision).length;
+              const viajesAptos = grupo.viajes.filter((v) => !v.colision && !v.yaExiste && !v.registradoEnSesion).length;
               const viajesTotal = grupo.viajes.length;
 
               return (

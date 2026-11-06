@@ -667,8 +667,7 @@ export default function PuntosCargaDescarga() {
                 }}
                 className="w-full appearance-none pl-3.5 pr-10 py-2.5 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition cursor-pointer"
               >
-                <option value="">Todos los Clientes Corporativos ({clientes.length})</option>
-                {clientes.map((c) => {
+                {ordenarClientesPorFechaCreacion(clientes).map((c) => {
                   const sedesCount =
                     c._count?.puntosCargaDescarga ??
                     (c.puntosCargaDescarga ? c.puntosCargaDescarga.length : puntos.filter((p) => p.idCliente === c.idCliente).length);
@@ -678,6 +677,7 @@ export default function PuntosCargaDescarga() {
                     </option>
                   );
                 })}
+                <option value="">Todos los Clientes Corporativos ({clientes.length})</option>
               </select>
               <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
@@ -883,7 +883,7 @@ export default function PuntosCargaDescarga() {
                         <button
                           type="button"
                           onClick={() => {
-                            setSelectedClienteId('');
+                            setSelectedClienteId(clientes[0]?.idCliente || '');
                             setSearchTerm('');
                             setSoloActivos(false);
                             setTipoFiltro('Todos');

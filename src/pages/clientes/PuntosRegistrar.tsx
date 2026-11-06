@@ -548,8 +548,10 @@ export default function PuntosRegistrar() {
                 className="w-full px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition cursor-pointer"
                 required
               >
-                <option value="">-- Selecciona el cliente titular ({clientes.length} disponibles) --</option>
-                {clientes.map((c) => (
+                {clientes.length === 0 && (
+                  <option value="">-- Selecciona el cliente titular (0 disponibles) --</option>
+                )}
+                {ordenarClientesPorFechaCreacion(clientes).map((c) => (
                   <option key={c.idCliente} value={c.idCliente}>
                     {c.razonSocial} {c.nombreComercial ? `(${c.nombreComercial}) ` : ''}[RIF: {c.rif}]
                   </option>

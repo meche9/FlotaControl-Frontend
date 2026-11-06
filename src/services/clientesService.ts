@@ -121,8 +121,12 @@ export function obtenerCodigoAvatar(cliente: Partial<Cliente>): { codigo: string
  */
 export function ordenarClientesPorFechaCreacion(clientes: Cliente[]): Cliente[] {
   return [...clientes].sort((a, b) => {
-    const timeA = a.fechaCreacion ? new Date(a.fechaCreacion).getTime() : 0;
-    const timeB = b.fechaCreacion ? new Date(b.fechaCreacion).getTime() : 0;
+    const rawDateA = a.fechaCreacion ?? (a as any).fecha_creacion ?? (a as any).createdAt;
+    const rawDateB = b.fechaCreacion ?? (b as any).fecha_creacion ?? (b as any).createdAt;
+    const parsedA = rawDateA ? new Date(rawDateA).getTime() : Number.MAX_SAFE_INTEGER;
+    const parsedB = rawDateB ? new Date(rawDateB).getTime() : Number.MAX_SAFE_INTEGER;
+    const timeA = Number.isNaN(parsedA) ? Number.MAX_SAFE_INTEGER : parsedA;
+    const timeB = Number.isNaN(parsedB) ? Number.MAX_SAFE_INTEGER : parsedB;
     if (timeA !== timeB) return timeA - timeB;
     return (a.idCliente || '').localeCompare(b.idCliente || '');
   });

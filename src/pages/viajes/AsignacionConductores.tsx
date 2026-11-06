@@ -42,6 +42,8 @@ export interface ConductorItem {
   telefono: string;
   vehiculo: string;
   placa: string;
+  idVehiculoMotriz?: string | null;
+  idAcopladoActual?: string | null;
   estado: 'En Patio' | 'Disponible' | 'Ruta Larga' | 'En Reposo';
   horasDescanso?: number;
   eficienciaScore?: number;
@@ -62,6 +64,8 @@ export interface ViajeAsignacion {
   distanciaKm: number;
   conductorId: string | null;
   conductorIdEnBD?: string | null;
+  idVehiculoMotriz?: string | null;
+  idAcoplado?: string | null;
   autoGuardar?: boolean;
   observaciones?: string | null;
   estadoOrden?: string;
@@ -167,6 +171,8 @@ function mapGuiaToViaje(g: GuiaProgramada): ViajeAsignacion {
     distanciaKm: Number(g.ruta?.distanciaKm || 0),
     conductorId: idConductorDb,
     conductorIdEnBD: idConductorDb,
+    idVehiculoMotriz: g.idVehiculoMotriz || g.conductor?.vehiculoHabitual?.idVehiculo || null,
+    idAcoplado: g.idAcoplado || g.conductor?.vehiculoHabitual?.idAcopladoActual || null,
     autoGuardar: true,
     observaciones,
     estadoOrden: g.estadoOrden || 'Programado',
@@ -296,6 +302,8 @@ export default function AsignacionConductores() {
               telefono: d.telefono || '+58 414-0000000',
               vehiculo: d.vehiculoHabitual ? `${d.vehiculoHabitual.marca || 'Tracto'}` : 'Tracto Camión',
               placa: d.vehiculoHabitual?.placa || 'A00XX00',
+              idVehiculoMotriz: d.idVehiculoHabitual || d.vehiculoHabitual?.idVehiculo || null,
+              idAcopladoActual: d.vehiculoHabitual?.idAcopladoActual || null,
               estado: (d.estado?.toLowerCase() === 'activo' ? 'Disponible' : 'En Patio') as any,
               horasDescanso: 14,
               eficienciaScore: 98
@@ -388,15 +396,26 @@ export default function AsignacionConductores() {
 
   // Asignar conductor a viaje (actualiza la asignación en la interfaz y panel)
   const asignarConductorAViaje = (viajeId: string, conductorId: string | null) => {
+    const choferSeleccionado = conductorId ? conductores.find((c) => c.id === conductorId) : null;
+
     setViajes((prev) =>
-      prev.map((v) => (v.id === viajeId ? { ...v, conductorId: conductorId } : v))
+      prev.map((v) =>
+        v.id === viajeId
+          ? {
+              ...v,
+              conductorId: conductorId,
+              idVehiculoMotriz: choferSeleccionado?.idVehiculoMotriz ?? null,
+              idAcoplado: choferSeleccionado?.idAcopladoActual ?? null,
+            }
+          : v
+      )
     );
 
     const viaje = viajes.find((v) => v.id === viajeId);
     if (!viaje) return;
 
     if (conductorId) {
-      const chofer = conductores.find((c) => c.id === conductorId);
+      const chofer = choferSeleccionado;
       setGuiasPanel((prev) => {
         const filtradas = prev.filter((g) => g.nroTransporte !== viaje.nroTransporte);
         return [
@@ -422,7 +441,20 @@ export default function AsignacionConductores() {
   const handleGuardarViaje = async (viaje: ViajeAsignacion) => {
     setGuardandoViajeId(viaje.id);
     try {
-      await programacionService.asignarConductor(viaje.id, viaje.conductorId || null);
+      const chofer = viaje.conductorId ? conductores.find((c) => c.id === viaje.conductorId) : null;
+      const idVehiculoMotriz = viaje.conductorId
+        ? chofer?.idVehiculoMotriz ?? viaje.idVehiculoMotriz ?? null
+        : null;
+      const idAcoplado = viaje.conductorId
+        ? chofer?.idAcopladoActual ?? viaje.idAcoplado ?? null
+        : null;
+
+      const guiaActualizada = await programacionService.asignarConductor(
+        viaje.id,
+        viaje.conductorId || null,
+        idVehiculoMotriz,
+        idAcoplado
+      );
 
       if (viaje.observaciones !== undefined) {
         await programacionService.actualizarObservacion(viaje.id, viaje.observaciones || null);
@@ -431,7 +463,12 @@ export default function AsignacionConductores() {
       setViajes((prev) =>
         prev.map((v) =>
           v.id === viaje.id
-            ? { ...v, conductorIdEnBD: viaje.conductorId || null }
+            ? {
+                ...v,
+                conductorIdEnBD: viaje.conductorId || null,
+                idVehiculoMotriz: guiaActualizada?.idVehiculoMotriz ?? idVehiculoMotriz,
+                idAcoplado: guiaActualizada?.idAcoplado ?? idAcoplado,
+              }
             : v
         )
       );
@@ -511,6 +548,8 @@ export default function AsignacionConductores() {
               observaciones: obsFinal,
               conductorId: null,
               conductorIdEnBD: null,
+              idVehiculoMotriz: null,
+              idAcoplado: null,
             }
             : v
         )
@@ -535,7 +574,11 @@ export default function AsignacionConductores() {
     const chofer = conductores.find((c) => c.id === conductorId);
     setGuiasPanel((prev) => prev.filter((g) => g.conductorId !== conductorId));
     setViajes((prev) =>
-      prev.map((v) => (v.conductorId === conductorId ? { ...v, conductorId: null, conductorIdEnBD: null } : v))
+      prev.map((v) =>
+        v.conductorId === conductorId
+          ? { ...v, conductorId: null, conductorIdEnBD: null, idVehiculoMotriz: null, idAcoplado: null }
+          : v
+      )
     );
     mostrarToast(`Se liberaron los viajes asignados a ${chofer?.nombre || 'el conductor'}.`);
 
@@ -765,8 +808,10 @@ export default function AsignacionConductores() {
                 onChange={(e) => setClienteSeleccionadoId(e.target.value)}
                 className="w-full bg-white border border-gray-200 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition appearance-none cursor-pointer"
               >
-                <option value="">Seleccione un Cliente Matriz...</option>
-                {clientes.map((c) => (
+                {clientes.length === 0 && (
+                  <option value="">Seleccione un Cliente Matriz...</option>
+                )}
+                {ordenarClientesPorFechaCreacion(clientes).map((c) => (
                   <option key={c.idCliente} value={c.idCliente}>
                     {c.razonSocial} {c.nombreComercial && c.nombreComercial !== c.razonSocial ? `(${c.nombreComercial})` : ''}
                   </option>

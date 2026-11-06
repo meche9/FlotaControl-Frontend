@@ -1242,7 +1242,7 @@ export default function RutasRegistro() {
                     onKeyDown={(e) => handleKeyDownNext(e, puntoOrigenRef)}
                     className="w-full appearance-none text-xs font-bold text-slate-800 bg-white border border-slate-200 hover:border-slate-300 rounded-xl pl-3.5 pr-10 py-2.5 shadow-2xs focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 focus:outline-none transition cursor-pointer"
                   >
-                    {clientes.map((c) => {
+                    {ordenarClientesPorFechaCreacion(clientes).map((c) => {
                       const sedesCount = c._count?.puntosCargaDescarga || c.puntosCargaDescarga?.length || 0;
                       const rutCount = c._count?.rutas ?? (c.rutas?.length || 0);
                       return (

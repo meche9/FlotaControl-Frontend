@@ -65,6 +65,7 @@ export interface TripItem {
   colisionDetalle?: ColisionDetalle | null;
   seleccionado?: boolean;
   fisico?: boolean;
+  registradoEnSesion?: boolean;
 }
 
 export interface SchedulePreviewResponse {
@@ -139,11 +140,13 @@ export interface GuiaProgramada {
     nombres: string;
     apellidos: string;
     telefono: string;
+    idVehiculoHabitual?: string | null;
     vehiculoHabitual?: {
       idVehiculo: string;
       placa: string;
       marca: string;
       modelo: string;
+      idAcopladoActual?: string | null;
     } | null;
   } | null;
   vehiculoMotriz?: {
@@ -241,12 +244,20 @@ export const programacionService = {
   },
 
   /**
-   * Asigna o desasigna un conductor a un viaje en guias_viajes.
+   * Asigna o desasigna un conductor a un viaje en guias_viajes,
+   * registrando también su vehículo motriz y su acoplado actual (id_acoplado_actual de vehiculos).
    */
-  async asignarConductor(idOrden: string, idConductor: string | null): Promise<GuiaProgramada> {
+  async asignarConductor(
+    idOrden: string,
+    idConductor: string | null,
+    idVehiculoMotriz?: string | null,
+    idAcoplado?: string | null,
+  ): Promise<GuiaProgramada> {
     const response = await api.patch<GuiaProgramada>('/schedules/asignar-conductor', {
       idOrden,
       idConductor,
+      ...(idVehiculoMotriz !== undefined ? { idVehiculoMotriz } : {}),
+      ...(idAcoplado !== undefined ? { idAcoplado } : {}),
     });
     return response.data;
   },
@@ -276,6 +287,20 @@ export const programacionService = {
     observaciones?: string;
   }): Promise<GuiaProgramada> {
     const response = await api.post<GuiaProgramada>('/schedules/crear-retorno', params);
+    return response.data;
+  },
+
+  /**
+   * Actualiza los datos de una plancha de retorno existente en guias_viajes.
+   */
+  async actualizarViajeRetorno(params: {
+    idOrden: string;
+    nroTransporte: string;
+    idPuntoDestino?: string;
+    montoFlete?: number;
+    observaciones?: string;
+  }): Promise<GuiaProgramada> {
+    const response = await api.patch<GuiaProgramada>('/schedules/actualizar-retorno', params);
     return response.data;
   },
 

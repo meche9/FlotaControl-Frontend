@@ -408,7 +408,7 @@ export const RegistrarDespachoModal: React.FC<RegistrarDespachoModalProps> = ({
   };
 
   // Clientes filtrados por búsqueda
-  const clientesFiltrados = clientesList.filter((c) => {
+  const clientesFiltrados = ordenarClientesPorFechaCreacion(clientesList).filter((c) => {
     if (!busquedaCliente.trim()) return true;
     const q = busquedaCliente.toLowerCase();
     return (
