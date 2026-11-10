@@ -171,12 +171,14 @@ export interface ItemRutaPeajeDto {
 }
 
 export type RecargoTipoCalculo = 'Monto_Fijo' | 'Porcentaje' | 'Por_Hora';
+export type RecargoMoneda = 'Bs' | 'USD';
 
 export interface RecargoGeneral {
   idRecargo: string;
   concepto: string;
   tipoCalculo: RecargoTipoCalculo;
   valor: number | string;
+  moneda?: RecargoMoneda;
 }
 
 export interface RutaRecargo {
@@ -185,11 +187,13 @@ export interface RutaRecargo {
   concepto: string;
   tipoCalculo: RecargoTipoCalculo;
   valor: number | string;
+  moneda?: RecargoMoneda;
 }
 
 export interface ItemRutaRecargoDto {
   concepto: string;
   tipoCalculo?: RecargoTipoCalculo;
   valor?: number;
+  moneda?: RecargoMoneda;
 }
 

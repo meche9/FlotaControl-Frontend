@@ -40,7 +40,7 @@ export default function Sidebar() {
               FleetControl
             </h1>
             <span className="text-[10px] font-bold tracking-widest text-orange-600 uppercase">
-              ENTERPRISE
+              Transporte Teles, C.A.
             </span>
           </div>
         </div>
@@ -64,8 +64,8 @@ export default function Sidebar() {
         <Link
           to="/dashboard"
           className={`flex items-center space-x-3 px-3 py-2 rounded-xl font-semibold text-sm transition-all duration-200 ${isDashboardActive
-              ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-lg shadow-orange-500/30 scale-[1.02]'
-              : 'text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200/60'
+            ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-lg shadow-orange-500/30 scale-[1.02]'
+            : 'text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200/60'
             }`}
         >
           <LayoutDashboard className="w-5 h-5 shrink-0" />
@@ -150,11 +150,10 @@ export default function Sidebar() {
 
             <Link
               to="/scheduling"
-              className={`flex items-center space-x-3 px-3 py-1.5 rounded-xl font-medium transition ${
-                isActive('/scheduling') || isActive('/viajes/programacion') || isActive('/programacion')
-                  ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20'
-                  : 'text-gray-700 hover:bg-gray-100'
-              }`}
+              className={`flex items-center space-x-3 px-3 py-1.5 rounded-xl font-medium transition ${isActive('/scheduling') || isActive('/viajes/programacion') || isActive('/programacion')
+                ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20'
+                : 'text-gray-700 hover:bg-gray-100'
+                }`}
             >
               <Calendar className="w-4 h-4 shrink-0" />
               <span>Programación</span>

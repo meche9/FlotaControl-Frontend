@@ -94,9 +94,78 @@ export interface GuiaAsignadaPanel {
 // FUNCIONES DE FORMATEO Y MAPEO
 // ==========================================
 
+/**
+ * Extrae únicamente el día, mes y año de una cadena de fecha (ISO, YYYY-MM-DD o DD/MM/YYYY)
+ * sin que la hora ni el desfase de zona horaria alteren el día calendario.
+ */
+function extraerPartesFecha(fechaStr?: string | null): {
+  anio: number;
+  mes: number;
+  dia: number;
+  hours24: number;
+  minutes: number;
+} | null {
+  if (!fechaStr) return null;
+  const raw = String(fechaStr).trim();
+  if (!raw) return null;
+
+  // Separar la porción de fecha de la porción de hora (T o espacio)
+  const soloFecha = raw.split(/[T\s]/)[0].replace(/\./g, '/').replace(/-/g, '/');
+
+  let anio = 0;
+  let mes = 0;
+  let dia = 0;
+
+  // 1. Formato YYYY/MM/DD
+  const matchYMD = soloFecha.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+  if (matchYMD) {
+    anio = parseInt(matchYMD[1], 10);
+    mes = parseInt(matchYMD[2], 10);
+    dia = parseInt(matchYMD[3], 10);
+  } else {
+    // 2. Formato DD/MM/YYYY
+    const matchDMY = soloFecha.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (matchDMY) {
+      dia = parseInt(matchDMY[1], 10);
+      mes = parseInt(matchDMY[2], 10);
+      anio = parseInt(matchDMY[3], 10);
+      if (anio < 100) anio += 2000;
+    }
+  }
+
+  // Hora informativa (extraída del texto sin desplazar la fecha)
+  let hours24 = 8;
+  let minutes = 0;
+  const matchHora = raw.match(/[T\s](\d{1,2}):(\d{2})/);
+  if (matchHora) {
+    hours24 = parseInt(matchHora[1], 10);
+    minutes = parseInt(matchHora[2], 10);
+    if (raw.toUpperCase().includes('PM') && hours24 < 12) hours24 += 12;
+    if (raw.toUpperCase().includes('AM') && hours24 === 12) hours24 = 0;
+  }
+
+  if (anio >= 2000 && anio <= 2100 && mes >= 1 && mes <= 12 && dia >= 1 && dia <= 31) {
+    return { anio, mes, dia, hours24, minutes };
+  }
+
+  // Fallback con métodos UTC para no cambiar de día por zona horaria
+  const d = new Date(raw);
+  if (!isNaN(d.getTime())) {
+    return {
+      anio: d.getUTCFullYear(),
+      mes: d.getUTCMonth() + 1,
+      dia: d.getUTCDate(),
+      hours24: d.getUTCHours(),
+      minutes: d.getUTCMinutes(),
+    };
+  }
+
+  return null;
+}
+
 function parsearFechaGuia(fechaStr: string) {
-  const d = new Date(fechaStr);
-  if (isNaN(d.getTime())) {
+  const partes = extraerPartesFecha(fechaStr);
+  if (!partes) {
     return {
       fecha: fechaStr || '',
       hora: '08:00 AM',
@@ -106,25 +175,28 @@ function parsearFechaGuia(fechaStr: string) {
     };
   }
 
-  const dia = String(d.getDate()).padStart(2, '0');
-  const mes = String(d.getMonth() + 1).padStart(2, '0');
-  const anio = d.getFullYear();
+  const dia = String(partes.dia).padStart(2, '0');
+  const mes = String(partes.mes).padStart(2, '0');
+  const anio = partes.anio;
   const fecha = `${dia}/${mes}/${anio}`;
 
-  let hours = d.getHours();
-  const minutes = String(d.getMinutes()).padStart(2, '0');
+  let hours = partes.hours24;
+  const minutes = String(partes.minutes).padStart(2, '0');
   const ampm = hours >= 12 ? 'PM' : 'AM';
   hours = hours % 12;
   hours = hours ? hours : 12;
   const hora = `${String(hours).padStart(2, '0')}:${minutes} ${ampm}`;
+
+  // Fecha construida exclusivamente con año, mes y día (mediodía local para evitar cualquier cambio por hora)
+  const fechaSoloDia = new Date(anio, partes.mes - 1, partes.dia, 12, 0, 0);
 
   const diasSemana = ['DOMINGO', 'LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO'];
   const meses = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
   const diasCorto = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
   const mesesCorto = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
-  const diaSemana = `${diasSemana[d.getDay()]} ${dia} DE ${meses[d.getMonth()]} ${anio}`;
-  const pildoraDia = `${diasCorto[d.getDay()]} ${dia} ${mesesCorto[d.getMonth()]}`;
+  const diaSemana = `${diasSemana[fechaSoloDia.getDay()]} ${dia} DE ${meses[partes.mes - 1]} ${anio}`;
+  const pildoraDia = `${diasCorto[fechaSoloDia.getDay()]} ${dia} ${mesesCorto[partes.mes - 1]}`;
   const diaKey = `${anio}-${mes}-${dia}`;
 
   return { fecha, hora, diaSemana, diaKey, pildoraDia };
@@ -132,13 +204,13 @@ function parsearFechaGuia(fechaStr: string) {
 
 function formatearFechaEstimada(fechaStr?: string | null) {
   if (!fechaStr) return 'Por definir';
-  const d = new Date(fechaStr);
-  if (isNaN(d.getTime())) return fechaStr;
-  const dia = String(d.getDate()).padStart(2, '0');
-  const mes = String(d.getMonth() + 1).padStart(2, '0');
-  const anio = d.getFullYear();
-  let hours = d.getHours();
-  const minutes = String(d.getMinutes()).padStart(2, '0');
+  const partes = extraerPartesFecha(fechaStr);
+  if (!partes) return fechaStr;
+  const dia = String(partes.dia).padStart(2, '0');
+  const mes = String(partes.mes).padStart(2, '0');
+  const anio = partes.anio;
+  let hours = partes.hours24;
+  const minutes = String(partes.minutes).padStart(2, '0');
   const ampm = hours >= 12 ? 'PM' : 'AM';
   hours = hours % 12;
   hours = hours ? hours : 12;

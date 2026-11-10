@@ -293,7 +293,7 @@ export default function InicialProgramacion() {
 
                             {/* Título de la tarjeta */}
                             <h3 className="text-xl font-black text-slate-900 tracking-tight leading-snug mt-4">
-                                Carga de Manifiesto<br />Maestro
+                                Carga de Programación<br />de Viajes
                             </h3>
 
                             {/* Descripción */}
@@ -312,7 +312,7 @@ export default function InicialProgramacion() {
                                 className="w-full bg-[#f97316] hover:bg-[#ea580c] active:bg-[#c2410c] text-white text-xs sm:text-sm font-bold py-3.5 px-4 rounded-xl shadow-md shadow-orange-500/25 hover:shadow-xl hover:shadow-orange-500/40 flex items-center justify-center space-x-2 transition-all duration-200 transform hover:scale-[1.03] active:scale-[0.98] cursor-pointer"
                             >
                                 <FileUp className="w-4 h-4 text-white shrink-0" strokeWidth={2.4} />
-                                <span>Importar Manifiesto</span>
+                                <span>Importar Programa de Transporte</span>
                             </button>
 
                             <div className="flex items-center justify-between text-[11.5px] text-slate-500 pt-1">

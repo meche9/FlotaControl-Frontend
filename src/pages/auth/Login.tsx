@@ -102,7 +102,7 @@ export default function Login() {
                 </span>
               </div>
               <span className="text-[11px] text-slate-400 tracking-wide font-medium hidden sm:inline-block">
-                Gestión Logística Integral & Góndolas de Servicio Pesado
+                Gestión Logística Integral & Gandolas de Servicio Pesado
               </span>
             </div>
           </div>
@@ -111,7 +111,7 @@ export default function Login() {
             <nav className="hidden md:flex items-center gap-5 text-xs font-semibold text-slate-300 tracking-wide">
               <span className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                <span>48 Góndolas en Rastreo</span>
+                <span>48 Gandolas en Rastreo</span>
               </span>
               <span className="flex items-center gap-1">
                 <Radio className="w-4 h-4 text-orange-400" />
@@ -167,7 +167,7 @@ export default function Login() {
                   </span>
                 </h1>
                 <p className="text-base sm:text-lg text-white/90 max-w-xl font-normal leading-relaxed drop-shadow-sm pt-1">
-                  Despacho en tiempo real de gandolas Mack Granite, monitoreo de tonelaje en tolva, básculas inteligentes y proformas de liquidación de fletes.
+                  Despacho en tiempo real de gandolas Mack, monitoreo de tonelaje en tolva, básculas inteligentes y proformas de liquidación de fletes.
                 </p>
               </div>
 
@@ -183,7 +183,7 @@ export default function Login() {
                 <div className="flex items-start gap-3 bg-black/25 backdrop-blur-sm p-3 rounded-xl border border-white/10 max-w-lg hover:border-emerald-500/40 transition-colors">
                   <Smartphone className="w-6 h-6 text-emerald-500 mt-0.5 shrink-0" />
                   <div>
-                    <span className="text-xs font-bold uppercase tracking-wider text-emerald-200 block">App Móvil para Operadores de Góndola:</span>
+                    <span className="text-xs font-bold uppercase tracking-wider text-emerald-200 block">App Móvil para Operadores de Gandola:</span>
                     <span className="text-xs font-mono text-white/90">fleetcontrol://mobile.operator.app/login</span>
                   </div>
                 </div>

@@ -178,6 +178,7 @@ export interface RutaRecargoItem {
   concepto: string;
   tipoCalculo: string;
   valor: number | string;
+  moneda?: 'Bs' | 'USD';
 }
 
 export interface GuiaViajeRecargoItem {
@@ -199,6 +200,7 @@ export interface RecargosCatalogoResponse {
     concepto: string;
     tipoCalculo: string;
     valor: number | string;
+    moneda?: 'Bs' | 'USD';
   }>;
   deRuta: RutaRecargoItem[];
 }

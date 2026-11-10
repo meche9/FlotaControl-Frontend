@@ -54,6 +54,7 @@ import {
   type RecargoGeneral,
   type ItemRutaRecargoDto,
   type RecargoTipoCalculo,
+  type RecargoMoneda,
 } from '../../services/rutasService';
 import { getApiErrorMessage } from '../../services/api';
 
@@ -75,6 +76,7 @@ interface RecargoModalItem {
   concepto: string;
   tipoCalculo: RecargoTipoCalculo;
   valor: number | string;
+  moneda: RecargoMoneda;
   selected: boolean;
 }
 
@@ -120,6 +122,7 @@ export default function RutasRegistro() {
   // Estados de interfaz y filtrado
   const [saving, setSaving] = useState<boolean>(false);
   const [filtroEstado, setFiltroEstado] = useState<'todas' | 'activas' | 'inactivas'>('todas');
+  const [busquedaRuta, setBusquedaRuta] = useState<string>('');
   const [openMenuRutaId, setOpenMenuRutaId] = useState<string | null>(null);
   const [feedbackMsg, setFeedbackMsg] = useState<{ tipo: 'success' | 'error'; texto: string } | null>(null);
 
@@ -624,10 +627,16 @@ export default function RutasRegistro() {
     return recargosModalItems.filter((r) => r.selected);
   }, [recargosModalItems]);
 
-  // Subtotal de recargos de tipo Monto Fijo
+  // Subtotal de recargos de tipo Monto Fijo en USD y Bs
   const costoTotalRecargosFijos = useMemo(() => {
     return recargosSeleccionados
-      .filter((r) => r.tipoCalculo === 'Monto_Fijo' || !r.tipoCalculo)
+      .filter((r) => (r.tipoCalculo === 'Monto_Fijo' || !r.tipoCalculo) && (r.moneda || 'USD') === 'USD')
+      .reduce((acc, r) => acc + (parseFloat(String(r.valor)) || 0), 0);
+  }, [recargosSeleccionados]);
+
+  const costoTotalRecargosFijosBs = useMemo(() => {
+    return recargosSeleccionados
+      .filter((r) => (r.tipoCalculo === 'Monto_Fijo' || !r.tipoCalculo) && r.moneda === 'Bs')
       .reduce((acc, r) => acc + (parseFloat(String(r.valor)) || 0), 0);
   }, [recargosSeleccionados]);
 
@@ -654,7 +663,7 @@ export default function RutasRegistro() {
         asignados.map((a) => [a.concepto.trim().toLowerCase(), a])
       );
 
-      // 3. Mapear catálogo cruzándolo con recargos ya asignados y conservando sus montos guardados
+      // 3. Mapear catálogo cruzándolo con recargos ya asignados y conservando sus montos y moneda guardados
       const items: RecargoModalItem[] = catalogo.map((rg) => {
         const asignado = asignadosMap.get(rg.concepto.trim().toLowerCase());
         const isSelected = !!asignado;
@@ -663,12 +672,15 @@ export default function RutasRegistro() {
           isSelected && asignado?.valor !== undefined && asignado?.valor !== null
             ? asignado.valor
             : (rg.valor ?? '0.00');
+        const moneda: RecargoMoneda =
+          (isSelected && asignado?.moneda) || rg.moneda || 'USD';
 
         return {
           idRecargo: rg.idRecargo,
           concepto: rg.concepto,
           tipoCalculo: asignado?.tipoCalculo || rg.tipoCalculo,
           valor: valor,
+          moneda,
           selected: isSelected,
         };
       });
@@ -682,6 +694,7 @@ export default function RutasRegistro() {
             concepto: asig.concepto,
             tipoCalculo: asig.tipoCalculo,
             valor: asig.valor ?? '0.00',
+            moneda: asig.moneda || 'USD',
             selected: true,
           });
         }
@@ -716,10 +729,10 @@ export default function RutasRegistro() {
     );
   };
 
-  // Modificar campo de un recargo en el modal (valor / monto solicitado)
+  // Modificar campo de un recargo en el modal (valor / monto solicitado / moneda)
   const handleUpdateRecargoField = (
     idRecargo: string,
-    field: 'valor' | 'tipoCalculo',
+    field: 'valor' | 'tipoCalculo' | 'moneda',
     value: any
   ) => {
     setRecargosModalItems((prev) =>
@@ -747,6 +760,7 @@ export default function RutasRegistro() {
         concepto: r.concepto.trim(),
         tipoCalculo: r.tipoCalculo,
         valor: Math.max(0, parseFloat(String(r.valor)) || 0),
+        moneda: r.moneda || 'USD',
       }));
 
       await rutasService.asignarRecargosRuta(activeModalRuta.idRuta, payload);
@@ -1030,12 +1044,48 @@ export default function RutasRegistro() {
     }
   };
 
-  // Filtrado de rutas del cliente
+  // Formato de código visible para la ruta
+  const getCodigoRuta = (ruta: Ruta | null) => {
+    const anioActual = new Date().getFullYear();
+    if (!ruta) return `RUT-${anioActual}-NUEVA`;
+    return `RUT-${anioActual}-${ruta.idRuta.slice(-4).toUpperCase()}`;
+  };
+
+  // Filtrado de rutas del cliente (por estado y texto de búsqueda)
   const rutasFiltradas = useMemo(() => {
-    if (filtroEstado === 'activas') return rutas.filter((r) => r.activo);
-    if (filtroEstado === 'inactivas') return rutas.filter((r) => !r.activo);
-    return rutas;
-  }, [rutas, filtroEstado]);
+    const query = busquedaRuta.trim().toLowerCase();
+
+    return rutas.filter((r) => {
+      if (filtroEstado === 'activas' && !r.activo) return false;
+      if (filtroEstado === 'inactivas' && r.activo) return false;
+
+      if (!query) return true;
+
+      const codigo = getCodigoRuta(r).toLowerCase();
+      const nombre = (r.nombreRuta || '').toLowerCase();
+      const origen = (r.ciudadOrigen || '').toLowerCase();
+      const destino = (r.ciudadDestino || '').toLowerCase();
+      const sedeOrigen = (r.puntoOrigen?.nombreSede || '').toLowerCase();
+      const codOrigen = (r.puntoOrigen?.codigoPuntoc || '').toLowerCase();
+      const sedeDestino = (r.puntoDestino?.nombreSede || '').toLowerCase();
+      const codDestino = (r.puntoDestino?.codigoPuntoc || '').toLowerCase();
+      const distancia = r.distanciaKm != null ? String(r.distanciaKm).toLowerCase() : '';
+      const tarifa = r.montoTarifa != null ? String(r.montoTarifa).toLowerCase() : '';
+
+      return (
+        codigo.includes(query) ||
+        nombre.includes(query) ||
+        origen.includes(query) ||
+        destino.includes(query) ||
+        sedeOrigen.includes(query) ||
+        codOrigen.includes(query) ||
+        sedeDestino.includes(query) ||
+        codDestino.includes(query) ||
+        distancia.includes(query) ||
+        tarifa.includes(query)
+      );
+    });
+  }, [rutas, filtroEstado, busquedaRuta]);
 
   // Avatar del cliente seleccionado
   const avatarCliente = useMemo(() => {
@@ -1048,13 +1098,6 @@ export default function RutasRegistro() {
     navigator.clipboard.writeText(rif);
     setCopiedRif(true);
     setTimeout(() => setCopiedRif(false), 2000);
-  };
-
-  // Formato de código visible para la ruta
-  const getCodigoRuta = (ruta: Ruta | null) => {
-    const anioActual = new Date().getFullYear();
-    if (!ruta) return `RUT-${anioActual}-NUEVA`;
-    return `RUT-${anioActual}-${ruta.idRuta.slice(-4).toUpperCase()}`;
   };
 
   // Cálculo de minutos equivalentes
@@ -1153,8 +1196,304 @@ export default function RutasRegistro() {
 
       {/* ─── Grid Principal de Dos Columnas ───────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* ─── COLUMNA IZQUIERDA: Ficha Paramétrica con Card UI (7 cols) ─── */}
-        <Card className="lg:col-span-7 p-6 space-y-6 border-slate-200 shadow-xs">
+        {/* ─── COLUMNA IZQUIERDA: Rutas Registradas del Cliente (7 cols) ─── */}
+        <div className="lg:col-span-7 space-y-4">
+          {/* Encabezado del Catálogo de Rutas con Card UI */}
+          <Card className="p-4 border-slate-200 shadow-xs space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600">
+                  <RouteIcon className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xs font-extrabold text-slate-900">
+                      Rutas Registradas del Cliente
+                    </h2>
+                    <Badge variant="emerald" size="sm" dot={false}>
+                      {busquedaRuta.trim() || filtroEstado !== 'todas'
+                        ? `${rutasFiltradas.length} / ${rutas.length} Rutas`
+                        : `${rutas.length} Rutas`}
+                    </Badge>
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-medium">
+                    Catálogo paramétrico activo asignado a {clienteActual?.razonSocial || 'Cliente'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Filtro dropdown */}
+              <div className="flex items-center gap-1 shrink-0">
+                <span className="text-[10px] font-bold text-slate-500">Filtro:</span>
+                <select
+                  value={filtroEstado}
+                  onChange={(e) => setFiltroEstado(e.target.value as any)}
+                  className="text-[11px] font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 focus:outline-none"
+                >
+                  <option value="todas">Todas las Rutas ({rutas.length})</option>
+                  <option value="activas">
+                    Solo Activas ({rutas.filter((r) => r.activo).length})
+                  </option>
+                  <option value="inactivas">
+                    Solo Inactivas ({rutas.filter((r) => !r.activo).length})
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            {/* Buscador de texto para filtrar las cards de rutas */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={busquedaRuta}
+                onChange={(e) => setBusquedaRuta(e.target.value)}
+                placeholder="Buscar ruta por código, nombre, origen, destino..."
+                className="w-full text-xs font-semibold text-slate-800 placeholder:text-slate-400 placeholder:font-normal bg-slate-50/80 hover:bg-slate-50 focus:bg-white border border-slate-200 focus:border-orange-500 rounded-xl pl-8.5 pr-8 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition"
+              />
+              {busquedaRuta && (
+                <button
+                  type="button"
+                  onClick={() => setBusquedaRuta('')}
+                  title="Limpiar búsqueda"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-md hover:bg-slate-100 transition cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </Card>
+
+          {/* Listado de Tarjetas de Rutas con Card UI */}
+          <div className="space-y-3">
+            {rutasFiltradas.length === 0 ? (
+              <Card className="border-dashed border-slate-300 p-8 text-center space-y-2">
+                <RouteIcon className="w-8 h-8 text-slate-300 mx-auto" />
+                <p className="text-xs font-bold text-slate-600">
+                  No hay rutas registradas para este filtro
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  Haga clic en "+ + NUEVA RUTA" para registrar la primera ruta del cliente.
+                </p>
+              </Card>
+            ) : (
+              rutasFiltradas.map((ruta) => {
+                const isSelected = selectedRuta?.idRuta === ruta.idRuta;
+                const codigo = getCodigoRuta(ruta);
+
+                return (
+                  <Card
+                    key={ruta.idRuta}
+                    hoverable
+                    onClick={() => cargarRutaEnFormulario(ruta)}
+                    className={`p-4 space-y-3 cursor-pointer transition-all ${isSelected
+                      ? 'bg-orange-50/15 border-2 border-orange-500 shadow-md shadow-orange-500/10'
+                      : 'bg-white border-slate-200 hover:border-orange-300'
+                      }`}
+                  >
+                    {/* Fila Superior: Código + Título + Badges + Menú */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span
+                            className={`text-[10px] font-mono font-black px-1.5 py-0.5 rounded ${isSelected
+                              ? 'bg-orange-100 text-orange-900'
+                              : 'bg-slate-100 text-slate-700'
+                              }`}
+                          >
+                            {codigo}
+                          </span>
+
+                          <h3 className="text-xs font-black text-slate-900 leading-tight">
+                            {ruta.nombreRuta}
+                          </h3>
+
+                          {isSelected && (
+                            <Badge variant="orange" size="sm" dot={false} className="uppercase font-black text-[9px] py-0">
+                              EN EDICIÓN
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <Badge
+                          variant={ruta.activo ? 'emerald' : 'gray'}
+                          size="sm"
+                          dot={true}
+                        >
+                          {ruta.activo ? 'Activa' : 'Inactiva'}
+                        </Badge>
+
+                        {/* Menú de 3 puntos */}
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setOpenMenuRutaId(
+                                openMenuRutaId === ruta.idRuta ? null : ruta.idRuta
+                              )
+                            }
+                            className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+                          >
+                            <MoreVertical className="w-4 h-4" />
+                          </button>
+
+                          {openMenuRutaId === ruta.idRuta && (
+                            <div className="absolute right-0 top-6 w-36 bg-white border border-slate-200 rounded-xl shadow-lg py-1 z-20 text-xs">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  cargarRutaEnFormulario(ruta);
+                                  setOpenMenuRutaId(null);
+                                }}
+                                className="w-full text-left px-3 py-1.5 hover:bg-slate-50 font-semibold text-slate-700"
+                              >
+                                Editar Ficha
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleToggleEstado(ruta.idRuta);
+                                  setOpenMenuRutaId(null);
+                                }}
+                                className="w-full text-left px-3 py-1.5 hover:bg-slate-50 font-semibold text-slate-700"
+                              >
+                                {ruta.activo ? 'Desactivar' : 'Activar'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleEliminarRuta(ruta.idRuta, ruta.nombreRuta);
+                                  setOpenMenuRutaId(null);
+                                }}
+                                className="w-full text-left px-3 py-1.5 hover:bg-rose-50 text-rose-600 font-semibold border-t border-slate-100"
+                              >
+                                Eliminar Ruta
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Fila de Métricas: Trayecto | Distancia/Duración | Gasoil */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-slate-50/70 p-2.5 rounded-xl border border-slate-100 text-slate-800">
+                      <div>
+                        <div className="text-[9px] font-bold text-slate-400 uppercase">
+                          TRAYECTO
+                        </div>
+                        <div className="text-[11px] font-extrabold text-slate-800 truncate" title={`${ruta.ciudadOrigen} — ${ruta.ciudadDestino}`}>
+                          {ruta.ciudadOrigen.split(',')[0]} → {ruta.ciudadDestino.split(',')[0]}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-[9px] font-bold text-slate-400 uppercase">
+                          DISTANCIA / DURACIÓN
+                        </div>
+                        <div className="text-[11px] font-extrabold text-slate-800 truncate">
+                          {Number(ruta.distanciaKm).toFixed(2)} Km | {ruta.tiempoEstimadoHoras ? `${Number(ruta.tiempoEstimadoHoras).toFixed(1)} hrs` : '-'}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-[9px] font-bold text-slate-400 uppercase">
+                          GASOIL ESTIMADO
+                        </div>
+                        <div className="text-[11px] font-extrabold text-orange-950 truncate">
+                          {Number(ruta.consumoEstimadoGasoil).toFixed(2)} Lts
+                        </div>
+                      </div>
+
+
+                    </div>
+
+                    {/* Botones de acción auxiliares con Button UI */}
+                    <div
+                      className="flex items-center justify-between gap-1.5 pt-1 border-t border-slate-100/80 min-w-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto no-scrollbar py-0.5 min-w-0">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          iconLeft={<DollarSign className="w-3 h-3 text-emerald-600 shrink-0" />}
+                          onClick={() => {
+                            abrirModalTarifas(ruta);
+                          }}
+                          className="py-1 px-2 text-[10px] whitespace-nowrap shrink-0"
+                        >
+                          <span>
+                            Tarifa:<span className="text-emerald-700">{Number(ruta.montoTarifa || 0) > 0 ? ` ${Number(ruta.montoTarifa).toFixed(2)} ${ruta.moneda || 'USD'}` : ' Configurar Tarifa'}</span>
+                          </span>
+                        </Button>
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          iconLeft={<Ticket className="w-3 h-3 text-amber-600 shrink-0" />}
+                          onClick={() => {
+                            abrirModalPeajes(ruta);
+                          }}
+                          className="py-1 px-2 text-[10px] whitespace-nowrap shrink-0"
+                        >
+                          <span>
+                            Peajes: <span className="text-amber-800 font-bold">{ruta._count?.rutaPeajes ? `${ruta._count.rutaPeajes} Asignados` : '+ Asignar Peajes'}</span>
+                          </span>
+                        </Button>
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          iconLeft={<Coins className="w-3 h-3 text-orange-600 shrink-0" />}
+                          onClick={() => {
+                            abrirModalRecargos(ruta);
+                          }}
+                          className="py-1 px-2 text-[10px] whitespace-nowrap shrink-0"
+                        >
+                          <span>
+                            Recargos:{' '}
+                            <span className="text-orange-800 font-bold">
+                              {ruta._count?.rutaRecargos ? `${ruta._count.rutaRecargos} Asignados` : '+ Asignar Recargos'}
+                            </span>
+                          </span>
+                        </Button>
+                      </div>
+
+
+                    </div>
+
+                  </Card>
+                );
+              })
+            )}
+          </div>
+
+          {/* Banner inferior de sincronización con Card UI */}
+          <Card className="p-3.5 border-slate-200 shadow-xs flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0">
+                <ShieldCheck className="w-4 h-4" />
+              </div>
+              <p className="text-[11px] font-medium text-slate-600 leading-snug">
+                Sincronización de tarifas y peajes en tiempo real con sistema de despacho
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setModalMatrizOpen(true)}
+              className="text-[11px] font-bold text-orange-600 hover:text-orange-700 flex items-center gap-1 shrink-0 group transition"
+            >
+              <span>Ver Matriz Tarifaria General</span>
+              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+            </button>
+          </Card>
+        </div>
+
+        {/* ─── COLUMNA DERECHA: Ficha Paramétrica con Card UI (5 cols) ─── */}
+        <Card className="lg:col-span-5 p-6 space-y-6 border-slate-200 shadow-xs">
           {/* Subencabezado de la Ficha */}
           <div className="flex items-center justify-between border-b border-slate-100 pb-4">
             <div className="flex items-center gap-3">
@@ -1709,276 +2048,6 @@ export default function RutasRegistro() {
             </div>
           </form>
         </Card>
-
-        {/* ─── COLUMNA DERECHA: Rutas Registradas del Cliente (5 cols) ─── */}
-        <div className="lg:col-span-5 space-y-4">
-          {/* Encabezado del Catálogo de Rutas con Card UI */}
-          <Card className="p-4 border-slate-200 shadow-xs flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600">
-                <RouteIcon className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-xs font-extrabold text-slate-900">
-                    Rutas Registradas del Cliente
-                  </h2>
-                  <Badge variant="emerald" size="sm" dot={false}>
-                    {rutas.length} Rutas
-                  </Badge>
-                </div>
-                <p className="text-[10px] text-slate-400 font-medium">
-                  Catálogo paramétrico activo asignado a {clienteActual?.razonSocial || 'Cliente'}
-                </p>
-              </div>
-            </div>
-
-            {/* Filtro dropdown */}
-            <div className="flex items-center gap-1">
-              <span className="text-[10px] font-bold text-slate-500">Filtro:</span>
-              <select
-                value={filtroEstado}
-                onChange={(e) => setFiltroEstado(e.target.value as any)}
-                className="text-[11px] font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 focus:outline-none"
-              >
-                <option value="todas">Todas las Rutas ({rutas.length})</option>
-                <option value="activas">
-                  Solo Activas ({rutas.filter((r) => r.activo).length})
-                </option>
-                <option value="inactivas">
-                  Solo Inactivas ({rutas.filter((r) => !r.activo).length})
-                </option>
-              </select>
-            </div>
-          </Card>
-
-          {/* Listado de Tarjetas de Rutas con Card UI */}
-          <div className="space-y-3">
-            {rutasFiltradas.length === 0 ? (
-              <Card className="border-dashed border-slate-300 p-8 text-center space-y-2">
-                <RouteIcon className="w-8 h-8 text-slate-300 mx-auto" />
-                <p className="text-xs font-bold text-slate-600">
-                  No hay rutas registradas para este filtro
-                </p>
-                <p className="text-[11px] text-slate-400">
-                  Haga clic en "+ + NUEVA RUTA" para registrar la primera ruta del cliente.
-                </p>
-              </Card>
-            ) : (
-              rutasFiltradas.map((ruta) => {
-                const isSelected = selectedRuta?.idRuta === ruta.idRuta;
-                const codigo = getCodigoRuta(ruta);
-
-                return (
-                  <Card
-                    key={ruta.idRuta}
-                    hoverable
-                    onClick={() => cargarRutaEnFormulario(ruta)}
-                    className={`p-4 space-y-3 cursor-pointer transition-all ${isSelected
-                      ? 'bg-orange-50/15 border-2 border-orange-500 shadow-md shadow-orange-500/10'
-                      : 'bg-white border-slate-200 hover:border-orange-300'
-                      }`}
-                  >
-                    {/* Fila Superior: Código + Título + Badges + Menú */}
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span
-                            className={`text-[10px] font-mono font-black px-1.5 py-0.5 rounded ${isSelected
-                              ? 'bg-orange-100 text-orange-900'
-                              : 'bg-slate-100 text-slate-700'
-                              }`}
-                          >
-                            {codigo}
-                          </span>
-
-                          <h3 className="text-xs font-black text-slate-900 leading-tight">
-                            {ruta.nombreRuta}
-                          </h3>
-
-                          {isSelected && (
-                            <Badge variant="orange" size="sm" dot={false} className="uppercase font-black text-[9px] py-0">
-                              EN EDICIÓN
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                        <Badge
-                          variant={ruta.activo ? 'emerald' : 'gray'}
-                          size="sm"
-                          dot={true}
-                        >
-                          {ruta.activo ? 'Activa' : 'Inactiva'}
-                        </Badge>
-
-                        {/* Menú de 3 puntos */}
-                        <div className="relative">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setOpenMenuRutaId(
-                                openMenuRutaId === ruta.idRuta ? null : ruta.idRuta
-                              )
-                            }
-                            className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
-                          >
-                            <MoreVertical className="w-4 h-4" />
-                          </button>
-
-                          {openMenuRutaId === ruta.idRuta && (
-                            <div className="absolute right-0 top-6 w-36 bg-white border border-slate-200 rounded-xl shadow-lg py-1 z-20 text-xs">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  cargarRutaEnFormulario(ruta);
-                                  setOpenMenuRutaId(null);
-                                }}
-                                className="w-full text-left px-3 py-1.5 hover:bg-slate-50 font-semibold text-slate-700"
-                              >
-                                Editar Ficha
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  handleToggleEstado(ruta.idRuta);
-                                  setOpenMenuRutaId(null);
-                                }}
-                                className="w-full text-left px-3 py-1.5 hover:bg-slate-50 font-semibold text-slate-700"
-                              >
-                                {ruta.activo ? 'Desactivar' : 'Activar'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  handleEliminarRuta(ruta.idRuta, ruta.nombreRuta);
-                                  setOpenMenuRutaId(null);
-                                }}
-                                className="w-full text-left px-3 py-1.5 hover:bg-rose-50 text-rose-600 font-semibold border-t border-slate-100"
-                              >
-                                Eliminar Ruta
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Fila de Métricas: Trayecto | Distancia/Duración | Gasoil */}
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-slate-50/70 p-2.5 rounded-xl border border-slate-100 text-slate-800">
-                      <div>
-                        <div className="text-[9px] font-bold text-slate-400 uppercase">
-                          TRAYECTO
-                        </div>
-                        <div className="text-[11px] font-extrabold text-slate-800 truncate" title={`${ruta.ciudadOrigen} — ${ruta.ciudadDestino}`}>
-                          {ruta.ciudadOrigen.split(',')[0]} → {ruta.ciudadDestino.split(',')[0]}
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="text-[9px] font-bold text-slate-400 uppercase">
-                          DISTANCIA / DURACIÓN
-                        </div>
-                        <div className="text-[11px] font-extrabold text-slate-800 truncate">
-                          {Number(ruta.distanciaKm).toFixed(2)} Km | {ruta.tiempoEstimadoHoras ? `${Number(ruta.tiempoEstimadoHoras).toFixed(1)} hrs` : '-'}
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="text-[9px] font-bold text-slate-400 uppercase">
-                          GASOIL ESTIMADO
-                        </div>
-                        <div className="text-[11px] font-extrabold text-orange-950 truncate">
-                          {Number(ruta.consumoEstimadoGasoil).toFixed(2)} Lts
-                        </div>
-                      </div>
-
-
-                    </div>
-
-                    {/* Botones de acción auxiliares con Button UI */}
-                    <div
-                      className="flex items-center justify-between gap-1.5 pt-1 border-t border-slate-100/80 min-w-0"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto no-scrollbar py-0.5 min-w-0">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          iconLeft={<DollarSign className="w-3 h-3 text-emerald-600 shrink-0" />}
-                          onClick={() => {
-                            abrirModalTarifas(ruta);
-                          }}
-                          className="py-1 px-2 text-[10px] whitespace-nowrap shrink-0"
-                        >
-                          <span>
-                            Tarifa:<span className="text-emerald-700">{Number(ruta.montoTarifa || 0) > 0 ? ` ${Number(ruta.montoTarifa).toFixed(2)} ${ruta.moneda || 'USD'}` : ' Configurar Tarifa'}</span>
-                          </span>
-                        </Button>
-
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          iconLeft={<Ticket className="w-3 h-3 text-amber-600 shrink-0" />}
-                          onClick={() => {
-                            abrirModalPeajes(ruta);
-                          }}
-                          className="py-1 px-2 text-[10px] whitespace-nowrap shrink-0"
-                        >
-                          <span>
-                            Peajes: <span className="text-amber-800 font-bold">{ruta._count?.rutaPeajes ? `${ruta._count.rutaPeajes} Asignados` : '+ Asignar Peajes'}</span>
-                          </span>
-                        </Button>
-
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          iconLeft={<Coins className="w-3 h-3 text-orange-600 shrink-0" />}
-                          onClick={() => {
-                            abrirModalRecargos(ruta);
-                          }}
-                          className="py-1 px-2 text-[10px] whitespace-nowrap shrink-0"
-                        >
-                          <span>
-                            Recargos:{' '}
-                            <span className="text-orange-800 font-bold">
-                              {ruta._count?.rutaRecargos ? `${ruta._count.rutaRecargos} Asignados` : '+ Asignar Recargos'}
-                            </span>
-                          </span>
-                        </Button>
-                      </div>
-
-
-                    </div>
-
-                  </Card>
-                );
-              })
-            )}
-          </div>
-
-          {/* Banner inferior de sincronización con Card UI */}
-          <Card className="p-3.5 border-slate-200 shadow-xs flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0">
-                <ShieldCheck className="w-4 h-4" />
-              </div>
-              <p className="text-[11px] font-medium text-slate-600 leading-snug">
-                Sincronización de tarifas y peajes en tiempo real con sistema de despacho
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setModalMatrizOpen(true)}
-              className="text-[11px] font-bold text-orange-600 hover:text-orange-700 flex items-center gap-1 shrink-0 group transition"
-            >
-              <span>Ver Matriz Tarifaria General</span>
-              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-            </button>
-          </Card>
-        </div>
       </div>
 
       {/* ─── MODAL 1: Tarifa Única de la Ruta con Modal UI ─── */}
@@ -2557,6 +2626,15 @@ export default function RutasRegistro() {
                             >
                               {tipoTexto}
                             </span>
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                                recargo.moneda === 'Bs'
+                                  ? 'bg-sky-50 text-sky-800 border-sky-200'
+                                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              }`}
+                            >
+                              {recargo.moneda || 'USD'}
+                            </span>
                             {isSelected && (
                               <span className="text-[10px] text-emerald-700 font-semibold flex items-center gap-1">
                                 <Check className="w-3 h-3 text-emerald-600" />
@@ -2567,8 +2645,37 @@ export default function RutasRegistro() {
                         </div>
                       </div>
 
-                      {/* Parámetros de asignación a rutas_recargos: Monto */}
-                      <div className="flex items-center gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-orange-200/60">
+                      {/* Parámetros de asignación a rutas_recargos: Moneda y Monto */}
+                      <div className="flex items-center gap-2.5 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-orange-200/60">
+                        {/* Selector de Moneda (USD / Bs) */}
+                        <div className="flex flex-col items-start">
+                          <label
+                            htmlFor={`moneda-${recargo.idRecargo}`}
+                            className="text-[9px] font-extrabold text-slate-500 uppercase tracking-wider"
+                          >
+                            Moneda
+                          </label>
+                          <select
+                            id={`moneda-${recargo.idRecargo}`}
+                            value={recargo.moneda || 'USD'}
+                            onChange={(e) =>
+                              handleUpdateRecargoField(
+                                recargo.idRecargo,
+                                'moneda',
+                                e.target.value as RecargoMoneda
+                              )
+                            }
+                            className={`mt-0.5 text-xs font-extrabold rounded-lg py-1 px-2 transition-all shadow-2xs cursor-pointer ${
+                              isSelected
+                                ? 'text-slate-900 bg-white border border-orange-400 focus:ring-2 focus:ring-orange-500 focus:border-orange-500'
+                                : 'text-slate-600 bg-slate-50 border border-slate-300 focus:bg-white focus:text-slate-900 focus:border-orange-400'
+                            }`}
+                          >
+                            <option value="USD">USD</option>
+                            <option value="Bs">Bs</option>
+                          </select>
+                        </div>
+
                         <div className="flex flex-col items-end">
                           <label
                             htmlFor={`monto-${recargo.idRecargo}`}
@@ -2576,12 +2683,16 @@ export default function RutasRegistro() {
                           >
                             <span>Monto a guardar</span>
                             <span className="text-orange-600 font-mono">
-                              ({recargo.tipoCalculo === 'Porcentaje' ? '%' : 'USD'})
+                              ({recargo.tipoCalculo === 'Porcentaje' ? '%' : recargo.moneda || 'USD'})
                             </span>
                           </label>
                           <div className="flex items-center mt-0.5 relative">
                             <span className="text-xs font-bold text-slate-400 px-1 select-none">
-                              {recargo.tipoCalculo === 'Porcentaje' ? '%' : '$'}
+                              {recargo.tipoCalculo === 'Porcentaje'
+                                ? '%'
+                                : recargo.moneda === 'Bs'
+                                  ? 'Bs.'
+                                  : '$'}
                             </span>
                             <input
                               id={`monto-${recargo.idRecargo}`}
@@ -2643,6 +2754,7 @@ export default function RutasRegistro() {
             <div className="text-right">
               <span className="font-black text-orange-950 text-base block">
                 ${costoTotalRecargosFijos.toFixed(2)} USD
+                {costoTotalRecargosFijosBs > 0 && ` + Bs. ${costoTotalRecargosFijosBs.toFixed(2)}`}
               </span>
               <span className="text-[10px] text-orange-700 font-semibold">
                 Subtotal recargos fijos por viaje

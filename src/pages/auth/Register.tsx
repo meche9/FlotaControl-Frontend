@@ -30,7 +30,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 
-const PASSWORD_MIN = 8;
+const PASSWORD_MIN = 4;
 const PASSWORD_MAX = 64;
 
 export default function Register() {
@@ -175,8 +175,8 @@ export default function Register() {
       return;
     }
 
-    if (!isPasswordStrong) {
-      setError('La contraseña debe tener mínimo 8 caracteres, mayúscula, minúscula, número y carácter especial.');
+    if (!passwordChecks.length) {
+      setError(`La contraseña debe tener mínimo ${PASSWORD_MIN} caracteres.`);
       return;
     }
 
@@ -604,9 +604,10 @@ export default function Register() {
                       <input
                         type={showPassword ? 'text' : 'password'}
                         required
+                        minLength={PASSWORD_MIN}
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••••••"
+                        placeholder="Mínimo 4 caracteres"
                         className="w-full pl-10 pr-10 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-orange-500 focus:bg-white focus:ring-3 focus:ring-orange-500/15 transition-all"
                       />
                       <button
@@ -653,18 +654,18 @@ export default function Register() {
                 {/* Indicador de Fuerza de Contraseña (Imagen 3) */}
                 <div className="pt-1 pb-1">
                   <div className="flex items-center gap-1.5 mb-1.5">
-                    <div className={`h-1.5 flex-1 rounded-full ${checksPassedCount >= 2 ? 'bg-emerald-600' : password ? 'bg-amber-400' : 'bg-slate-200'}`} />
-                    <div className={`h-1.5 flex-1 rounded-full ${checksPassedCount >= 4 ? 'bg-emerald-600' : checksPassedCount >= 3 ? 'bg-amber-400' : 'bg-slate-200'}`} />
+                    <div className={`h-1.5 flex-1 rounded-full ${passwordChecks.length ? 'bg-emerald-600' : password ? 'bg-amber-400' : 'bg-slate-200'}`} />
+                    <div className={`h-1.5 flex-1 rounded-full ${checksPassedCount >= 3 ? 'bg-emerald-600' : passwordChecks.length ? 'bg-emerald-600' : 'bg-slate-200'}`} />
                     <div className={`h-1.5 flex-1 rounded-full ${isPasswordStrong ? 'bg-emerald-600' : 'bg-slate-200'}`} />
                   </div>
                   <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-slate-500">Criterios de seguridad</span>
-                    <span className={`font-bold ${isPasswordStrong ? 'text-emerald-700' : 'text-slate-500'}`}>
+                    <span className="text-slate-500">Criterios de seguridad (mín. {PASSWORD_MIN} caracteres)</span>
+                    <span className={`font-bold ${passwordChecks.length ? 'text-emerald-700' : 'text-slate-500'}`}>
                       {isPasswordStrong
                         ? 'Seguridad de clave: Fuerte (Criterios cumplidos)'
-                        : checksPassedCount >= 3
-                        ? 'Seguridad de clave: Media'
-                        : 'Seguridad de clave: Incompleta'}
+                        : passwordChecks.length
+                        ? 'Seguridad de clave: Válida (Mínimo 4 caracteres)'
+                        : 'Seguridad de clave: Incompleta (Mín. 4 caracteres)'}
                     </span>
                   </div>
                 </div>
@@ -816,9 +817,10 @@ export default function Register() {
                     <input
                       type={showPassword ? 'text' : 'password'}
                       required
+                      minLength={PASSWORD_MIN}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Mínimo 8 caracteres"
+                      placeholder="Mínimo 4 caracteres"
                       className="w-full pl-10 pr-10 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-orange-500 focus:bg-white focus:ring-3 focus:ring-orange-500/15 transition-all"
                     />
                     <button
@@ -833,15 +835,15 @@ export default function Register() {
                   {/* Barra de Fuerza (Imagen 1) */}
                   <div className="pt-2">
                     <div className="flex items-center gap-1.5 mb-1">
-                      <div className={`h-1 flex-1 rounded-full ${checksPassedCount >= 2 ? 'bg-emerald-500' : password ? 'bg-amber-400' : 'bg-slate-200'}`} />
-                      <div className={`h-1 flex-1 rounded-full ${checksPassedCount >= 3 ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                      <div className={`h-1 flex-1 rounded-full ${passwordChecks.length ? 'bg-emerald-500' : password ? 'bg-amber-400' : 'bg-slate-200'}`} />
+                      <div className={`h-1 flex-1 rounded-full ${checksPassedCount >= 2 ? 'bg-emerald-500' : 'bg-slate-200'}`} />
                       <div className={`h-1 flex-1 rounded-full ${checksPassedCount >= 4 ? 'bg-emerald-500' : 'bg-slate-200'}`} />
                       <div className={`h-1 flex-1 rounded-full ${isPasswordStrong ? 'bg-emerald-500' : 'bg-slate-200'}`} />
                     </div>
                     <div className="flex items-center justify-between text-[10px] text-slate-400">
-                      <span>Fuerza de la contraseña</span>
-                      <span className={isPasswordStrong ? 'text-emerald-600 font-bold' : ''}>
-                        {isPasswordStrong ? 'Seguridad Alta' : 'Seguridad Media'}
+                      <span>Fuerza de la contraseña (mín. {PASSWORD_MIN} caracteres)</span>
+                      <span className={passwordChecks.length ? 'text-emerald-600 font-bold' : ''}>
+                        {isPasswordStrong ? 'Seguridad Alta' : passwordChecks.length ? 'Seguridad Media' : 'Mínimo 4 caracteres'}
                       </span>
                     </div>
                   </div>
