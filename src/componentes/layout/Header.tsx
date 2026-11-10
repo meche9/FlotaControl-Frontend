@@ -1,13 +1,17 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Bell, Plus, User, LogOut, CheckCircle2 } from 'lucide-react';
+import { Search, Bell, Plus, User, LogOut, CheckCircle2, Menu } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { ImagenProtegida } from '../../components/ui';
 import { urlFotoPerfil } from '../../services/authService';
 import FotoPerfilModal from './FotoPerfilModal';
 import { RegistrarDespachoModal } from '../../pages/dashboard/RegistrarDespachoModal';
 
-export default function Header() {
+interface HeaderProps {
+  onToggleSidebar?: () => void;
+}
+
+export default function Header({ onToggleSidebar }: HeaderProps) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [cerrandoSesion, setCerrandoSesion] = useState(false);
@@ -22,30 +26,42 @@ export default function Header() {
   };
 
   return (
-    <header className="h-20 bg-white border-b border-gray-200 px-8 flex items-center justify-between shadow-sm">
-      
-      {/* 1. Barra de Búsqueda */}
-      <div className="relative w-96">
-        <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-gray-400">
-          <Search className="w-4 h-4" />
-        </span>
-        <input
-          type="text"
-          placeholder="Buscar placa, unidad, operador o proforma..."
-          className="w-full bg-gray-50 border border-gray-200 text-gray-800 text-xs rounded-xl pl-10 pr-12 py-2.5 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition"
-        />
-        <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-          <span className="bg-gray-200/80 text-gray-600 text-[10px] font-bold px-1.5 py-0.5 rounded border border-gray-300/60 shadow-xs">
-            ⌘K
+    <header className="h-16 sm:h-20 bg-white border-b border-gray-200 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-3 shadow-sm">
+      {/* Lado izquierdo: Botón Hamburguesa (Móvil) + Barra de Búsqueda */}
+      <div className="flex items-center gap-3 flex-1 min-w-0">
+        <button
+          type="button"
+          onClick={onToggleSidebar}
+          aria-label="Abrir menú principal"
+          title="Menú principal"
+          className="lg:hidden p-2 -ml-1 rounded-xl text-gray-600 hover:text-orange-600 hover:bg-orange-50 border border-gray-200/80 transition shrink-0 cursor-pointer"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+
+        {/* 1. Barra de Búsqueda */}
+        <div className="relative flex-1 max-w-md">
+          <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-gray-400">
+            <Search className="w-4 h-4" />
           </span>
+          <input
+            type="text"
+            placeholder="Buscar placa, unidad, operador o proforma..."
+            className="w-full bg-gray-50 border border-gray-200 text-gray-800 text-xs rounded-xl pl-10 pr-4 sm:pr-12 py-2.5 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition"
+          />
+          <div className="hidden sm:flex absolute inset-y-0 right-0 items-center pr-3 pointer-events-none">
+            <span className="bg-gray-200/80 text-gray-600 text-[10px] font-bold px-1.5 py-0.5 rounded border border-gray-300/60 shadow-xs">
+              ⌘K
+            </span>
+          </div>
         </div>
       </div>
 
       {/* 2. Sección Derecha (Estado, Notificaciones, Botón y Perfil) */}
-      <div className="flex items-center space-x-6">
+      <div className="flex items-center space-x-2 sm:space-x-4 lg:space-x-6 shrink-0">
         
         {/* Indicador de Flota en Línea */}
-        <div className="hidden md:flex items-center space-x-2 bg-emerald-50 border border-emerald-200/60 px-3 py-1.5 rounded-full">
+        <div className="hidden xl:flex items-center space-x-2 bg-emerald-50 border border-emerald-200/60 px-3 py-1.5 rounded-full">
           <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
           <span className="text-xs font-semibold text-emerald-800 tracking-wide">
             48/48 En Línea
@@ -63,14 +79,14 @@ export default function Header() {
         <button
           type="button"
           onClick={() => setIsModalDespachoOpen(true)}
-          className="bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center space-x-2 shadow-md shadow-orange-500/20 transition cursor-pointer"
+          className="bg-orange-500 hover:bg-orange-600 active:scale-[0.98] text-white text-xs font-bold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl flex items-center space-x-1.5 sm:space-x-2 shadow-md shadow-orange-500/20 transition cursor-pointer"
         >
           <Plus className="w-4 h-4 stroke-[3]" />
-          <span>Nuevo Viaje</span>
+          <span className="hidden sm:inline">Nuevo Viaje</span>
         </button>
 
         {/* Divisor vertical */}
-        <div className="h-8 w-px bg-gray-200"></div>
+        <div className="hidden sm:block h-8 w-px bg-gray-200"></div>
 
         {/* Perfil del Usuario */}
         <div className="flex items-center space-x-3">

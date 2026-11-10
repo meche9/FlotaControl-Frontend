@@ -28,7 +28,7 @@ import { programacionService, type GuiaProgramada, type GuiaViajeRecargoItem } f
 import { vehiculosService, type Vehiculo } from '../../services/vehiculosService';
 import { conductoresService, type Conductor } from '../../services/conductoresService';
 import { puntosCargaService, type PuntoCargaDescarga } from '../../services/puntosCargaService';
-import { rutasService, type Ruta } from '../../services/rutasService';
+import { rutasService, type Ruta, type RecargoGeneral } from '../../services/rutasService';
 
 // ============================================================================
 // INTERFACES & MODELOS
@@ -76,15 +76,6 @@ export interface RecargoModalItem {
     selected: boolean;
     observaciones?: string;
 }
-
-const DEFAULT_RECARGOS_CATALOGO: Array<{ concepto: string; tipoCalculo: string; valor: number }> = [
-    { concepto: 'Caleta', tipoCalculo: 'Monto_Fijo', valor: 35 },
-    { concepto: 'Estacionamiento', tipoCalculo: 'Monto_Fijo', valor: 20 },
-    { concepto: 'Otros Gastos', tipoCalculo: 'Monto_Fijo', valor: 25 },
-    { concepto: 'Pernocta en Hotel', tipoCalculo: 'Monto_Fijo', valor: 45 },
-    { concepto: 'Tasa Portuaria', tipoCalculo: 'Monto_Fijo', valor: 120 },
-    { concepto: 'Viático de Conductor por Trayecto', tipoCalculo: 'Monto_Fijo', valor: 25 },
-];
 
 // Helper para parsear fechas
 function formatearFechaHora(fechaStr?: string | null) {
@@ -134,8 +125,8 @@ function formatearFechaCorta(fechaStr?: string) {
     return `${parseInt(d, 10)} ${mesNombre} ${y}`;
 }
 
-function formatearRangoLegible(inicio?: string, fin?: string) {
-    if (!inicio && !fin) return 'Todos los Viajes';
+function formatearRangoLegible(inicio?: string, fin?: string, preset?: string) {
+    if (!inicio && !fin) return preset === 'todos' ? 'Todos los Viajes' : 'Seleccionar Fecha';
     if (inicio && fin && inicio === fin) return `Fecha: ${formatearFechaCorta(inicio)}`;
     if (inicio && fin) return `${formatearFechaCorta(inicio)} – ${formatearFechaCorta(fin)}`;
     if (inicio) return `Desde ${formatearFechaCorta(inicio)}`;
@@ -158,8 +149,13 @@ function obtenerFechasPorPreset(preset: 'hoy' | 'semana' | 'mes' | 'todos') {
     }
 
     if (preset === 'semana') {
-        // Rango operacional activo de la semana en la matriz
-        return { inicio: '2026-10-24', fin: '2026-10-31' };
+        const diaSemana = hoy.getDay();
+        const diffLunes = diaSemana === 0 ? -6 : 1 - diaSemana;
+        const lunes = new Date(hoy);
+        lunes.setDate(hoy.getDate() + diffLunes);
+        const domingo = new Date(lunes);
+        domingo.setDate(lunes.getDate() + 6);
+        return { inicio: formatYMD(lunes), fin: formatYMD(domingo) };
     }
 
     if (preset === 'mes') {
@@ -172,25 +168,26 @@ function obtenerFechasPorPreset(preset: 'hoy' | 'semana' | 'mes' | 'todos') {
 }
 
 export default function AsignacionRecursos() {
-    // Estado de viajes cargados
+    // Estado de viajes cargados (inicia vacío al entrar a la página)
     const [viajes, setViajes] = useState<ViajeFleteItem[]>([]);
-    const [cargando, setCargando] = useState<boolean>(true);
+    const [cargando, setCargando] = useState<boolean>(false);
     const [busqueda, setBusqueda] = useState<string>('');
     const [excluirCancelados, setExcluirCancelados] = useState<boolean>(true);
 
-    // Intervalo de fechas para auditoría
-    const [fechaInicio, setFechaInicio] = useState<string>('2026-10-24');
-    const [fechaFin, setFechaFin] = useState<string>('2026-10-31');
-    const [presetFecha, setPresetFecha] = useState<'hoy' | 'semana' | 'mes' | 'todos' | 'personalizado'>('semana');
+    // Intervalo de fechas para auditoría (sin fecha predeterminada)
+    const [fechaInicio, setFechaInicio] = useState<string>('');
+    const [fechaFin, setFechaFin] = useState<string>('');
+    const [presetFecha, setPresetFecha] = useState<'hoy' | 'semana' | 'mes' | 'todos' | 'personalizado' | ''>('');
     const [popoverFechaAbierto, setPopoverFechaAbierto] = useState<boolean>(false);
-    const [tempInicio, setTempInicio] = useState<string>('2026-10-24');
-    const [tempFin, setTempFin] = useState<string>('2026-10-31');
+    const [tempInicio, setTempInicio] = useState<string>('');
+    const [tempFin, setTempFin] = useState<string>('');
 
     // Catálogos auxiliares
     const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
     const [conductores, setConductores] = useState<Conductor[]>([]);
     const [puntos, setPuntos] = useState<PuntoCargaDescarga[]>([]);
     const [rutasCatalogo, setRutasCatalogo] = useState<Ruta[]>([]);
+    const [recargosGeneralesCatalogo, setRecargosGeneralesCatalogo] = useState<RecargoGeneral[]>([]);
 
     // Toast / feedback state
     const [toast, setToast] = useState<{ visible: boolean; mensaje: string; tipo: 'ok' | 'error' | 'info' }>({
@@ -354,30 +351,59 @@ export default function AsignacionRecursos() {
     const [guardandoRecursos, setGuardandoRecursos] = useState<boolean>(false);
 
     // ==========================================================================
-    // CARGA INICIAL DE DATOS
+    // CARGA DE CATÁLOGOS Y CONSULTA DE VIAJES
     // ==========================================================================
-    const cargarDatos = async (inicioParam?: string, finParam?: string) => {
-        setCargando(true);
-        const ini = inicioParam !== undefined ? inicioParam : fechaInicio;
-        const fn = finParam !== undefined ? finParam : fechaFin;
-
+    const cargarCatalogosBase = async () => {
         try {
-            const params: any = { estadoOrden: 'todos' };
-            if (ini && ini.trim()) params.fechaInicio = ini.trim();
-            if (fn && fn.trim()) params.fechaFin = fn.trim();
-
-            const [guiasBd, vecs, conds, pts, rts] = await Promise.all([
-                programacionService.getGuiasProgramadas(params).catch(() => []),
+            const [vecs, conds, pts, rts, recGen] = await Promise.all([
                 vehiculosService.getVehiculos().catch(() => []),
                 conductoresService.getConductores().catch(() => []),
                 puntosCargaService.getPuntos().catch(() => []),
                 rutasService.getRutas().catch(() => []),
+                rutasService.getRecargosGenerales().catch(() => []),
             ]);
 
             setVehiculos(vecs || []);
             setConductores(conds || []);
             setPuntos(pts || []);
             setRutasCatalogo(rts || []);
+            setRecargosGeneralesCatalogo(recGen || []);
+        } catch {
+            // Silencioso en carga inicial de catálogos
+        }
+    };
+
+    const cargarDatos = async (inicioParam?: string, finParam?: string, forzarTodos: boolean = false) => {
+        const ini = inicioParam !== undefined ? inicioParam : fechaInicio;
+        const fn = finParam !== undefined ? finParam : fechaFin;
+
+        // Si no hay fechas seleccionadas y no se solicitó explícitamente ver todos, mantener la tabla vacía
+        if (!ini && !fn && !forzarTodos && presetFecha !== 'todos') {
+            setViajes([]);
+            return;
+        }
+
+        setCargando(true);
+
+        try {
+            const params: any = { estadoOrden: 'todos' };
+            if (ini && ini.trim()) params.fechaInicio = ini.trim();
+            if (fn && fn.trim()) params.fechaFin = fn.trim();
+
+            const [guiasBd, vecs, conds, pts, rts, recGen] = await Promise.all([
+                programacionService.getGuiasProgramadas(params).catch(() => []),
+                vehiculosService.getVehiculos().catch(() => []),
+                conductoresService.getConductores().catch(() => []),
+                puntosCargaService.getPuntos().catch(() => []),
+                rutasService.getRutas().catch(() => []),
+                rutasService.getRecargosGenerales().catch(() => []),
+            ]);
+
+            setVehiculos(vecs || []);
+            setConductores(conds || []);
+            setPuntos(pts || []);
+            setRutasCatalogo(rts || []);
+            setRecargosGeneralesCatalogo(recGen || []);
 
             // Mapear viajes desde base de datos
             const listaMapeada: ViajeFleteItem[] = (guiasBd || []).map((g: GuiaProgramada) => {
@@ -442,153 +468,11 @@ export default function AsignacionRecursos() {
                 };
             });
 
-            // Si no hay viajes y no hay ningún filtro de fecha aplicado, usar demo inicial
-            if (listaMapeada.length === 0 && !ini && !fn) {
-                const datosMock: ViajeFleteItem[] = [
-                    {
-                        idOrden: 'mock-1',
-                        nroTransporte: 'TR-703821360',
-                        fecha: '24 Oct 2026',
-                        hora: '08:30 AM',
-                        fechaISO: '2026-10-24T08:30:00.000Z',
-                        fleteBase: 480.0,
-                        origenCodigo: '0705',
-                        origenNombre: 'Planta Limpieza',
-                        idPuntoOrigen: 'pto-1',
-                        destinoCodigo: 'C010',
-                        destinoNombre: 'CL Valencia II',
-                        idPuntoDestino: 'pto-2',
-                        idRuta: 'ruta-1',
-                        idCliente: 'cli-1',
-                        clienteNombre: 'Alimentos Polar Comercial, C.A',
-                        idVehiculoMotriz: 'veh-1',
-                        vehiculoMotrizNombre: 'Mack Granite #A42',
-                        idAcoplado: 'aco-1',
-                        acopladoNombre: 'Batea 3 Ejes • BAT-904',
-                        idConductor: 'cond-1',
-                        conductorNombre: 'Carlos Rodríguez',
-                        conductorIniciales: 'CR',
-                        conductorEstado: 'En Cabina',
-                        estadoOrden: 'En Tránsito',
-                        fisico: true,
-                        observaciones: null,
-                        guiasViajesRecargos: [
-                            {
-                                idViajeRecargo: 'rec-1',
-                                idOrden: 'mock-1',
-                                monto: 35.0,
-                                estado: 'Pendiente',
-                                observaciones: 'Retención por descarga nocturna autorizada (>8 hrs)',
-                                recargo: { idRecargo: 'r1', idRuta: 'ruta-1', concepto: 'Pernocta / Estadía en Patio Planta', tipoCalculo: 'Monto_Fijo', valor: 35.0 },
-                            },
-                            {
-                                idViajeRecargo: 'rec-2',
-                                idOrden: 'mock-1',
-                                monto: 25.0,
-                                estado: 'Pendiente',
-                                observaciones: 'Tramo ARC bloqueado; desvío verificado por telemetría GPS (+22 km)',
-                                recargo: { idRecargo: 'r2', idRuta: 'ruta-1', concepto: 'Desvío de Ruta Operativo', tipoCalculo: 'Monto_Fijo', valor: 25.0 },
-                            },
-                            {
-                                idViajeRecargo: 'rec-3',
-                                idOrden: 'mock-1',
-                                monto: 15.0,
-                                estado: 'Pendiente',
-                                observaciones: 'Acceso a rampa con batea de 3 ejes con montacargas central',
-                                recargo: { idRecargo: 'r3', idRuta: 'ruta-1', concepto: 'Maniobra Especial de Posicionamiento', tipoCalculo: 'Monto_Fijo', valor: 15.0 },
-                            },
-                            {
-                                idViajeRecargo: 'rec-4',
-                                idOrden: 'mock-1',
-                                monto: 40.0,
-                                estado: 'Pendiente',
-                                observaciones: '4 paletas de material complementario autorizadas por logística',
-                                recargo: { idRecargo: 'r4', idRuta: 'ruta-1', concepto: 'Carga Adicional Paletizada (Sobrepeso Parcial)', tipoCalculo: 'Monto_Fijo', valor: 40.0 },
-                            },
-                        ],
-                        esRetorno: false,
-                        idOrdenPadre: null,
-                    },
-                    {
-                        idOrden: 'mock-2',
-                        nroTransporte: 'TR-703821361',
-                        fecha: '24 Oct 2026',
-                        hora: '09:15 AM',
-                        fechaISO: '2026-10-24T09:15:00.000Z',
-                        fleteBase: 620.0,
-                        origenCodigo: '0210',
-                        origenNombre: 'San Joaquin Central',
-                        idPuntoOrigen: 'pto-3',
-                        destinoCodigo: 'D004',
-                        destinoNombre: 'CD Yaracuy Depósito',
-                        idPuntoDestino: 'pto-4',
-                        idRuta: 'ruta-2',
-                        idCliente: 'cli-1',
-                        clienteNombre: 'Alimentos Polar Comercial, C.A',
-                        idVehiculoMotriz: 'veh-2',
-                        vehiculoMotrizNombre: 'Mack Pinnacle #M18',
-                        idAcoplado: 'aco-2',
-                        acopladoNombre: 'Batea Granelera • BAT-312',
-                        idConductor: 'cond-2',
-                        conductorNombre: 'Pedro Briceño',
-                        conductorIniciales: 'PB',
-                        conductorEstado: 'Checklist Aprobado',
-                        estadoOrden: 'Programado',
-                        fisico: false,
-                        observaciones: null,
-                        guiasViajesRecargos: [],
-                        esRetorno: false,
-                        idOrdenPadre: null,
-                    },
-                    {
-                        idOrden: 'mock-3',
-                        nroTransporte: 'TR-703821364',
-                        fecha: '24 Oct 2026',
-                        hora: '10:45 AM',
-                        fechaISO: '2026-10-24T10:45:00.000Z',
-                        fleteBase: 510.0,
-                        origenCodigo: '0705',
-                        origenNombre: 'Planta Limpieza',
-                        idPuntoOrigen: 'pto-1',
-                        destinoCodigo: 'C012',
-                        destinoNombre: 'CL Maracay I',
-                        idPuntoDestino: 'pto-5',
-                        idRuta: 'ruta-3',
-                        idCliente: 'cli-1',
-                        clienteNombre: 'Alimentos Polar Comercial, C.A',
-                        idVehiculoMotriz: 'veh-3',
-                        vehiculoMotrizNombre: 'Mack Vision #V09',
-                        idAcoplado: 'aco-3',
-                        acopladoNombre: 'Batea Plana • BAT-550',
-                        idConductor: 'cond-3',
-                        conductorNombre: 'Miguel Torres',
-                        conductorIniciales: 'MT',
-                        conductorEstado: 'Maniobrando',
-                        estadoOrden: 'En Andén',
-                        fisico: true,
-                        observaciones: null,
-                        guiasViajesRecargos: [
-                            {
-                                idViajeRecargo: 'rec-5',
-                                idOrden: 'mock-3',
-                                monto: 25.0,
-                                estado: 'Pendiente',
-                                observaciones: 'Tramo alterno habilitado por contingencia de lluvia',
-                                recargo: { idRecargo: 'r5', idRuta: 'ruta-3', concepto: 'Desvío de Ruta Operativo', tipoCalculo: 'Monto_Fijo', valor: 25.0 },
-                            },
-                        ],
-                        esRetorno: false,
-                        idOrdenPadre: null,
-                    },
-                ];
-                setViajes(datosMock);
-            } else {
-                setViajes(listaMapeada);
-            }
+            setViajes(listaMapeada);
 
-            if (ini || fn) {
+            if (ini || fn || forzarTodos) {
                 mostrarToast(
-                    `Auditoría: ${listaMapeada.length} viajes encontrados para ${formatearRangoLegible(ini, fn)}`,
+                    `Auditoría: ${listaMapeada.length} viajes encontrados para ${formatearRangoLegible(ini, fn, forzarTodos ? 'todos' : presetFecha)}`,
                     'ok'
                 );
             }
@@ -600,7 +484,7 @@ export default function AsignacionRecursos() {
     };
 
     useEffect(() => {
-        cargarDatos(fechaInicio, fechaFin);
+        cargarCatalogosBase();
     }, []);
 
     // Manejadores para aplicar intervalos de auditoría
@@ -612,10 +496,14 @@ export default function AsignacionRecursos() {
         setTempInicio(inicio);
         setTempFin(fin);
         setPopoverFechaAbierto(false);
-        cargarDatos(inicio, fin);
+        cargarDatos(inicio, fin, preset === 'todos');
     };
 
     const handleAplicarRangoPersonalizado = () => {
+        if (!tempInicio && !tempFin) {
+            mostrarToast('Seleccione al menos una fecha para auditar el rango', 'info');
+            return;
+        }
         if (tempInicio && tempFin && tempInicio > tempFin) {
             mostrarToast('La fecha "Desde" no puede ser posterior a la fecha "Hasta"', 'error');
             return;
@@ -706,10 +594,10 @@ export default function AsignacionRecursos() {
         const anden = viajes.filter((v) => v.estadoOrden?.toLowerCase().includes('andén') || v.estadoOrden?.toLowerCase().includes('origen')).length;
 
         return {
-            activas: activas > 0 ? activas : 42,
-            programadas: programadas > 0 ? programadas : 14,
-            transito: transito > 0 ? transito : 19,
-            anden: anden > 0 ? anden : 9,
+            activas,
+            programadas,
+            transito,
+            anden,
         };
     }, [viajes]);
 
@@ -742,7 +630,7 @@ export default function AsignacionRecursos() {
     };
 
     // ==========================================================================
-    // MANEJO DE MODAL 1: GESTIÓN DE RECARGOS (RUTAS_RECARGOS)
+    // MANEJO DE MODAL 1: GESTIÓN DE RECARGOS (RECARGOS_GENERALES / RUTAS_RECARGOS)
     // ==========================================================================
     const abrirModalRecargos = async (viaje: ViajeFleteItem) => {
         setViajeSeleccionadoRecargos(viaje);
@@ -751,28 +639,25 @@ export default function AsignacionRecursos() {
         setRecargosModalLoading(true);
 
         try {
-            // 1. Obtener recargos asignados a la ruta desde rutas_recargos
+            // 1. Obtener catálogo general de recargos desde la tabla recargos_generales
+            let catalogoGenerales = recargosGeneralesCatalogo;
+            if (catalogoGenerales.length === 0) {
+                catalogoGenerales = await rutasService.getRecargosGenerales();
+                setRecargosGeneralesCatalogo(catalogoGenerales || []);
+            }
+
+            // 2. Obtener recargos configurados para esta ruta en rutas_recargos (si existen)
             let recargosRuta: any[] = [];
             if (viaje.idRuta && !viaje.idRuta.startsWith('mock-') && !viaje.idRuta.startsWith('ruta-')) {
                 recargosRuta = await rutasService.getRecargosByRuta(viaje.idRuta).catch(() => []);
             }
-
-            // Si la ruta aún no tiene recargos en rutas_recargos, obtener el catálogo general de recargos
-            if (recargosRuta.length === 0) {
-                recargosRuta = await rutasService.getRecargosGenerales().catch(() => []);
+            const rutaRecargosMap = new Map<string, any>();
+            for (const rr of recargosRuta) {
+                const conc = (rr.concepto || '').trim().toLowerCase();
+                if (conc) rutaRecargosMap.set(conc, rr);
             }
 
-            // Fallback a catálogo predeterminado si no hay conexión o no hay datos
-            if (recargosRuta.length === 0) {
-                recargosRuta = DEFAULT_RECARGOS_CATALOGO.map((item, idx) => ({
-                    idRecargo: `default-rec-${idx}`,
-                    concepto: item.concepto,
-                    tipoCalculo: item.tipoCalculo,
-                    valor: item.valor,
-                }));
-            }
-
-            // 2. Cruzar con los recargos ya asignados a este viaje en guias_viajes_recargos
+            // 3. Cruzar con los recargos ya asignados a este viaje en guias_viajes_recargos
             const asignadosGuia = viaje.guiasViajesRecargos || [];
             const asignadosMap = new Map<string, GuiaViajeRecargoItem>();
             for (const a of asignadosGuia) {
@@ -781,27 +666,52 @@ export default function AsignacionRecursos() {
                 if (a.idRecargo) asignadosMap.set(a.idRecargo, a);
             }
 
-            const items: RecargoModalItem[] = recargosRuta.map((rr: any) => {
-                const concTrim = (rr.concepto || '').trim().toLowerCase();
-                const asignado = asignadosMap.get(concTrim) || (rr.idRecargo ? asignadosMap.get(rr.idRecargo) : undefined);
+            const items: RecargoModalItem[] = (catalogoGenerales || []).map((rg) => {
+                const concTrim = (rg.concepto || '').trim().toLowerCase();
+                const enRuta = rutaRecargosMap.get(concTrim);
+                const asignado =
+                    asignadosMap.get(concTrim) ||
+                    (enRuta?.idRecargo ? asignadosMap.get(enRuta.idRecargo) : undefined) ||
+                    (rg.idRecargo ? asignadosMap.get(rg.idRecargo) : undefined);
+
                 const isSelected = !!asignado;
-                const valor = isSelected && asignado?.monto !== undefined && asignado?.monto !== null
-                    ? asignado.monto
-                    : (rr.valor ?? '0.00');
+                const valor =
+                    isSelected && asignado?.monto !== undefined && asignado?.monto !== null
+                        ? asignado.monto
+                        : enRuta?.valor !== undefined && enRuta?.valor !== null
+                            ? enRuta.valor
+                            : (rg.valor ?? '0.00');
 
                 return {
-                    idRecargo: rr.idRecargo,
+                    idRecargo: enRuta?.idRecargo || rg.idRecargo,
                     idViajeRecargo: asignado?.idViajeRecargo,
-                    concepto: rr.concepto,
-                    tipoCalculo: asignado?.recargo?.tipoCalculo || rr.tipoCalculo || 'Monto_Fijo',
+                    concepto: rg.concepto,
+                    tipoCalculo: asignado?.recargo?.tipoCalculo || enRuta?.tipoCalculo || rg.tipoCalculo || 'Monto_Fijo',
                     valor: valor,
                     selected: isSelected,
                     observaciones: asignado?.observaciones || '',
                 };
             });
 
-            // Incluir recargos asignados previamente al viaje que no estén en la lista de la ruta
-            const conceptosSet = new Set(recargosRuta.map((r: any) => (r.concepto || '').trim().toLowerCase()));
+            // Incluir recargos de la ruta o asignados previamente al viaje que no estén en recargos_generales
+            const conceptosSet = new Set((catalogoGenerales || []).map((r) => (r.concepto || '').trim().toLowerCase()));
+            for (const rr of recargosRuta) {
+                const conc = (rr.concepto || '').trim();
+                if (conc && !conceptosSet.has(conc.toLowerCase())) {
+                    const asignado = asignadosMap.get(conc.toLowerCase()) || (rr.idRecargo ? asignadosMap.get(rr.idRecargo) : undefined);
+                    const isSelected = !!asignado;
+                    items.push({
+                        idRecargo: rr.idRecargo,
+                        idViajeRecargo: asignado?.idViajeRecargo,
+                        concepto: conc,
+                        tipoCalculo: asignado?.recargo?.tipoCalculo || rr.tipoCalculo || 'Monto_Fijo',
+                        valor: isSelected && asignado?.monto !== undefined && asignado?.monto !== null ? asignado.monto : (rr.valor ?? '0.00'),
+                        selected: isSelected,
+                        observaciones: asignado?.observaciones || '',
+                    });
+                    conceptosSet.add(conc.toLowerCase());
+                }
+            }
             for (const asig of asignadosGuia) {
                 const conc = (asig.recargo?.concepto || (asig as any).concepto || '').trim();
                 if (conc && !conceptosSet.has(conc.toLowerCase())) {
@@ -814,6 +724,7 @@ export default function AsignacionRecursos() {
                         selected: true,
                         observaciones: asig.observaciones || '',
                     });
+                    conceptosSet.add(conc.toLowerCase());
                 }
             }
 
@@ -826,7 +737,7 @@ export default function AsignacionRecursos() {
 
             setRecargosModalItems(items);
         } catch (err: any) {
-            mostrarToast(`No se pudieron cargar los recargos de la ruta: ${err?.message || err}`, 'error');
+            mostrarToast(`No se pudieron cargar los recargos desde recargos_generales: ${err?.message || err}`, 'error');
         } finally {
             setRecargosModalLoading(false);
         }
@@ -1473,7 +1384,7 @@ export default function AsignacionRecursos() {
                                     title="Cambiar intervalo de fechas de auditoría"
                                 >
                                     <Calendar className="w-3.5 h-3.5 text-orange-500" />
-                                    <span className="font-bold text-slate-800">{formatearRangoLegible(fechaInicio, fechaFin)}</span>
+                                    <span className="font-bold text-slate-800">{formatearRangoLegible(fechaInicio, fechaFin, presetFecha)}</span>
                                     <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${popoverFechaAbierto ? 'rotate-180' : ''}`} />
                                 </button>
 
@@ -1652,10 +1563,14 @@ export default function AsignacionRecursos() {
                                             <div className="flex flex-col items-center justify-center space-y-2.5">
                                                 <Package className="w-8 h-8 text-slate-300" />
                                                 <span className="font-semibold text-slate-700 text-sm">
-                                                    No se encontraron viajes en el intervalo {formatearRangoLegible(fechaInicio, fechaFin)}
+                                                    {!fechaInicio && !fechaFin && presetFecha === ''
+                                                        ? 'Seleccione una fecha o rango para consultar los viajes'
+                                                        : `No se encontraron viajes en el intervalo ${formatearRangoLegible(fechaInicio, fechaFin, presetFecha)}`}
                                                 </span>
                                                 <span className="text-xs text-slate-400 max-w-md">
-                                                    Intente cambiar el intervalo de fechas o presione el botón inferior para auditar todos los registros disponibles.
+                                                    {!fechaInicio && !fechaFin && presetFecha === ''
+                                                        ? 'Utilice el selector de fechas superior (Hoy, Esta Semana, Este Mes o un intervalo personalizado) para cargar los viajes.'
+                                                        : 'Intente cambiar el intervalo de fechas o presione el botón inferior para auditar todos los registros disponibles.'}
                                                 </span>
                                                 <button
                                                     type="button"

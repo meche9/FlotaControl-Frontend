@@ -289,7 +289,7 @@ export default function Dashboard() {
             </div>
 
             {/* Filter Tabs */}
-            <div className="inline-flex items-center p-1 bg-slate-50 border border-slate-100 rounded-full gap-1">
+            <div className="flex flex-wrap items-center p-1 bg-slate-50 border border-slate-100 rounded-2xl sm:rounded-full gap-1">
               <button
                 onClick={() => setActiveTab('ruta')}
                 className={`px-3 py-1 text-xs font-bold rounded-full transition ${activeTab === 'ruta'

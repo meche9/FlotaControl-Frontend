@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   Truck,
@@ -14,37 +14,71 @@ import {
   Settings,
   Radio,
   ChevronDown,
-  LayoutDashboard
+  LayoutDashboard,
+  X,
 } from 'lucide-react';
 
-export default function Sidebar() {
+interface SidebarProps {
+  isOpen?: boolean;
+  onClose?: () => void;
+}
+
+export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const location = useLocation();
   const [baseActual] = useState('Base Central Valencia');
+
+  // Cerrar el menú automáticamente en pantallas móviles al cambiar de ruta
+  useEffect(() => {
+    onClose?.();
+  }, [location.pathname]);
 
   // Función para determinar si el link está activo y darle el estilo naranja
   const isActive = (path: string) => location.pathname === path;
   const isDashboardActive = location.pathname === '/' || location.pathname === '/dashboard';
 
   return (
-    <aside className="w-64 bg-white border-r border-gray-200 h-screen flex flex-col shadow-sm select-none">
+    <>
+      {/* Backdrop oscuro en pantallas móviles cuando el menú está abierto */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-xs transition-opacity lg:hidden"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
 
-      {/* 1. Encabezado / Logo */}
-      <div className="p-5 flex items-center justify-between border-b border-gray-100">
-        <div className="flex items-center space-x-2">
-          {/* Logo simulado o espacio para imagen */}
-          <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center text-white font-bold">
-            FC
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 h-screen flex flex-col shadow-xl lg:shadow-sm select-none transform transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${
+          isOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        {/* 1. Encabezado / Logo */}
+        <div className="p-5 flex items-center justify-between border-b border-gray-100">
+          <div className="flex items-center space-x-2">
+            {/* Logo simulado o espacio para imagen */}
+            <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center text-white font-bold shrink-0">
+              FC
+            </div>
+            <div>
+              <h1 className="text-sm font-extrabold text-gray-900 tracking-tight leading-none">
+                FleetControl
+              </h1>
+              <span className="text-[10px] font-bold tracking-widest text-orange-600 uppercase">
+                Transporte Teles, C.A.
+              </span>
+            </div>
           </div>
-          <div>
-            <h1 className="text-sm font-extrabold text-gray-900 tracking-tight leading-none">
-              FleetControl
-            </h1>
-            <span className="text-[10px] font-bold tracking-widest text-orange-600 uppercase">
-              Transporte Teles, C.A.
-            </span>
-          </div>
+
+          {/* Botón cerrar menú en pantallas móviles */}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Cerrar menú"
+            className="lg:hidden p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
-      </div>
 
       {/* 2. Selector de Base / Sucursal */}
       <div className="px-4 py-3 border-b border-gray-100">
@@ -239,6 +273,7 @@ export default function Sidebar() {
         </div>
 
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }
