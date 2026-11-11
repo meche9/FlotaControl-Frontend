@@ -22,6 +22,7 @@ import {
     RefreshCw,
     Building2,
     Pencil,
+    Banknote,
 } from 'lucide-react';
 import { Button, Modal } from '../../components/ui';
 import { programacionService, type GuiaProgramada, type GuiaViajeRecargoItem } from '../../services/programacionService';
@@ -41,6 +42,8 @@ export interface ViajeFleteItem {
     hora: string;
     fechaISO: string;
     fleteBase: number;
+    montoAnticipoConductor: number;
+    monedaAnticipo?: 'Bs' | 'USD';
     origenCodigo: string;
     origenNombre: string;
     idPuntoOrigen: string;
@@ -351,6 +354,15 @@ export default function AsignacionRecursos() {
     const [guardandoRecursos, setGuardandoRecursos] = useState<boolean>(false);
 
     // ==========================================================================
+    // MODAL 4: ANTICIPO DE CONDUCTOR
+    // ==========================================================================
+    const [modalAnticipoAbierto, setModalAnticipoAbierto] = useState<boolean>(false);
+    const [viajeSeleccionadoAnticipo, setViajeSeleccionadoAnticipo] = useState<ViajeFleteItem | null>(null);
+    const [montoAnticipoInput, setMontoAnticipoInput] = useState<string>('');
+    const [monedaAnticipoInput, setMonedaAnticipoInput] = useState<'Bs' | 'USD'>('Bs');
+    const [guardandoAnticipo, setGuardandoAnticipo] = useState<boolean>(false);
+
+    // ==========================================================================
     // CARGA DE CATÁLOGOS Y CONSULTA DE VIAJES
     // ==========================================================================
     const cargarCatalogosBase = async () => {
@@ -434,6 +446,10 @@ export default function AsignacionRecursos() {
                     ? Number(g.montoFleteCliente)
                     : Number((g as any).ruta?.montoTarifa || 0);
 
+                const anticipoReal = g.montoAnticipoConductor !== null && g.montoAnticipoConductor !== undefined
+                    ? Number(g.montoAnticipoConductor)
+                    : 0;
+
                 return {
                     idOrden: g.idOrden,
                     nroTransporte: g.nroTransporte || `TR-${g.idOrden.slice(0, 8)}`,
@@ -441,6 +457,8 @@ export default function AsignacionRecursos() {
                     hora: fh.hora,
                     fechaISO: fh.iso,
                     fleteBase: !isNaN(fleteBaseReal) ? fleteBaseReal : 0,
+                    montoAnticipoConductor: !isNaN(anticipoReal) ? anticipoReal : 0,
+                    monedaAnticipo: 'Bs',
                     origenCodigo: g.puntoOrigen?.codigoPuntoc || '0705',
                     origenNombre: g.puntoOrigen?.nombreSede || 'Planta Limpieza',
                     idPuntoOrigen: g.idPuntoOrigen,
@@ -1080,6 +1098,8 @@ export default function AsignacionRecursos() {
                     hora: rFh.hora,
                     fechaISO: rFh.iso,
                     fleteBase: Number(respuestaBd.montoFleteCliente) || parseFloat(montoRetorno) || 0,
+                    montoAnticipoConductor: Number(respuestaBd.montoAnticipoConductor) || 0,
+                    monedaAnticipo: 'Bs',
                     origenCodigo: viajeSeleccionadoRetorno.destinoCodigo,
                     origenNombre: viajeSeleccionadoRetorno.destinoNombre,
                     idPuntoOrigen: viajeSeleccionadoRetorno.idPuntoDestino,
@@ -1112,6 +1132,8 @@ export default function AsignacionRecursos() {
                     hora: fh.hora,
                     fechaISO: fechaSalidaIso,
                     fleteBase: parseFloat(montoRetorno) || 0,
+                    montoAnticipoConductor: 0,
+                    monedaAnticipo: 'Bs',
                     origenCodigo: viajeSeleccionadoRetorno.destinoCodigo,
                     origenNombre: viajeSeleccionadoRetorno.destinoNombre,
                     idPuntoOrigen: viajeSeleccionadoRetorno.idPuntoDestino,
@@ -1217,6 +1239,60 @@ export default function AsignacionRecursos() {
             mostrarToast(`Error al asignar recursos: ${err?.message || err}`, 'error');
         } finally {
             setGuardandoRecursos(false);
+        }
+    };
+
+    // ==========================================================================
+    // MANEJO DE MODAL 4: ANTICIPO DE CONDUCTOR
+    // ==========================================================================
+    const abrirModalAnticipo = (viaje: ViajeFleteItem) => {
+        setViajeSeleccionadoAnticipo(viaje);
+        const montoActual = Number(viaje.montoAnticipoConductor || 0);
+        setMontoAnticipoInput(montoActual > 0 ? montoActual.toFixed(2) : '');
+        setMonedaAnticipoInput(viaje.monedaAnticipo || 'Bs');
+        setModalAnticipoAbierto(true);
+    };
+
+    const handleGuardarAnticipo = async () => {
+        if (!viajeSeleccionadoAnticipo) return;
+
+        const montoNum = Math.max(0, parseFloat(montoAnticipoInput) || 0);
+        setGuardandoAnticipo(true);
+
+        try {
+            let montoGuardado = montoNum;
+            if (!viajeSeleccionadoAnticipo.idOrden.startsWith('mock-') && !viajeSeleccionadoAnticipo.idOrden.startsWith('retorno-')) {
+                const actualizado = await programacionService.actualizarAnticipo(
+                    viajeSeleccionadoAnticipo.idOrden,
+                    montoNum,
+                    monedaAnticipoInput
+                );
+                if (actualizado?.montoAnticipoConductor !== undefined && actualizado?.montoAnticipoConductor !== null) {
+                    montoGuardado = Number(actualizado.montoAnticipoConductor);
+                }
+            }
+
+            setViajes((prev) =>
+                prev.map((v) =>
+                    v.idOrden === viajeSeleccionadoAnticipo.idOrden
+                        ? {
+                            ...v,
+                            montoAnticipoConductor: montoGuardado,
+                            monedaAnticipo: monedaAnticipoInput,
+                        }
+                        : v
+                )
+            );
+
+            mostrarToast(
+                `Anticipo de ${monedaAnticipoInput === 'Bs' ? 'Bs.' : '$'} ${montoGuardado.toFixed(2)} (${monedaAnticipoInput}) guardado para la guía ${viajeSeleccionadoAnticipo.nroTransporte}`,
+                'ok'
+            );
+            setModalAnticipoAbierto(false);
+        } catch (err: any) {
+            mostrarToast(`Error al guardar el anticipo: ${err?.message || err}`, 'error');
+        } finally {
+            setGuardandoAnticipo(false);
         }
     };
 
@@ -1586,6 +1662,7 @@ export default function AsignacionRecursos() {
                                     viajesOrdenadosJerarquicos.map(({ viaje: trip, esSubFila }) => {
                                         const cantRecargos = (trip.guiasViajesRecargos || []).length;
                                         const tieneRecargos = cantRecargos > 0;
+                                        const tieneAnticipo = Number(trip.montoAnticipoConductor || 0) > 0;
                                         const tienePlanchaAsignada = padresConPlancha.has(trip.idOrden);
 
                                         return (
@@ -1761,6 +1838,27 @@ export default function AsignacionRecursos() {
                                                             title="Ver observaciones del viaje"
                                                         >
                                                             <MessageSquare className="w-4 h-4" />
+                                                        </button>
+
+                                                        {/* Botón Anticipo */}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => abrirModalAnticipo(trip)}
+                                                            className={`flex items-center justify-center space-x-1.5 px-3 py-1.5 rounded-xl font-bold text-xs min-w-[98px] transition transform hover:scale-[1.02] active:scale-[0.98] shadow-xs cursor-pointer ${tieneAnticipo
+                                                                ? 'bg-teal-600 hover:bg-teal-700 active:bg-teal-800 text-white shadow-teal-600/25'
+                                                                : 'bg-slate-100 hover:bg-slate-200/80 active:bg-slate-300 text-slate-700 border border-slate-200'
+                                                                }`}
+                                                            title={
+                                                                tieneAnticipo
+                                                                    ? `Anticipo asignado: ${trip.monedaAnticipo === 'USD' ? '$' : 'Bs.'} ${Number(trip.montoAnticipoConductor).toFixed(2)}`
+                                                                    : 'Registrar anticipo transferido al conductor'
+                                                            }
+                                                        >
+                                                            <Banknote className="w-3.5 h-3.5 shrink-0" />
+                                                            <span>Anticipo</span>
+                                                            {tieneAnticipo && (
+                                                                <Check className="w-3 h-3 stroke-[3] text-teal-100 shrink-0" />
+                                                            )}
                                                         </button>
 
                                                         {/* Botón % + Recargos (con ancho uniforme para alineación vertical exacta en todas las filas) */}
@@ -2474,6 +2572,115 @@ export default function AsignacionRecursos() {
                     </div>
                 </div>
             )}
+
+            {/* ===================================================================== */}
+            {/* MODAL 4: ANTICIPO TRANSFERIDO AL CONDUCTOR (GUIAS_VIAJES)             */}
+            {/* ===================================================================== */}
+            <Modal
+                isOpen={modalAnticipoAbierto && !!viajeSeleccionadoAnticipo}
+                onClose={() => setModalAnticipoAbierto(false)}
+                title={
+                    <div className="flex items-center gap-2.5">
+                        <div className="w-9 h-9 rounded-xl bg-teal-100 flex items-center justify-center text-teal-700 shrink-0">
+                            <Banknote className="w-5 h-5" />
+                        </div>
+                        <div>
+                            <span className="text-sm font-bold text-slate-900 block">
+                                Anticipo de Viaje — Guía {viajeSeleccionadoAnticipo?.nroTransporte}
+                            </span>
+                            <span className="text-[11px] text-slate-500 font-normal block">
+                                Registre el monto del anticipo transferido para realizar el viaje
+                            </span>
+                        </div>
+                    </div>
+                }
+                size="md"
+                footer={
+                    <div className="flex items-center justify-end gap-2 w-full">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setModalAnticipoAbierto(false)}
+                            disabled={guardandoAnticipo}
+                        >
+                            Cancelar
+                        </Button>
+                        <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={handleGuardarAnticipo}
+                            disabled={guardandoAnticipo}
+                            iconLeft={
+                                guardandoAnticipo ? (
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                    <Save className="w-3.5 h-3.5" />
+                                )
+                            }
+                        >
+                            {guardandoAnticipo ? 'Guardando...' : 'Guardar'}
+                        </Button>
+                    </div>
+                }
+            >
+                {viajeSeleccionadoAnticipo && (
+                    <div className="space-y-4">
+                        {/* Resumen del viaje y conductor */}
+                        <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-xl flex items-center justify-between text-xs">
+                            <div>
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
+                                    Conductor & Ruta Asignada
+                                </span>
+                                <span className="font-bold text-slate-900 text-xs block mt-0.5">
+                                    {viajeSeleccionadoAnticipo.conductorNombre} • {viajeSeleccionadoAnticipo.vehiculoMotrizNombre}
+                                </span>
+                                <span className="text-[11px] text-slate-500 font-medium block mt-0.5">
+                                    [{viajeSeleccionadoAnticipo.origenCodigo}] {viajeSeleccionadoAnticipo.origenNombre} → [{viajeSeleccionadoAnticipo.destinoCodigo}] {viajeSeleccionadoAnticipo.destinoNombre}
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Monto del Anticipo + Tipo de Moneda al lado (Bs predeterminado o USD) */}
+                        <div className="space-y-1.5">
+                            <label
+                                htmlFor="input-monto-anticipo"
+                                className="text-xs font-bold text-slate-700 block"
+                            >
+                                Monto del Anticipo Transferido <span className="text-orange-500">*</span>
+                            </label>
+                            <div className="flex items-stretch gap-2">
+                                <div className="relative flex-1 flex items-center">
+                                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500 font-extrabold text-xs select-none">
+                                        {monedaAnticipoInput === 'Bs' ? 'Bs.' : '$'}
+                                    </span>
+                                    <input
+                                        id="input-monto-anticipo"
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={montoAnticipoInput}
+                                        onChange={(e) => setMontoAnticipoInput(e.target.value)}
+                                        placeholder="0.00"
+                                        autoFocus
+                                        className="w-full bg-white border border-slate-300 focus:border-teal-600 focus:ring-2 focus:ring-teal-500/20 rounded-xl pl-10 pr-3.5 py-2.5 text-sm font-black text-slate-900 focus:outline-hidden transition"
+                                    />
+                                </div>
+
+                                {/* Selector de Moneda al lado (Bs predeterminado / USD) */}
+                                <select
+                                    value={monedaAnticipoInput}
+                                    onChange={(e) => setMonedaAnticipoInput(e.target.value as 'Bs' | 'USD')}
+                                    aria-label="Tipo de moneda del anticipo"
+                                    className="w-28 bg-slate-50 hover:bg-slate-100/80 focus:bg-white border border-slate-300 focus:border-teal-600 focus:ring-2 focus:ring-teal-500/20 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-extrabold text-slate-800 focus:outline-hidden transition cursor-pointer shrink-0"
+                                >
+                                    <option value="Bs">Bs</option>
+                                    <option value="USD">USD</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </Modal>
         </div>
     );
 }

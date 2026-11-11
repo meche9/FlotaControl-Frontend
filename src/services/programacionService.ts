@@ -380,6 +380,22 @@ export const programacionService = {
   },
 
   /**
+   * Actualiza el campo monto_anticipo_conductor de una orden de viaje en guias_viajes.
+   */
+  async actualizarAnticipo(
+    idOrden: string,
+    montoAnticipoConductor: number,
+    moneda?: 'Bs' | 'USD',
+  ): Promise<GuiaProgramada> {
+    const response = await api.patch<GuiaProgramada>('/schedules/actualizar-anticipo', {
+      idOrden,
+      montoAnticipoConductor,
+      moneda,
+    });
+    return response.data;
+  },
+
+  /**
    * Cancela una orden de viaje estableciendo estadoOrden a Cancelado y guardando observación.
    */
   async cancelarViaje(idOrden: string, observacion?: string): Promise<GuiaProgramada> {

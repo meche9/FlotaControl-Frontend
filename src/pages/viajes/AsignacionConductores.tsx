@@ -262,12 +262,24 @@ function generarTextoWhatsapp(viaje: ViajeAsignacion): string {
     ? `\n📝 Observaciones: *${String(viaje.observaciones).trim()}*`
     : '';
 
-  const puntoCarga = `${viaje.origenCodigo} ${(viaje.origenNombre || 'Origen').toUpperCase()}`;
-  const puntoDescarga = `${viaje.destinoCodigo} ${(viaje.destinoNombre || 'Destino').toUpperCase()}`;
+  const diasSemana = ['DOMINGO', 'LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO'];
+  const partesFecha = extraerPartesFecha(viaje.fecha);
+  const nombreDia = partesFecha
+    ? diasSemana[new Date(partesFecha.anio, partesFecha.mes - 1, partesFecha.dia, 12, 0, 0).getDay()]
+    : viaje.diaSemana
+      ? viaje.diaSemana.split(' ')[0].toUpperCase()
+      : '';
+  const diaPrefijo = nombreDia ? `${nombreDia} ` : '';
+
+  const puntoCarga = ` ${(viaje.origenNombre || 'Origen').toUpperCase()}`;
+  const puntoDescarga = ` ${(viaje.destinoNombre || 'Destino').toUpperCase()}`;
 
   return `🚛 *ORDEN DE CARGA & DESPACHO*
+
+📅 Fecha: *${diaPrefijo}${viaje.fecha}*
+
 📋 Guía/TR: *${viaje.nroTransporte}*
-📅 Fecha: *${viaje.fecha}*
+
 🏭 Punto de Carga: *${puntoCarga}*
 📍 Punto de Descarga: *${puntoDescarga}*${obsTexto}
 
@@ -474,11 +486,11 @@ export default function AsignacionConductores() {
       prev.map((v) =>
         v.id === viajeId
           ? {
-              ...v,
-              conductorId: conductorId,
-              idVehiculoMotriz: choferSeleccionado?.idVehiculoMotriz ?? null,
-              idAcoplado: choferSeleccionado?.idAcopladoActual ?? null,
-            }
+            ...v,
+            conductorId: conductorId,
+            idVehiculoMotriz: choferSeleccionado?.idVehiculoMotriz ?? null,
+            idAcoplado: choferSeleccionado?.idAcopladoActual ?? null,
+          }
           : v
       )
     );
@@ -536,11 +548,11 @@ export default function AsignacionConductores() {
         prev.map((v) =>
           v.id === viaje.id
             ? {
-                ...v,
-                conductorIdEnBD: viaje.conductorId || null,
-                idVehiculoMotriz: guiaActualizada?.idVehiculoMotriz ?? idVehiculoMotriz,
-                idAcoplado: guiaActualizada?.idAcoplado ?? idAcoplado,
-              }
+              ...v,
+              conductorIdEnBD: viaje.conductorId || null,
+              idVehiculoMotriz: guiaActualizada?.idVehiculoMotriz ?? idVehiculoMotriz,
+              idAcoplado: guiaActualizada?.idAcoplado ?? idAcoplado,
+            }
             : v
         )
       );
@@ -1169,8 +1181,8 @@ export default function AsignacionConductores() {
                               <tr
                                 key={viaje.id}
                                 className={`transition-colors duration-150 ${esCancelado
-                                    ? 'bg-rose-50/40 hover:bg-rose-50/60'
-                                    : 'hover:bg-slate-50/70'
+                                  ? 'bg-rose-50/40 hover:bg-rose-50/60'
+                                  : 'hover:bg-slate-50/70'
                                   }`}
                               >
                                 {/* 1. N° TRANSPORTE & FECHA/HORA */}
@@ -1194,11 +1206,10 @@ export default function AsignacionConductores() {
                                       }
                                       disabled={actualizandoFisicoId === viaje.id}
                                       onClick={() => handleToggleFisico(viaje)}
-                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-tight border transition cursor-pointer select-none active:scale-95 ${
-                                        viaje.fisico
+                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-tight border transition cursor-pointer select-none active:scale-95 ${viaje.fisico
                                           ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
                                           : 'bg-slate-50 text-slate-400 border-slate-200 hover:border-slate-300 hover:text-slate-600'
-                                      }`}
+                                        }`}
                                     >
                                       <FileCheck className={`w-3 h-3 ${viaje.fisico ? 'text-emerald-600' : 'text-slate-400'}`} />
                                       <span>{viaje.fisico ? 'Físico' : 'Sin Físico'}</span>
@@ -1360,13 +1371,12 @@ export default function AsignacionConductores() {
                                             setViajeParaWhatsapp(viaje);
                                           }
                                         }}
-                                        className={`p-1.5 rounded-lg shadow-xs transition ${
-                                          !tieneConductorEnBD
+                                        className={`p-1.5 rounded-lg shadow-xs transition ${!tieneConductorEnBD
                                             ? 'bg-slate-100 text-slate-300 border border-slate-200 cursor-not-allowed opacity-50 shadow-none'
                                             : yaNotificadoWhatsapp
                                               ? 'bg-purple-600 hover:bg-purple-700 active:scale-95 text-white cursor-pointer ring-2 ring-purple-300/80'
                                               : 'bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white cursor-pointer'
-                                        }`}
+                                          }`}
                                       >
                                         <MessageCircle className="w-3.5 h-3.5" />
                                       </button>
@@ -1833,11 +1843,10 @@ export default function AsignacionConductores() {
                     mostrarToast('Abriendo WhatsApp y viaje marcado como notificado');
                     setViajeParaWhatsapp(null);
                   }}
-                  className={`px-4 py-2 ${
-                    fueEnviado
+                  className={`px-4 py-2 ${fueEnviado
                       ? 'bg-purple-600 hover:bg-purple-700 text-white'
                       : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                  } rounded-xl text-xs font-bold shadow-md transition flex items-center gap-1.5 cursor-pointer`}
+                    } rounded-xl text-xs font-bold shadow-md transition flex items-center gap-1.5 cursor-pointer`}
                 >
                   <MessageCircle className="w-4 h-4" />
                   <span>{fueEnviado ? 'Reenviar WhatsApp' : 'Abrir WhatsApp Web'}</span>
