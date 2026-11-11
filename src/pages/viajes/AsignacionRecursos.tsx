@@ -196,7 +196,7 @@ export default function AsignacionRecursos() {
     const [conductores, setConductores] = useState<Conductor[]>([]);
     const [puntos, setPuntos] = useState<PuntoCargaDescarga[]>([]);
     const [rutasCatalogo, setRutasCatalogo] = useState<Ruta[]>([]);
-    const [recargosGeneralesCatalogo, setRecargosGeneralesCatalogo] = useState<RecargoGeneral[]>([]);
+    const [, setRecargosGeneralesCatalogo] = useState<RecargoGeneral[]>([]);
 
     // Toast / feedback state
     const [toast, setToast] = useState<{ visible: boolean; mensaje: string; tipo: 'ok' | 'error' | 'info' }>({
