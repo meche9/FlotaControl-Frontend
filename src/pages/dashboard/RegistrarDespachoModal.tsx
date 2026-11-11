@@ -88,6 +88,7 @@ export const RegistrarDespachoModal: React.FC<RegistrarDespachoModalProps> = ({
   const [fechaCargaFormatted, setFechaCargaFormatted] = useState<string>(() => formatFechaEspanol(new Date()));
   const [horaProgramada, setHoraProgramada] = useState('08:00 AM');
   const [activeDatePill, setActiveDatePill] = useState<'hoy' | 'manana' | '48h' | 'custom'>('hoy');
+  const dateInputRef = useRef<HTMLInputElement>(null);
   const [observaciones, setObservaciones] = useState('Viaje Adicional');
   const [fisico, setFisico] = useState(false);
 
@@ -305,6 +306,21 @@ export const RegistrarDespachoModal: React.FC<RegistrarDespachoModalProps> = ({
         const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
         setFechaCargaFormatted(formatFechaEspanol(d));
       }
+    }
+  };
+
+  const handleOpenDatePicker = () => {
+    const input = dateInputRef.current;
+    if (!input) return;
+    try {
+      if (typeof (input as any).showPicker === 'function') {
+        (input as any).showPicker();
+      } else {
+        input.focus();
+        input.click();
+      }
+    } catch {
+      input.focus();
     }
   };
 
@@ -703,11 +719,10 @@ export const RegistrarDespachoModal: React.FC<RegistrarDespachoModalProps> = ({
                       setShowRutaDropdown(!showRutaDropdown);
                     }
                   }}
-                  className={`w-full bg-white rounded-xl border px-3.5 py-2.5 flex items-center justify-between text-xs font-semibold shadow-2xs transition ${
-                    rutasList.length === 0
-                      ? 'border-slate-200 text-slate-400 bg-slate-50/70 cursor-not-allowed'
-                      : 'border-slate-200/90 text-slate-800 hover:border-orange-400 cursor-pointer'
-                  }`}
+                  className={`w-full bg-white rounded-xl border px-3.5 py-2.5 flex items-center justify-between text-xs font-semibold shadow-2xs transition ${rutasList.length === 0
+                    ? 'border-slate-200 text-slate-400 bg-slate-50/70 cursor-not-allowed'
+                    : 'border-slate-200/90 text-slate-800 hover:border-orange-400 cursor-pointer'
+                    }`}
                   title={rutasList.length === 0 ? 'El cliente no tiene rutas creadas' : 'Seleccionar ruta'}
                 >
                   <div className="flex items-center gap-2 truncate pr-1">
@@ -716,8 +731,8 @@ export const RegistrarDespachoModal: React.FC<RegistrarDespachoModalProps> = ({
                       {isLoadingRutas
                         ? 'Cargando rutas...'
                         : rutasList.length === 0
-                        ? 'Sin rutas creadas para este cliente'
-                        : (rutaSeleccionada?.nombreRuta || 'Seleccionar ruta')}
+                          ? 'Sin rutas creadas para este cliente'
+                          : (rutaSeleccionada?.nombreRuta || 'Seleccionar ruta')}
                     </span>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
@@ -779,9 +794,8 @@ export const RegistrarDespachoModal: React.FC<RegistrarDespachoModalProps> = ({
                     Punto de Origen (Carga)
                   </span>
                 </div>
-                <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
-                  rutaSeleccionada ? 'text-emerald-700 bg-emerald-50' : 'text-slate-500 bg-slate-100'
-                }`}>
+                <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${rutaSeleccionada ? 'text-emerald-700 bg-emerald-50' : 'text-slate-500 bg-slate-100'
+                  }`}>
                   {rutaSeleccionada ? 'Vinculado' : 'Sin ruta'}
                 </span>
               </div>
@@ -807,9 +821,8 @@ export const RegistrarDespachoModal: React.FC<RegistrarDespachoModalProps> = ({
                     Punto de Destino
                   </span>
                 </div>
-                <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
-                  rutaSeleccionada ? 'text-sky-700 bg-sky-50' : 'text-slate-500 bg-slate-100'
-                }`}>
+                <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${rutaSeleccionada ? 'text-sky-700 bg-sky-50' : 'text-slate-500 bg-slate-100'
+                  }`}>
                   {rutaSeleccionada ? 'Vinculado' : 'Sin ruta'}
                 </span>
               </div>
@@ -855,14 +868,21 @@ export const RegistrarDespachoModal: React.FC<RegistrarDespachoModalProps> = ({
                 </div>
 
                 <div className="relative">
-                  <div className="bg-white rounded-xl border border-slate-200/80 px-3 py-2 flex items-center gap-2 text-xs font-semibold text-slate-800 shadow-2xs">
-                    <CalendarIcon className="w-4 h-4 text-slate-400 shrink-0" />
-                    <span className="truncate">{fechaCargaFormatted}</span>
+                  <div
+                    onClick={handleOpenDatePicker}
+                    className="bg-white rounded-xl border border-slate-200/80 hover:border-amber-400/80 px-3 py-2 flex items-center justify-between gap-2 text-xs font-semibold text-slate-800 shadow-2xs cursor-pointer transition"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <CalendarIcon className="w-4 h-4 text-slate-400 shrink-0" />
+                      <span className="truncate">{fechaCargaFormatted}</span>
+                    </div>
+
                     <input
+                      ref={dateInputRef}
                       type="date"
                       value={fechaCargaDate}
                       onChange={(e) => handleCustomDateChange(e.target.value)}
-                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                      className="sr-only"
                     />
                   </div>
                 </div>
@@ -898,6 +918,17 @@ export const RegistrarDespachoModal: React.FC<RegistrarDespachoModalProps> = ({
                       }`}
                   >
                     +48h
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenDatePicker}
+                    title="Abrir calendario para elegir cualquier fecha"
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition inline-flex items-center justify-center cursor-pointer ${activeDatePill === 'custom'
+                      ? 'bg-[#fedecd] text-[#d95c26] border border-orange-200/60 shadow-2xs'
+                      : 'bg-white/80 hover:bg-white text-slate-600 border border-slate-200/60'
+                      }`}
+                  >
+                    <CalendarIcon className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
@@ -971,9 +1002,8 @@ export const RegistrarDespachoModal: React.FC<RegistrarDespachoModalProps> = ({
           {/* CONTROL DE DOCUMENTO FÍSICO */}
           <div className="flex items-center justify-between p-3 rounded-2xl bg-[#f8fafc] border border-slate-200/90 shadow-2xs">
             <div className="flex items-center gap-2.5">
-              <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition ${
-                fisico ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200/80 text-slate-500'
-              }`}>
+              <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition ${fisico ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200/80 text-slate-500'
+                }`}>
                 <FileCheck className="w-4 h-4" />
               </div>
               <div>

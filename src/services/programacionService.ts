@@ -137,9 +137,13 @@ export interface GuiaProgramada {
   };
   conductor?: {
     idConductor: string;
+    cedulaIdentidad?: string;
     nombres: string;
     apellidos: string;
     telefono: string;
+    banco?: string | null;
+    nroCuenta?: string | null;
+    pagoMovil?: string | null;
     idVehiculoHabitual?: string | null;
     vehiculoHabitual?: {
       idVehiculo: string;

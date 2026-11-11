@@ -23,6 +23,7 @@ import {
     Building2,
     Pencil,
     Banknote,
+    Copy,
 } from 'lucide-react';
 import { Button, Modal } from '../../components/ui';
 import { programacionService, type GuiaProgramada, type GuiaViajeRecargoItem } from '../../services/programacionService';
@@ -62,6 +63,11 @@ export interface ViajeFleteItem {
     conductorNombre: string;
     conductorIniciales: string;
     conductorEstado: string;
+    conductorCedula?: string | null;
+    conductorTelefono?: string | null;
+    conductorBanco?: string | null;
+    conductorNroCuenta?: string | null;
+    conductorPagoMovil?: string | null;
     estadoOrden: 'En Tránsito' | 'Programado' | 'En Andén' | 'Cancelado' | string;
     fisico: boolean;
     observaciones: string | null;
@@ -212,6 +218,7 @@ export default function AsignacionRecursos() {
     const [modalRecargosAbierto, setModalRecargosAbierto] = useState<boolean>(false);
     const [viajeSeleccionadoRecargos, setViajeSeleccionadoRecargos] = useState<ViajeFleteItem | null>(null);
     const [recargosModalItems, setRecargosModalItems] = useState<RecargoModalItem[]>([]);
+    const [origenRecargosModal, setOrigenRecargosModal] = useState<'rutas_recargos' | 'recargos_generales'>('rutas_recargos');
     const [recargosModalLoading, setRecargosModalLoading] = useState<boolean>(false);
     const [recargosFiltroTexto, setRecargosFiltroTexto] = useState<string>('');
     const [guardandoRecargos, setGuardandoRecargos] = useState<boolean>(false);
@@ -361,6 +368,24 @@ export default function AsignacionRecursos() {
     const [montoAnticipoInput, setMontoAnticipoInput] = useState<string>('');
     const [monedaAnticipoInput, setMonedaAnticipoInput] = useState<'Bs' | 'USD'>('Bs');
     const [guardandoAnticipo, setGuardandoAnticipo] = useState<boolean>(false);
+    const [campoCopiado, setCampoCopiado] = useState<'pagoMovil' | 'cuenta' | null>(null);
+
+    const handleCopiarDatoBancario = async (texto: string, tipo: 'pagoMovil' | 'cuenta', etiqueta: string) => {
+        if (!texto || texto === '—') {
+            mostrarToast(`No hay ${etiqueta.toLowerCase()} registrado en base de datos para copiar`, 'info');
+            return;
+        }
+        try {
+            await navigator.clipboard.writeText(texto);
+            setCampoCopiado(tipo);
+            mostrarToast(`${etiqueta} copiado al portapapeles`, 'ok');
+            setTimeout(() => {
+                setCampoCopiado((prev) => (prev === tipo ? null : prev));
+            }, 2200);
+        } catch {
+            mostrarToast(`No se pudo copiar ${etiqueta.toLowerCase()}`, 'error');
+        }
+    };
 
     // ==========================================================================
     // CARGA DE CATÁLOGOS Y CONSULTA DE VIAJES
@@ -429,18 +454,18 @@ export default function AsignacionRecursos() {
                 }
 
                 const nombreMack = g.vehiculoMotriz
-                    ? `${g.vehiculoMotriz.marca || 'Mack'} ${g.vehiculoMotriz.modelo || 'Granite'} #${g.vehiculoMotriz.placa || ''}`.trim()
+                    ? `${g.vehiculoMotriz.marca || ''} ${g.vehiculoMotriz.modelo || ''} #${g.vehiculoMotriz.placa || ''}`.trim()
                     : g.conductor?.vehiculoHabitual
-                        ? `${g.conductor.vehiculoHabitual.marca || 'Mack'} ${g.conductor.vehiculoHabitual.modelo || ''} #${g.conductor.vehiculoHabitual.placa || ''}`.trim()
-                        : 'Mack Granite #A42';
+                        ? `${g.conductor.vehiculoHabitual.marca || ''} ${g.conductor.vehiculoHabitual.modelo || ''} #${g.conductor.vehiculoHabitual.placa || ''}`.trim()
+                        : 'Sin unidad motriz';
 
                 const nombreBatea = g.acoplado
-                    ? `${g.acoplado.marca || 'Batea'} ${g.acoplado.modelo || '3 Ejes'} • ${g.acoplado.placa || ''}`.trim()
-                    : 'Batea 3 Ejes • BAT-904';
+                    ? `${g.acoplado.marca || ''} ${g.acoplado.modelo || ''} • ${g.acoplado.placa || ''}`.trim()
+                    : 'Sin acoplado';
 
                 const condNombre = g.conductor
-                    ? `${g.conductor.nombres} ${g.conductor.apellidos}`.trim()
-                    : 'Carlos Rodríguez';
+                    ? `${g.conductor.nombres || ''} ${g.conductor.apellidos || ''}`.trim()
+                    : 'Sin conductor asignado';
 
                 const fleteBaseReal = g.montoFleteCliente !== null && g.montoFleteCliente !== undefined
                     ? Number(g.montoFleteCliente)
@@ -452,21 +477,21 @@ export default function AsignacionRecursos() {
 
                 return {
                     idOrden: g.idOrden,
-                    nroTransporte: g.nroTransporte || `TR-${g.idOrden.slice(0, 8)}`,
+                    nroTransporte: g.nroTransporte || g.idOrden,
                     fecha: fh.fecha,
                     hora: fh.hora,
                     fechaISO: fh.iso,
                     fleteBase: !isNaN(fleteBaseReal) ? fleteBaseReal : 0,
                     montoAnticipoConductor: !isNaN(anticipoReal) ? anticipoReal : 0,
                     monedaAnticipo: 'Bs',
-                    origenCodigo: g.puntoOrigen?.codigoPuntoc || '0705',
-                    origenNombre: g.puntoOrigen?.nombreSede || 'Planta Limpieza',
+                    origenCodigo: g.puntoOrigen?.codigoPuntoc || '',
+                    origenNombre: g.puntoOrigen?.nombreSede || '',
                     idPuntoOrigen: g.idPuntoOrigen,
-                    destinoCodigo: g.puntoDestino?.codigoPuntoc || 'C010',
-                    destinoNombre: g.puntoDestino?.nombreSede || 'CL Valencia II',
+                    destinoCodigo: g.puntoDestino?.codigoPuntoc || '',
+                    destinoNombre: g.puntoDestino?.nombreSede || '',
                     idPuntoDestino: g.idPuntoDestino,
                     idRuta: g.idRuta,
-                    nombreRuta: (g as any).ruta?.nombreRuta || `${g.puntoOrigen?.nombreSede || 'Origen'} — ${g.puntoDestino?.nombreSede || 'Destino'}`,
+                    nombreRuta: (g as any).ruta?.nombreRuta || `${g.puntoOrigen?.nombreSede || ''} — ${g.puntoDestino?.nombreSede || ''}`,
                     idCliente: g.idCliente || g.cliente?.idCliente || '',
                     clienteNombre: g.cliente?.razonSocial || g.cliente?.nombreComercial || '',
                     idVehiculoMotriz: g.idVehiculoMotriz,
@@ -475,9 +500,14 @@ export default function AsignacionRecursos() {
                     acopladoNombre: nombreBatea,
                     idConductor: g.idConductor,
                     conductorNombre: condNombre,
-                    conductorIniciales: obtenerIniciales(condNombre),
-                    conductorEstado: g.conductor ? 'En Cabina' : 'En Cabina',
-                    estadoOrden: g.estadoOrden || 'En Tránsito',
+                    conductorIniciales: obtenerIniciales(g.conductor ? condNombre : '--'),
+                    conductorEstado: g.conductor ? (g.conductor as any).estado || 'Activo' : 'Sin asignar',
+                    conductorCedula: g.conductor?.cedulaIdentidad || null,
+                    conductorTelefono: g.conductor?.telefono || null,
+                    conductorBanco: g.conductor?.banco || null,
+                    conductorNroCuenta: g.conductor?.nroCuenta || null,
+                    conductorPagoMovil: g.conductor?.pagoMovil || null,
+                    estadoOrden: g.estadoOrden || 'Programado',
                     fisico: Boolean(g.fisico),
                     observaciones: g.observaciones,
                     guiasViajesRecargos: g.guiasViajesRecargos || [],
@@ -648,7 +678,7 @@ export default function AsignacionRecursos() {
     };
 
     // ==========================================================================
-    // MANEJO DE MODAL 1: GESTIÓN DE RECARGOS (RECARGOS_GENERALES / RUTAS_RECARGOS)
+    // MANEJO DE MODAL 1: GESTIÓN DE RECARGOS (RUTAS_RECARGOS / RECARGOS_GENERALES)
     // ==========================================================================
     const abrirModalRecargos = async (viaje: ViajeFleteItem) => {
         setViajeSeleccionadoRecargos(viaje);
@@ -657,22 +687,45 @@ export default function AsignacionRecursos() {
         setRecargosModalLoading(true);
 
         try {
-            // 1. Obtener catálogo general de recargos desde la tabla recargos_generales
-            let catalogoGenerales = recargosGeneralesCatalogo;
-            if (catalogoGenerales.length === 0) {
-                catalogoGenerales = await rutasService.getRecargosGenerales();
-                setRecargosGeneralesCatalogo(catalogoGenerales || []);
+            // 1. Identificar la ruta correspondiente al viaje y consultar rutas_recargos
+            const rutaDirecta = rutasCatalogo.find(
+                (r) => r.idPuntoOrigen === viaje.idPuntoOrigen && r.idPuntoDestino === viaje.idPuntoDestino
+            );
+            const rutaInversa = viaje.esRetorno
+                ? buscarRutaContraria(viaje.idPuntoOrigen, viaje.idPuntoDestino, rutasCatalogo)
+                : null;
+
+            const idsRutasCandidatas = Array.from(
+                new Set(
+                    [viaje.idRuta, rutaDirecta?.idRuta, rutaInversa?.idRuta].filter(
+                        (id): id is string => Boolean(id && !id.startsWith('ruta-mock'))
+                    )
+                )
+            );
+
+            let recargosBase: Array<{
+                idRecargo?: string;
+                concepto: string;
+                tipoCalculo: string;
+                valor: number | string;
+                moneda?: 'Bs' | 'USD';
+            }> = [];
+
+            for (const idRutaCand of idsRutasCandidatas) {
+                const deRuta = await rutasService.getRecargosByRuta(idRutaCand).catch(() => []);
+                if (Array.isArray(deRuta) && deRuta.length > 0) {
+                    recargosBase = deRuta;
+                    break;
+                }
             }
 
-            // 2. Obtener recargos configurados para esta ruta en rutas_recargos (si existen)
-            let recargosRuta: any[] = [];
-            if (viaje.idRuta && !viaje.idRuta.startsWith('mock-') && !viaje.idRuta.startsWith('ruta-')) {
-                recargosRuta = await rutasService.getRecargosByRuta(viaje.idRuta).catch(() => []);
-            }
-            const rutaRecargosMap = new Map<string, any>();
-            for (const rr of recargosRuta) {
-                const conc = (rr.concepto || '').trim().toLowerCase();
-                if (conc) rutaRecargosMap.set(conc, rr);
+            if (recargosBase.length > 0) {
+                setOrigenRecargosModal('rutas_recargos');
+            } else {
+                // 2. Si no existen recargos para esa ruta en rutas_recargos, mostrar los de recargos_generales
+                setOrigenRecargosModal('recargos_generales');
+                const catalogoGenerales = await rutasService.getRecargosGenerales().catch(() => []);
+                recargosBase = Array.isArray(catalogoGenerales) ? catalogoGenerales : [];
             }
 
             // 3. Cruzar con los recargos ya asignados a este viaje en guias_viajes_recargos
@@ -684,52 +737,31 @@ export default function AsignacionRecursos() {
                 if (a.idRecargo) asignadosMap.set(a.idRecargo, a);
             }
 
-            const items: RecargoModalItem[] = (catalogoGenerales || []).map((rg) => {
-                const concTrim = (rg.concepto || '').trim().toLowerCase();
-                const enRuta = rutaRecargosMap.get(concTrim);
+            const items: RecargoModalItem[] = recargosBase.map((rb) => {
+                const concTrim = (rb.concepto || '').trim().toLowerCase();
                 const asignado =
                     asignadosMap.get(concTrim) ||
-                    (enRuta?.idRecargo ? asignadosMap.get(enRuta.idRecargo) : undefined) ||
-                    (rg.idRecargo ? asignadosMap.get(rg.idRecargo) : undefined);
+                    (rb.idRecargo ? asignadosMap.get(rb.idRecargo) : undefined);
 
                 const isSelected = !!asignado;
                 const valor =
                     isSelected && asignado?.monto !== undefined && asignado?.monto !== null
                         ? asignado.monto
-                        : enRuta?.valor !== undefined && enRuta?.valor !== null
-                            ? enRuta.valor
-                            : (rg.valor ?? '0.00');
+                        : (rb.valor ?? '0.00');
 
                 return {
-                    idRecargo: enRuta?.idRecargo || rg.idRecargo,
+                    idRecargo: rb.idRecargo,
                     idViajeRecargo: asignado?.idViajeRecargo,
-                    concepto: rg.concepto,
-                    tipoCalculo: asignado?.recargo?.tipoCalculo || enRuta?.tipoCalculo || rg.tipoCalculo || 'Monto_Fijo',
+                    concepto: rb.concepto,
+                    tipoCalculo: asignado?.recargo?.tipoCalculo || rb.tipoCalculo || 'Monto_Fijo',
                     valor: valor,
                     selected: isSelected,
                     observaciones: asignado?.observaciones || '',
                 };
             });
 
-            // Incluir recargos de la ruta o asignados previamente al viaje que no estén en recargos_generales
-            const conceptosSet = new Set((catalogoGenerales || []).map((r) => (r.concepto || '').trim().toLowerCase()));
-            for (const rr of recargosRuta) {
-                const conc = (rr.concepto || '').trim();
-                if (conc && !conceptosSet.has(conc.toLowerCase())) {
-                    const asignado = asignadosMap.get(conc.toLowerCase()) || (rr.idRecargo ? asignadosMap.get(rr.idRecargo) : undefined);
-                    const isSelected = !!asignado;
-                    items.push({
-                        idRecargo: rr.idRecargo,
-                        idViajeRecargo: asignado?.idViajeRecargo,
-                        concepto: conc,
-                        tipoCalculo: asignado?.recargo?.tipoCalculo || rr.tipoCalculo || 'Monto_Fijo',
-                        valor: isSelected && asignado?.monto !== undefined && asignado?.monto !== null ? asignado.monto : (rr.valor ?? '0.00'),
-                        selected: isSelected,
-                        observaciones: asignado?.observaciones || '',
-                    });
-                    conceptosSet.add(conc.toLowerCase());
-                }
-            }
+            // Incluir recargos asignados previamente al viaje que no estén en la lista base
+            const conceptosSet = new Set(recargosBase.map((r) => (r.concepto || '').trim().toLowerCase()));
             for (const asig of asignadosGuia) {
                 const conc = (asig.recargo?.concepto || (asig as any).concepto || '').trim();
                 if (conc && !conceptosSet.has(conc.toLowerCase())) {
@@ -755,7 +787,7 @@ export default function AsignacionRecursos() {
 
             setRecargosModalItems(items);
         } catch (err: any) {
-            mostrarToast(`No se pudieron cargar los recargos desde recargos_generales: ${err?.message || err}`, 'error');
+            mostrarToast(`No se pudieron cargar los recargos: ${err?.message || err}`, 'error');
         } finally {
             setRecargosModalLoading(false);
         }
@@ -1228,6 +1260,11 @@ export default function AsignacionRecursos() {
                             idConductor: selConductor || null,
                             conductorNombre: nombreChofer,
                             conductorIniciales: obtenerIniciales(nombreChofer),
+                            conductorCedula: condObj?.cedulaIdentidad ?? v.conductorCedula,
+                            conductorTelefono: condObj?.telefono ?? v.conductorTelefono,
+                            conductorBanco: condObj?.banco ?? v.conductorBanco,
+                            conductorNroCuenta: condObj?.nroCuenta ?? v.conductorNroCuenta,
+                            conductorPagoMovil: condObj?.pagoMovil ?? v.conductorPagoMovil,
                         }
                         : v
                 )
@@ -1245,12 +1282,34 @@ export default function AsignacionRecursos() {
     // ==========================================================================
     // MANEJO DE MODAL 4: ANTICIPO DE CONDUCTOR
     // ==========================================================================
-    const abrirModalAnticipo = (viaje: ViajeFleteItem) => {
+    const abrirModalAnticipo = async (viaje: ViajeFleteItem) => {
         setViajeSeleccionadoAnticipo(viaje);
         const montoActual = Number(viaje.montoAnticipoConductor || 0);
         setMontoAnticipoInput(montoActual > 0 ? montoActual.toFixed(2) : '');
         setMonedaAnticipoInput(viaje.monedaAnticipo || 'Bs');
         setModalAnticipoAbierto(true);
+
+        // Consultar directamente en la base de datos la tabla conductores si el viaje tiene idConductor
+        if (viaje.idConductor) {
+            try {
+                const conductorBd = await conductoresService.getConductor(viaje.idConductor);
+                setViajeSeleccionadoAnticipo((prev) =>
+                    prev && prev.idOrden === viaje.idOrden
+                        ? {
+                            ...prev,
+                            conductorNombre: `${conductorBd.nombres || ''} ${conductorBd.apellidos || ''}`.trim() || prev.conductorNombre,
+                            conductorCedula: conductorBd.cedulaIdentidad ?? null,
+                            conductorTelefono: conductorBd.telefono ?? null,
+                            conductorBanco: conductorBd.banco ?? null,
+                            conductorNroCuenta: conductorBd.nroCuenta ?? null,
+                            conductorPagoMovil: conductorBd.pagoMovil ?? null,
+                        }
+                        : prev
+                );
+            } catch {
+                // Se mantienen los datos de la relación conductor traídos de la BD en la guía
+            }
+        }
     };
 
     const handleGuardarAnticipo = async () => {
@@ -1993,9 +2052,15 @@ export default function AsignacionRecursos() {
                         <div className="flex items-center gap-2">
                             <Coins className="w-4 h-4 text-orange-600 shrink-0" />
                             <div>
-                                <span className="font-bold text-orange-950 block">Catálogo de Recargos Generales:</span>
+                                <span className="font-bold text-orange-950 block">
+                                    {origenRecargosModal === 'rutas_recargos'
+                                        ? 'Recargos de la Ruta (rutas_recargos):'
+                                        : 'Recargos Generales (recargos_generales):'}
+                                </span>
                                 <span className="text-[11px] text-orange-800">
-                                    Marque los recargos aplicables e indique el monto para esta ruta
+                                    {origenRecargosModal === 'rutas_recargos'
+                                        ? 'Conceptos registrados para la ruta correspondiente al viaje'
+                                        : 'La ruta no tiene recargos propios; se muestran los de recargos_generales'}
                                 </span>
                             </div>
                         </div>
@@ -2623,63 +2688,162 @@ export default function AsignacionRecursos() {
                     </div>
                 }
             >
-                {viajeSeleccionadoAnticipo && (
-                    <div className="space-y-4">
-                        {/* Resumen del viaje y conductor */}
-                        <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-xl flex items-center justify-between text-xs">
-                            <div>
-                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
-                                    Conductor & Ruta Asignada
-                                </span>
-                                <span className="font-bold text-slate-900 text-xs block mt-0.5">
-                                    {viajeSeleccionadoAnticipo.conductorNombre} • {viajeSeleccionadoAnticipo.vehiculoMotrizNombre}
-                                </span>
-                                <span className="text-[11px] text-slate-500 font-medium block mt-0.5">
-                                    [{viajeSeleccionadoAnticipo.origenCodigo}] {viajeSeleccionadoAnticipo.origenNombre} → [{viajeSeleccionadoAnticipo.destinoCodigo}] {viajeSeleccionadoAnticipo.destinoNombre}
-                                </span>
-                            </div>
-                        </div>
+                {viajeSeleccionadoAnticipo && (() => {
+                    const cedulaChofer = viajeSeleccionadoAnticipo.conductorCedula || '—';
+                    const telefonoChofer = viajeSeleccionadoAnticipo.conductorTelefono || '—';
+                    const bancoChofer = viajeSeleccionadoAnticipo.conductorBanco || '—';
+                    const cuentaChofer = viajeSeleccionadoAnticipo.conductorNroCuenta || '—';
+                    const pagoMovilChofer = viajeSeleccionadoAnticipo.conductorPagoMovil || '—';
 
-                        {/* Monto del Anticipo + Tipo de Moneda al lado (Bs predeterminado o USD) */}
-                        <div className="space-y-1.5">
-                            <label
-                                htmlFor="input-monto-anticipo"
-                                className="text-xs font-bold text-slate-700 block"
-                            >
-                                Monto del Anticipo Transferido <span className="text-orange-500">*</span>
-                            </label>
-                            <div className="flex items-stretch gap-2">
-                                <div className="relative flex-1 flex items-center">
-                                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500 font-extrabold text-xs select-none">
-                                        {monedaAnticipoInput === 'Bs' ? 'Bs.' : '$'}
+                    return (
+                        <div className="space-y-4">
+                            {/* Parte Superior: Datos Bancarios del Conductor (tabla conductores en BD) */}
+                            <div className="p-4 bg-gradient-to-br from-teal-50/90 via-emerald-50/50 to-slate-50 border border-teal-200/80 rounded-2xl space-y-3 shadow-2xs">
+                                <div className="flex items-center justify-between border-b border-teal-200/70 pb-2.5">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="w-8 h-8 rounded-full bg-teal-600 text-white font-black text-xs flex items-center justify-center shrink-0">
+                                            {viajeSeleccionadoAnticipo.conductorIniciales}
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-black text-teal-800 uppercase tracking-wider block">
+                                                Datos Bancarios del Conductor
+                                            </span>
+                                            <span className="font-extrabold text-slate-900 text-xs sm:text-sm block">
+                                                {viajeSeleccionadoAnticipo.conductorNombre}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <span className="text-[11px] font-bold text-teal-900 bg-white/90 border border-teal-200 px-2.5 py-1 rounded-lg">
+                                        C.I: {cedulaChofer}
                                     </span>
-                                    <input
-                                        id="input-monto-anticipo"
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        value={montoAnticipoInput}
-                                        onChange={(e) => setMontoAnticipoInput(e.target.value)}
-                                        placeholder="0.00"
-                                        autoFocus
-                                        className="w-full bg-white border border-slate-300 focus:border-teal-600 focus:ring-2 focus:ring-teal-500/20 rounded-xl pl-10 pr-3.5 py-2.5 text-sm font-black text-slate-900 focus:outline-hidden transition"
-                                    />
                                 </div>
 
-                                {/* Selector de Moneda al lado (Bs predeterminado / USD) */}
-                                <select
-                                    value={monedaAnticipoInput}
-                                    onChange={(e) => setMonedaAnticipoInput(e.target.value as 'Bs' | 'USD')}
-                                    aria-label="Tipo de moneda del anticipo"
-                                    className="w-28 bg-slate-50 hover:bg-slate-100/80 focus:bg-white border border-slate-300 focus:border-teal-600 focus:ring-2 focus:ring-teal-500/20 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-extrabold text-slate-800 focus:outline-hidden transition cursor-pointer shrink-0"
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                                    <div className="bg-white/90 border border-teal-200/70 rounded-xl p-2.5">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                                            Banco
+                                        </span>
+                                        <span className="font-extrabold text-slate-800 text-xs block mt-0.5 truncate" title={bancoChofer}>
+                                            {bancoChofer}
+                                        </span>
+                                    </div>
+
+                                    <div className="bg-white/90 border border-teal-200/70 rounded-xl p-2.5">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                                            Pago Móvil / Teléfono
+                                        </span>
+                                        <div className="inline-flex items-center gap-1.5 mt-0.5 max-w-full">
+                                            <span className="font-extrabold text-slate-800 text-xs truncate">
+                                                {pagoMovilChofer !== '—' ? pagoMovilChofer : telefonoChofer}
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    handleCopiarDatoBancario(
+                                                        pagoMovilChofer !== '—' ? pagoMovilChofer : telefonoChofer,
+                                                        'pagoMovil',
+                                                        'Pago Móvil'
+                                                    )
+                                                }
+                                                className={`inline-flex items-center justify-center p-0.5 rounded transition shrink-0 cursor-pointer ${campoCopiado === 'pagoMovil'
+                                                    ? 'text-emerald-600'
+                                                    : 'text-slate-400 hover:text-slate-600'
+                                                    }`}
+                                                title="Copiar Pago Móvil"
+                                            >
+                                                {campoCopiado === 'pagoMovil' ? (
+                                                    <Check className="w-3.5 h-3.5" />
+                                                ) : (
+                                                    <Copy className="w-3.5 h-3.5" />
+                                                )}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="sm:col-span-2 bg-white/90 border border-teal-200/70 rounded-xl p-2.5">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                                            Número de Cuenta Bancaria
+                                        </span>
+                                        <div className="inline-flex items-center gap-1.5 mt-0.5 max-w-full">
+                                            <span className="font-mono font-black text-slate-900 text-xs sm:text-sm tracking-wide break-all">
+                                                {cuentaChofer}
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    handleCopiarDatoBancario(
+                                                        cuentaChofer,
+                                                        'cuenta',
+                                                        'Cuenta Bancaria'
+                                                    )
+                                                }
+                                                className={`inline-flex items-center justify-center p-0.5 rounded transition shrink-0 cursor-pointer ${campoCopiado === 'cuenta'
+                                                    ? 'text-emerald-600'
+                                                    : 'text-slate-400 hover:text-slate-600'
+                                                    }`}
+                                                title="Copiar Cuenta Bancaria"
+                                            >
+                                                {campoCopiado === 'cuenta' ? (
+                                                    <Check className="w-3.5 h-3.5" />
+                                                ) : (
+                                                    <Copy className="w-3.5 h-3.5" />
+                                                )}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="text-[11px] text-slate-500 font-medium pt-0.5 flex items-center justify-between">
+                                    <span className="truncate">
+                                        Ruta: [{viajeSeleccionadoAnticipo.origenCodigo}] {viajeSeleccionadoAnticipo.origenNombre} → [{viajeSeleccionadoAnticipo.destinoCodigo}] {viajeSeleccionadoAnticipo.destinoNombre}
+                                    </span>
+                                    <span className="font-bold text-slate-700 shrink-0 ml-2">
+                                        {viajeSeleccionadoAnticipo.vehiculoMotrizNombre}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Monto del Anticipo + Tipo de Moneda al lado (Bs predeterminado o USD) */}
+                            <div className="space-y-1.5">
+                                <label
+                                    htmlFor="input-monto-anticipo"
+                                    className="text-xs font-bold text-slate-700 block"
                                 >
-                                    <option value="Bs">Bs</option>
-                                    <option value="USD">USD</option>
-                                </select>
+                                    Monto del Anticipo Transferido <span className="text-orange-500">*</span>
+                                </label>
+                                <div className="flex items-stretch gap-2">
+                                    <div className="relative flex-1 flex items-center">
+                                        <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500 font-extrabold text-xs select-none">
+                                            {monedaAnticipoInput === 'Bs' ? 'Bs.' : '$'}
+                                        </span>
+                                        <input
+                                            id="input-monto-anticipo"
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            value={montoAnticipoInput}
+                                            onChange={(e) => setMontoAnticipoInput(e.target.value)}
+                                            placeholder="0.00"
+                                            autoFocus
+                                            className="w-full bg-white border border-slate-300 focus:border-teal-600 focus:ring-2 focus:ring-teal-500/20 rounded-xl pl-10 pr-3.5 py-2.5 text-sm font-black text-slate-900 focus:outline-hidden transition"
+                                        />
+                                    </div>
+
+                                    {/* Selector de Moneda al lado (Bs predeterminado / USD) */}
+                                    <select
+                                        value={monedaAnticipoInput}
+                                        onChange={(e) => setMonedaAnticipoInput(e.target.value as 'Bs' | 'USD')}
+                                        aria-label="Tipo de moneda del anticipo"
+                                        className="w-28 bg-slate-50 hover:bg-slate-100/80 focus:bg-white border border-slate-300 focus:border-teal-600 focus:ring-2 focus:ring-teal-500/20 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-extrabold text-slate-800 focus:outline-hidden transition cursor-pointer shrink-0"
+                                    >
+                                        <option value="Bs">Bs</option>
+                                        <option value="USD">USD</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                )}
+                    );
+                })()}
             </Modal>
         </div>
     );
