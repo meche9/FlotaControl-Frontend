@@ -2,10 +2,8 @@ import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   SlidersHorizontal,
-  Building2,
   Calendar,
   RotateCw,
-  Clock,
   Truck,
   CheckCircle2,
   Search,
@@ -28,7 +26,6 @@ import {
   FileCheck
 } from 'lucide-react';
 import { conductoresService } from '../../services/conductoresService';
-import { clientesService, ordenarClientesPorFechaCreacion, type Cliente } from '../../services/clientesService';
 import { programacionService, type GuiaProgramada } from '../../services/programacionService';
 
 // ==========================================
@@ -58,6 +55,7 @@ export interface ViajeAsignacion {
   diaKey: string;
   origenCodigo: string;
   origenNombre: string;
+  clienteNombre?: string;
   destinoCodigo: string;
   destinoNombre: string;
   fechaEstimadaLlegada: string;
@@ -237,6 +235,7 @@ function mapGuiaToViaje(g: GuiaProgramada): ViajeAsignacion {
     diaKey,
     origenCodigo: g.puntoOrigen?.codigoPuntoc ? `[${g.puntoOrigen.codigoPuntoc}]` : '[S/C]',
     origenNombre: g.puntoOrigen?.nombreSede || 'Planta Origen',
+    clienteNombre: g.cliente?.nombreComercial || g.cliente?.razonSocial || '',
     destinoCodigo: g.puntoDestino?.codigoPuntoc ? `[${g.puntoDestino.codigoPuntoc}]` : '[S/C]',
     destinoNombre: g.puntoDestino?.nombreSede || 'Destino',
     fechaEstimadaLlegada: formatearFechaEstimada(g.fechaEntregaEstimada),
@@ -296,10 +295,9 @@ export default function AsignacionConductores() {
   const [guiasPanel, setGuiasPanel] = useState<GuiaAsignadaPanel[]>([]);
 
   // Estados de interfaz y filtrado
-  const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [clienteSeleccionadoId, setClienteSeleccionadoId] = useState<string>('');
   const [fechaInicio, setFechaInicio] = useState<string>('');
   const [fechaFin, setFechaFin] = useState<string>('');
+  const [presetFechaActivo, setPresetFechaActivo] = useState<'hoy' | 'manana' | 'mes' | null>(null);
   const [tabDiaActivo, setTabDiaActivo] = useState<string>('todos');
   const [terminoBusqueda, setTerminoBusqueda] = useState<string>('');
   const [gruposColapsados, setGruposColapsados] = useState<Record<string, boolean>>({});
@@ -365,14 +363,11 @@ export default function AsignacionConductores() {
   const [guardandoViajeId, setGuardandoViajeId] = useState<string | null>(null);
   const [actualizandoFisicoId, setActualizandoFisicoId] = useState<string | null>(null);
 
-  // Cargar conductores y clientes desde la base de datos al montar
+  // Cargar conductores desde la base de datos al montar
   useEffect(() => {
     async function fetchCatalogos() {
       try {
-        const [drivers, clients] = await Promise.all([
-          conductoresService.getConductores().catch(() => []),
-          clientesService.getClientes().catch(() => []),
-        ]);
+        const drivers = await conductoresService.getConductores().catch(() => []);
 
         if (drivers && drivers.length > 0) {
           const formateados: ConductorItem[] = drivers.map((d) => {
@@ -396,14 +391,6 @@ export default function AsignacionConductores() {
 
           setConductores(formateados);
         }
-
-        if (clients && clients.length > 0) {
-          const sortedClients = ordenarClientesPorFechaCreacion(clients);
-          setClientes(sortedClients);
-          // Mostrar siempre el primero que se ha creado en base de datos
-          const clienteId = sortedClients[0].idCliente;
-          setClienteSeleccionadoId(clienteId);
-        }
       } catch (err) {
         console.warn('Error inicializando catálogos de asignación:', err);
       }
@@ -418,23 +405,33 @@ export default function AsignacionConductores() {
     }, 3800);
   };
 
-  // Carga directa reutilizable
-  const cargarViajesDirecto = async (clienteId: string, inicio: string, fin: string) => {
+  // Carga directa reutilizable filtrada únicamente por fechas (excluyendo planchas generadas)
+  const cargarViajesDirecto = async (inicio: string, fin: string) => {
     setCargandoViajes(true);
     try {
       const guias = await programacionService.getGuiasProgramadas({
-        idCliente: clienteId,
         fechaInicio: inicio,
         fechaFin: fin,
         estadoOrden: 'todos',
       });
 
-      const viajesMapeados = guias.map(mapGuiaToViaje);
+      // Excluir planchas de retorno generadas para mostrar únicamente los viajes principales
+      const guiasPrincipales = (guias || []).filter((g) => {
+        const obs = String(g.observaciones || '');
+        return (
+          !obs.includes('[RETORNO_DE:') &&
+          !obs.includes('[RETORNO]') &&
+          !obs.includes('[PLANCHA_ADICIONAL') &&
+          !obs.toLowerCase().includes('retorno')
+        );
+      });
+
+      const viajesMapeados = guiasPrincipales.map(mapGuiaToViaje);
       setViajes(viajesMapeados);
 
-      // Reconstruir guiasPanel a partir de las guias que ya tienen conductor en BD y no están canceladas
+      // Reconstruir guiasPanel a partir de las guias principales que ya tienen conductor en BD y no están canceladas
       const panelItems: GuiaAsignadaPanel[] = [];
-      guias.forEach((g) => {
+      guiasPrincipales.forEach((g) => {
         if (g.idConductor && g.estadoOrden !== 'Cancelado') {
           const { diaSemana, hora } = parsearFechaGuia(g.fechaProgramadaCarga);
           const diaCorto = diaSemana.split(' ')[0] || '';
@@ -456,12 +453,41 @@ export default function AsignacionConductores() {
     }
   };
 
-  // Función para consultar guias_viajes con cliente e intervalo
-  const handleCargarViajes = async () => {
-    if (!clienteSeleccionadoId) {
-      mostrarToast('Por favor seleccione un Cliente Matriz.');
-      return;
+  const formatearFechaLocalISO = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const handleSeleccionarPresetFecha = async (preset: 'hoy' | 'manana' | 'mes') => {
+    const ahora = new Date();
+    let ini = '';
+    let fin = '';
+
+    if (preset === 'hoy') {
+      ini = formatearFechaLocalISO(ahora);
+      fin = ini;
+    } else if (preset === 'manana') {
+      const manana = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() + 1);
+      ini = formatearFechaLocalISO(manana);
+      fin = ini;
+    } else if (preset === 'mes') {
+      const primerDia = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+      const ultimoDia = new Date(ahora.getFullYear(), ahora.getMonth() + 1, 0);
+      ini = formatearFechaLocalISO(primerDia);
+      fin = formatearFechaLocalISO(ultimoDia);
     }
+
+    setPresetFechaActivo(preset);
+    setFechaInicio(ini);
+    setFechaFin(fin);
+    setTabDiaActivo('todos');
+    await cargarViajesDirecto(ini, fin);
+  };
+
+  // Función para consultar guias_viajes por intervalo de fechas
+  const handleCargarViajes = async () => {
     if (!fechaInicio || !fechaFin) {
       mostrarToast('Por favor especifique la fecha de inicio y fin del intervalo.');
       return;
@@ -472,10 +498,8 @@ export default function AsignacionConductores() {
     }
 
     mostrarToast('Consultando viajes programados en guias_viajes...');
-    await cargarViajesDirecto(clienteSeleccionadoId, fechaInicio, fechaFin);
-    const cl = clientes.find((c) => c.idCliente === clienteSeleccionadoId);
-    const nombreCl = cl?.nombreComercial || cl?.razonSocial || 'el cliente';
-    mostrarToast(`Viajes programados actualizados para ${nombreCl}.`);
+    await cargarViajesDirecto(fechaInicio, fechaFin);
+    mostrarToast('Viajes programados actualizados para el intervalo seleccionado.');
   };
 
   // Asignar conductor a viaje (actualiza la asignación en la interfaz y panel)
@@ -702,11 +726,12 @@ export default function AsignacionConductores() {
         const conductor = conductores.find((c) => c.id === v.conductorId);
         const matchTr = v.nroTransporte.toLowerCase().includes(term);
         const matchOrigen = v.origenNombre.toLowerCase().includes(term) || v.origenCodigo.toLowerCase().includes(term);
+        const matchCliente = (v.clienteNombre || '').toLowerCase().includes(term);
         const matchDestino = v.destinoNombre.toLowerCase().includes(term) || v.destinoCodigo.toLowerCase().includes(term);
         const matchChofer = conductor ? conductor.nombre.toLowerCase().includes(term) || conductor.vehiculo.toLowerCase().includes(term) || conductor.placa.toLowerCase().includes(term) : false;
         const matchObs = v.observaciones ? v.observaciones.toLowerCase().includes(term) : false;
         const matchFisico = (v.fisico ? 'fisico físico con fisico con físico' : 'sin fisico sin físico').includes(term);
-        return matchTr || matchOrigen || matchDestino || matchChofer || matchObs || matchFisico;
+        return matchTr || matchOrigen || matchCliente || matchDestino || matchChofer || matchObs || matchFisico;
       }
       return true;
     });
@@ -878,72 +903,74 @@ export default function AsignacionConductores() {
           </div>
         </div>
 
-        {/* Fila de Controles: Cliente Matriz, Intervalo de Fechas y Botón Cargar BD */}
+        {/* Fila de Controles: Intervalo de Fechas y Botón Cargar BD */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4 pt-4 items-end">
-          {/* 1. Cliente Matriz */}
-          <div className="md:col-span-5 space-y-1.5">
-            <label className="text-[10px] font-extrabold uppercase tracking-wider text-orange-600 flex items-center gap-1.5">
-              <Building2 className="w-3.5 h-3.5 text-orange-500" />
-              <span>CLIENTE MATRIZ</span>
-            </label>
-            <div className="relative">
-              <select
-                value={clienteSeleccionadoId}
-                onChange={(e) => setClienteSeleccionadoId(e.target.value)}
-                className="w-full bg-white border border-gray-200 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition appearance-none cursor-pointer"
-              >
-                {clientes.length === 0 && (
-                  <option value="">Seleccione un Cliente Matriz...</option>
-                )}
-                {ordenarClientesPorFechaCreacion(clientes).map((c) => (
-                  <option key={c.idCliente} value={c.idCliente}>
-                    {c.razonSocial} {c.nombreComercial && c.nombreComercial !== c.razonSocial ? `(${c.nombreComercial})` : ''}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-            </div>
-          </div>
-
-          {/* 2. Rango de Fechas (Desde - Hasta) */}
-          <div className="md:col-span-4 space-y-1.5">
-            <div className="flex items-center justify-between">
+          {/* 1. Rango de Fechas (Desde - Hasta) */}
+          <div className="md:col-span-8 space-y-1.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <label className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 flex items-center gap-1.5">
                 <Calendar className="w-3.5 h-3.5 text-emerald-600" />
                 <span>INTERVALO DE FECHAS (DESDE — HASTA)</span>
               </label>
-              <button
-                type="button"
-                onClick={() => {
-                  setFechaInicio('2026-10-19');
-                  setFechaFin('2026-10-23');
-                }}
-                className="text-[10px] text-emerald-700 hover:text-emerald-900 font-extrabold underline cursor-pointer"
-                title="Cargar fechas W-43"
-              >
-                W-43 (19-23 Oct)
-              </button>
+              <div className="inline-flex items-center gap-1 bg-slate-100/80 border border-slate-200/70 rounded-lg p-0.5">
+                <button
+                  type="button"
+                  onClick={() => handleSeleccionarPresetFecha('hoy')}
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition cursor-pointer ${presetFechaActivo === 'hoy'
+                    ? 'bg-white text-emerald-700 shadow-2xs font-bold'
+                    : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                >
+                  Hoy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSeleccionarPresetFecha('manana')}
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition cursor-pointer ${presetFechaActivo === 'manana'
+                    ? 'bg-white text-emerald-700 shadow-2xs font-bold'
+                    : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                >
+                  Mañana
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSeleccionarPresetFecha('mes')}
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition cursor-pointer ${presetFechaActivo === 'mes'
+                    ? 'bg-white text-emerald-700 shadow-2xs font-bold'
+                    : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                >
+                  Mes
+                </button>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-3">
               <input
                 type="date"
                 value={fechaInicio}
-                onChange={(e) => setFechaInicio(e.target.value)}
+                onChange={(e) => {
+                  setPresetFechaActivo(null);
+                  setFechaInicio(e.target.value);
+                }}
                 className="w-full bg-white border border-gray-200 rounded-xl px-2.5 py-2 text-xs sm:text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition shadow-2xs"
                 placeholder="Desde"
               />
               <input
                 type="date"
                 value={fechaFin}
-                onChange={(e) => setFechaFin(e.target.value)}
+                onChange={(e) => {
+                  setPresetFechaActivo(null);
+                  setFechaFin(e.target.value);
+                }}
                 className="w-full bg-white border border-gray-200 rounded-xl px-2.5 py-2 text-xs sm:text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition shadow-2xs"
                 placeholder="Hasta"
               />
             </div>
           </div>
 
-          {/* 3. Botón Cargar Viajes Programados BD */}
-          <div className="md:col-span-3">
+          {/* 2. Botón Cargar Viajes Programados BD */}
+          <div className="md:col-span-4">
             <button
               type="button"
               disabled={cargandoViajes}
@@ -974,7 +1001,7 @@ export default function AsignacionConductores() {
           <div className="text-xs font-medium text-gray-500">
             {viajes.length > 0
               ? `Mostrando ${viajesFiltrados.length} viajes en ${gruposPorDia.length} días programados`
-              : 'Seleccione cliente e intervalo de fechas para consultar viajes en guias_viajes'}
+              : 'Seleccione el intervalo de fechas para consultar viajes en guias_viajes'}
           </div>
         </div>
       </div>
@@ -1068,8 +1095,8 @@ export default function AsignacionConductores() {
                 </h3>
                 <p className="text-xs text-slate-500 leading-relaxed">
                   {cargandoViajes
-                    ? 'Buscando manifiestos programados en la base de datos para el cliente e intervalo especificados...'
-                    : 'Seleccione el Cliente Matriz y el intervalo de fechas en el panel superior, luego presione "Cargar Viajes Programados" para mostrar los despachos de la tabla guias_viajes.'}
+                    ? 'Buscando manifiestos programados en la base de datos para el intervalo de fechas especificado...'
+                    : 'Seleccione el intervalo de fechas en el panel superior y presione "Cargar Viajes Programados" para mostrar los despachos de la tabla guias_viajes.'}
                 </p>
               </div>
             </div>
@@ -1185,7 +1212,7 @@ export default function AsignacionConductores() {
                                   : 'hover:bg-slate-50/70'
                                   }`}
                               >
-                                {/* 1. N° TRANSPORTE & FECHA/HORA */}
+                                {/* 1. N° TRANSPORTE */}
                                 <td className="py-3 px-4 whitespace-nowrap">
                                   <div className="flex items-center space-x-2">
                                     <span className={`font-black text-sm tracking-tight ${esCancelado ? 'text-slate-800' : 'text-slate-900'}`}>
@@ -1207,21 +1234,17 @@ export default function AsignacionConductores() {
                                       disabled={actualizandoFisicoId === viaje.id}
                                       onClick={() => handleToggleFisico(viaje)}
                                       className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-tight border transition cursor-pointer select-none active:scale-95 ${viaje.fisico
-                                          ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-                                          : 'bg-slate-50 text-slate-400 border-slate-200 hover:border-slate-300 hover:text-slate-600'
+                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                                        : 'bg-slate-50 text-slate-400 border-slate-200 hover:border-slate-300 hover:text-slate-600'
                                         }`}
                                     >
                                       <FileCheck className={`w-3 h-3 ${viaje.fisico ? 'text-emerald-600' : 'text-slate-400'}`} />
                                       <span>{viaje.fisico ? 'Físico' : 'Sin Físico'}</span>
                                     </button>
                                   </div>
-                                  <div className="flex items-center space-x-1.5 text-slate-500 text-[11.5px] mt-0.5">
-                                    <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                    <span>{viaje.fecha} • {viaje.hora}</span>
-                                  </div>
                                 </td>
 
-                                {/* 2. ORIGEN SALIDA */}
+                                {/* 2. ORIGEN SALIDA & CLIENTE */}
                                 <td className="py-3 px-4 whitespace-nowrap">
                                   <div className="flex items-center space-x-1.5">
                                     <span className="text-emerald-700 font-extrabold text-xs">
@@ -1231,6 +1254,14 @@ export default function AsignacionConductores() {
                                       {viaje.origenNombre}
                                     </span>
                                   </div>
+                                  {viaje.clienteNombre && (
+                                    <div
+                                      className="text-[10.5px] font-medium text-orange-500 truncate capitalize mt-0.5 leading-tight"
+                                      title={viaje.clienteNombre}
+                                    >
+                                      {viaje.clienteNombre.toLowerCase()}
+                                    </div>
+                                  )}
                                 </td>
 
                                 {/* 3. DESTINO LLEGADA & FECHA ESTIMADA */}
@@ -1372,10 +1403,10 @@ export default function AsignacionConductores() {
                                           }
                                         }}
                                         className={`p-1.5 rounded-lg shadow-xs transition ${!tieneConductorEnBD
-                                            ? 'bg-slate-100 text-slate-300 border border-slate-200 cursor-not-allowed opacity-50 shadow-none'
-                                            : yaNotificadoWhatsapp
-                                              ? 'bg-purple-600 hover:bg-purple-700 active:scale-95 text-white cursor-pointer ring-2 ring-purple-300/80'
-                                              : 'bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white cursor-pointer'
+                                          ? 'bg-slate-100 text-slate-300 border border-slate-200 cursor-not-allowed opacity-50 shadow-none'
+                                          : yaNotificadoWhatsapp
+                                            ? 'bg-purple-600 hover:bg-purple-700 active:scale-95 text-white cursor-pointer ring-2 ring-purple-300/80'
+                                            : 'bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white cursor-pointer'
                                           }`}
                                       >
                                         <MessageCircle className="w-3.5 h-3.5" />
@@ -1844,8 +1875,8 @@ export default function AsignacionConductores() {
                     setViajeParaWhatsapp(null);
                   }}
                   className={`px-4 py-2 ${fueEnviado
-                      ? 'bg-purple-600 hover:bg-purple-700 text-white'
-                      : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                    ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                    : 'bg-emerald-600 hover:bg-emerald-700 text-white'
                     } rounded-xl text-xs font-bold shadow-md transition flex items-center gap-1.5 cursor-pointer`}
                 >
                   <MessageCircle className="w-4 h-4" />
