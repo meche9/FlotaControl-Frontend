@@ -24,6 +24,7 @@ import {
     Pencil,
     Banknote,
     Copy,
+    Plus,
 } from 'lucide-react';
 import { Button, Modal } from '../../components/ui';
 import { programacionService, type GuiaProgramada, type GuiaViajeRecargoItem } from '../../services/programacionService';
@@ -283,6 +284,7 @@ export default function AsignacionRecursos() {
     const [modalRetornoAbierto, setModalRetornoAbierto] = useState<boolean>(false);
     const [viajeSeleccionadoRetorno, setViajeSeleccionadoRetorno] = useState<ViajeFleteItem | null>(null);
     const [planchaEditando, setPlanchaEditando] = useState<ViajeFleteItem | null>(null);
+    const [planchaBaseAdicional, setPlanchaBaseAdicional] = useState<ViajeFleteItem | null>(null);
     const [nroTransporteRetorno, setNroTransporteRetorno] = useState<string>('');
     const [puntoRegresoSeleccionado, setPuntoRegresoSeleccionado] = useState<string>('');
     const [montoRetorno, setMontoRetorno] = useState<string>('0');
@@ -666,9 +668,17 @@ export default function AsignacionRecursos() {
 
         for (const p of padres) {
             resultado.push({ viaje: p, esSubFila: false });
-            const retornos = retornosPorPadre.get(p.idOrden) || [];
+            const retornos = (retornosPorPadre.get(p.idOrden) || []).slice().sort((a, b) => {
+                const esAdicA = (a.observaciones || '').includes('[PLANCHA_ADICIONAL') ? 1 : 0;
+                const esAdicB = (b.observaciones || '').includes('[PLANCHA_ADICIONAL') ? 1 : 0;
+                return esAdicA - esAdicB;
+            });
             for (const r of retornos) {
                 resultado.push({ viaje: r, esSubFila: true });
+                const subRetornos = retornosPorPadre.get(r.idOrden) || [];
+                for (const sr of subRetornos) {
+                    resultado.push({ viaje: sr, esSubFila: true });
+                }
             }
         }
 
@@ -969,8 +979,19 @@ export default function AsignacionRecursos() {
 
     const handleAutoGenerarNroTransporteRetorno = () => {
         if (!viajeSeleccionadoRetorno) return;
-        const baseNro = viajeSeleccionadoRetorno.nroTransporte.replace(/[^0-9]/g, '');
-        const sug = baseNro ? `TR-${baseNro}-R` : `TR-${viajeSeleccionadoRetorno.nroTransporte}-R`;
+        const nroSinSufijo = viajeSeleccionadoRetorno.nroTransporte.replace(/-R\d*$/i, '');
+        const baseNro = nroSinSufijo.replace(/[^0-9]/g, '');
+        const idRaiz = viajeSeleccionadoRetorno.idOrdenPadre || viajeSeleccionadoRetorno.idOrden;
+        const cantPlanchasExistentes = viajes.filter(
+            (v) =>
+                v.esRetorno &&
+                (v.idOrdenPadre === viajeSeleccionadoRetorno.idOrden || v.idOrdenPadre === idRaiz)
+        ).length;
+        const sufijo =
+            planchaBaseAdicional || cantPlanchasExistentes > 0
+                ? `-R${cantPlanchasExistentes + 1}`
+                : '-R';
+        const sug = baseNro ? `TR-${baseNro}${sufijo}` : `TR-${nroSinSufijo}${sufijo}`;
         setNroTransporteRetorno(sug);
         mostrarToast(`Nº de Transporte autogenerado: ${sug}`, 'info');
     };
@@ -1048,6 +1069,7 @@ export default function AsignacionRecursos() {
 
     const abrirModalRetorno = async (viaje: ViajeFleteItem) => {
         setPlanchaEditando(null);
+        setPlanchaBaseAdicional(null);
         setViajeSeleccionadoRetorno(viaje);
 
         // Dejar Nº de transporte en blanco para nueva plancha
@@ -1074,8 +1096,49 @@ export default function AsignacionRecursos() {
         await cargarCatalogosClienteRetorno(idCli, viaje.idPuntoDestino, destinoDefectoC, true);
     };
 
+    const abrirModalPlanchaAdicional = async (plancha: ViajeFleteItem) => {
+        setPlanchaEditando(null);
+        setPlanchaBaseAdicional(plancha);
+
+        const viajePadre = viajes.find((v) => v.idOrden === plancha.idOrdenPadre);
+        // En la plancha adicional, el origen es el destino de la plancha original (plancha.idPuntoDestino)
+        const contextoPlanchaOriginal: ViajeFleteItem = {
+            ...plancha,
+            idCliente: plancha.idCliente || viajePadre?.idCliente || '',
+            clienteNombre: plancha.clienteNombre || viajePadre?.clienteNombre || '',
+        };
+
+        setViajeSeleccionadoRetorno(contextoPlanchaOriginal);
+        setNroTransporteRetorno('');
+
+        // Destino seleccionable por el usuario (por defecto el punto de origen de la plancha original o primer punto distinto al nuevo origen)
+        const destinoDefectoC = plancha.idPuntoOrigen;
+        setPuntoRegresoSeleccionado(destinoDefectoC);
+
+        const rutaInversa = buscarRutaContraria(plancha.idPuntoDestino, destinoDefectoC, rutasCatalogo);
+        const montoInicial =
+            rutaInversa && rutaInversa.montoTarifa !== undefined && rutaInversa.montoTarifa !== null
+                ? Number(rutaInversa.montoTarifa).toFixed(2)
+                : plancha.fleteBase !== undefined && plancha.fleteBase !== null
+                    ? Number(plancha.fleteBase).toFixed(2)
+                    : '0.00';
+
+        setMontoRetorno(montoInicial);
+        setObservacionRetorno(
+            `Bitácora Doble Plancha: Plancha adicional con salida desde ${plancha.destinoNombre} asociada a ${plancha.nroTransporte}${viajePadre ? ` (Viaje inicial: ${viajePadre.nroTransporte})` : ''}`
+        );
+        setModalRetornoAbierto(true);
+
+        const idCli =
+            contextoPlanchaOriginal.idCliente ||
+            puntos.find((p) => p.idPunto === plancha.idPuntoDestino)?.idCliente ||
+            puntos.find((p) => p.idPunto === plancha.idPuntoOrigen)?.idCliente;
+        await cargarCatalogosClienteRetorno(idCli, plancha.idPuntoDestino, destinoDefectoC, true);
+    };
+
     const abrirModalEditarRetorno = async (plancha: ViajeFleteItem) => {
         setPlanchaEditando(plancha);
+        setPlanchaBaseAdicional(null);
 
         // Localizar el viaje padre (o reconstruir el contexto de origen/destino si el padre no está en vista)
         const viajePadre = viajes.find((v) => v.idOrden === plancha.idOrdenPadre);
@@ -1100,6 +1163,7 @@ export default function AsignacionRecursos() {
         const obsLimpia = (plancha.observaciones || '')
             .replace(/^\[RETORNO_DE:[^\]]+\]\s*/i, '')
             .replace(/^\[RETORNO\]\s*/i, '')
+            .replace(/^\[PLANCHA_ADICIONAL(?::[^\]]+)?\]\s*/i, '')
             .trim();
         setObservacionRetorno(obsLimpia);
 
@@ -1138,9 +1202,13 @@ export default function AsignacionRecursos() {
             if (planchaEditando) {
                 const esLocal = planchaEditando.idOrden.startsWith('mock-') || planchaEditando.idOrden.startsWith('retorno-');
                 let montoActualizado = parseFloat(montoRetorno) || 0;
-                let obsActualizada = planchaEditando.idOrdenPadre
-                    ? `[RETORNO_DE:${planchaEditando.idOrdenPadre}] ${observacionRetorno}`.trim()
+                const tagAdicionalExistente = (planchaEditando.observaciones || '').match(/(\[PLANCHA_ADICIONAL(?::[^\]]+)?\])/i)?.[1] || '';
+                const obsConTag = tagAdicionalExistente
+                    ? `${tagAdicionalExistente} ${observacionRetorno}`.trim()
                     : observacionRetorno;
+                let obsActualizada = planchaEditando.idOrdenPadre
+                    ? `[RETORNO_DE:${planchaEditando.idOrdenPadre}] ${obsConTag}`.trim()
+                    : obsConTag;
 
                 if (!esLocal) {
                     const respuestaBd = await programacionService.actualizarViajeRetorno({
@@ -1148,7 +1216,7 @@ export default function AsignacionRecursos() {
                         nroTransporte: nroTrim,
                         idPuntoDestino: puntoRegresoSeleccionado,
                         montoFlete: parseFloat(montoRetorno) || 0,
-                        observaciones: observacionRetorno,
+                        observaciones: obsConTag,
                     });
                     montoActualizado =
                         respuestaBd.montoFleteCliente !== undefined && respuestaBd.montoFleteCliente !== null
@@ -1177,12 +1245,16 @@ export default function AsignacionRecursos() {
                 mostrarToast(`Plancha de Retorno ${nroTrim} actualizada exitosamente`, 'ok');
                 setModalRetornoAbierto(false);
                 setPlanchaEditando(null);
+                setPlanchaBaseAdicional(null);
                 return;
             }
 
-            // MODO CREACIÓN DE NUEVA PLANCHA
+            // MODO CREACIÓN DE NUEVA PLANCHA (NORMAL O PLANCHA ADICIONAL / DOBLE PLANCHA)
             const fechaSalidaIso = calcularFechaHoraRetornoInterna(viajeSeleccionadoRetorno);
             const fh = formatearFechaHora(fechaSalidaIso);
+            const obsBitacoraFinal = planchaBaseAdicional
+                ? `[PLANCHA_ADICIONAL:${planchaBaseAdicional.nroTransporte}] ${observacionRetorno}`.trim()
+                : observacionRetorno;
 
             let viajeRetornoCreado: ViajeFleteItem;
 
@@ -1193,7 +1265,7 @@ export default function AsignacionRecursos() {
                     idPuntoDestino: puntoRegresoSeleccionado,
                     fechaProgramadaCarga: fechaSalidaIso,
                     montoFlete: parseFloat(montoRetorno) || 0,
-                    observaciones: observacionRetorno,
+                    observaciones: obsBitacoraFinal,
                 });
 
                 const rFh = formatearFechaHora(respuestaBd.fechaProgramadaCarga);
@@ -1274,21 +1346,24 @@ export default function AsignacionRecursos() {
                     conductorPagoMovil: viajeSeleccionadoRetorno.conductorPagoMovil,
                     estadoOrden: 'Programado',
                     fisico: false,
-                    observaciones: `[RETORNO_DE:${viajeSeleccionadoRetorno.idOrden}] ${observacionRetorno}`,
+                    observaciones: `[RETORNO_DE:${viajeSeleccionadoRetorno.idOrden}] ${obsBitacoraFinal}`,
                     guiasViajesRecargos: [],
                     esRetorno: true,
                     idOrdenPadre: viajeSeleccionadoRetorno.idOrden,
                 };
             }
 
-            // Añadir a la lista de viajes (se posicionará automáticamente debajo del viaje inicial)
-            setViajes((prev) => [viajeRetornoCreado, ...prev]);
+            // Añadir a la lista de viajes (se posicionará automáticamente debajo del viaje inicial / plancha)
+            setViajes((prev) => [...prev, viajeRetornoCreado]);
 
             mostrarToast(
-                `Plancha de Retorno ${nroTrim} generada exitosamente debajo del viaje ${viajeSeleccionadoRetorno.nroTransporte}`,
+                planchaBaseAdicional
+                    ? `Plancha adicional ${nroTrim} registrada con bitácora en observaciones`
+                    : `Plancha de Retorno ${nroTrim} generada exitosamente debajo del viaje ${viajeSeleccionadoRetorno.nroTransporte}`,
                 'ok'
             );
             setModalRetornoAbierto(false);
+            setPlanchaBaseAdicional(null);
         } catch (err: any) {
             mostrarToast(
                 `Error al ${planchaEditando ? 'actualizar' : 'crear'} la plancha de retorno: ${err?.message || err}`,
@@ -1871,6 +1946,15 @@ export default function AsignacionRecursos() {
                                         const tieneRecargos = cantRecargos > 0;
                                         const tieneAnticipo = Number(trip.montoAnticipoConductor || 0) > 0;
                                         const tienePlanchaAsignada = padresConPlancha.has(trip.idOrden);
+                                        const esPlanchaAdicional = (trip.observaciones || '').includes('[PLANCHA_ADICIONAL');
+                                        const tieneHijaAdicional = viajes.some(
+                                            (v) => v.esRetorno && v.idOrdenPadre === trip.idOrden
+                                        );
+                                        const planchasDelPadre = trip.idOrdenPadre
+                                            ? viajes.filter((v) => v.esRetorno && v.idOrdenPadre === trip.idOrdenPadre)
+                                            : [];
+                                        const llevaPlanchaAdicional =
+                                            esPlanchaAdicional || tieneHijaAdicional || planchasDelPadre.length > 1;
 
                                         return (
                                             <tr
@@ -1904,7 +1988,7 @@ export default function AsignacionRecursos() {
                                                         </span>
                                                         {esSubFila && (
                                                             <span className="px-1.5 py-0.5 rounded bg-emerald-600 text-white font-black text-[8px] tracking-wider uppercase shadow-2xs">
-                                                                Plancha
+                                                                {esPlanchaAdicional ? 'Plancha +2' : 'Plancha'}
                                                             </span>
                                                         )}
                                                     </div>
@@ -2025,96 +2109,164 @@ export default function AsignacionRecursos() {
                                                     </div>
                                                 </td>
 
-                                                {/* 7. ACCIONES RÁPIDAS: ANTICIPO + RECARGOS + PLANCHA RETORNO */}
+                                                {/* 7. ACCIONES RÁPIDAS: ANTICIPO + RECARGOS + SWITCH PLANCHA (O ICONOS EN PLANCHA) */}
                                                 <td className="py-3 px-2.5 xl:px-3.5 align-middle text-right whitespace-nowrap">
-                                                    <div className="flex items-center justify-end space-x-1 xl:space-x-1.5">
-                                                        {/* Icono Reasignar recursos de flota (Mack y Batea) */}
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => abrirModalRecursos(trip)}
-                                                            className="hidden sm:inline-flex p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
-                                                            title="Reasignar recursos de flota (Mack y Batea)"
-                                                        >
-                                                            <ArrowRightLeft className="w-3.5 h-3.5" />
-                                                        </button>
+                                                    {esSubFila || trip.esRetorno ? (
+                                                        <div className="inline-flex items-center justify-end gap-1.5 bg-white/80 border border-emerald-200/80 rounded-xl px-2 py-1 shadow-2xs">
+                                                            {/* Icono Ver observaciones de la plancha */}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    const obs = (trip.observaciones || '')
+                                                                        .replace(/^\[RETORNO_DE:[^\]]+\]\s*/i, '')
+                                                                        .trim() || 'Sin observaciones registradas.';
+                                                                    mostrarToast(`Nota Guía ${trip.nroTransporte}: ${obs}`, 'info');
+                                                                }}
+                                                                className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 border border-transparent hover:border-emerald-200/80 transition transform hover:scale-105 active:scale-95 cursor-pointer"
+                                                                title="Ver observaciones de la plancha"
+                                                            >
+                                                                <MessageSquare className="w-3.5 h-3.5" />
+                                                            </button>
 
-                                                        {/* Icono de Mensajes / Notas rápidas */}
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                const obs = trip.observaciones || 'Sin observaciones registradas.';
-                                                                mostrarToast(`Nota Guía ${trip.nroTransporte}: ${obs}`, 'info');
-                                                            }}
-                                                            className="p-1 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition"
-                                                            title="Ver observaciones del viaje"
-                                                        >
-                                                            <MessageSquare className="w-3.5 h-3.5" />
-                                                        </button>
-
-                                                        {/* Botón Anticipo */}
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => abrirModalAnticipo(trip)}
-                                                            className={`flex items-center justify-center space-x-1 px-2 xl:px-2.5 py-1.5 rounded-xl font-bold text-[11px] xl:text-xs transition transform hover:scale-[1.02] active:scale-[0.98] shadow-xs cursor-pointer ${tieneAnticipo
-                                                                ? 'bg-teal-600 hover:bg-teal-700 active:bg-teal-800 text-white shadow-teal-600/25'
-                                                                : 'bg-slate-100 hover:bg-slate-200/80 active:bg-slate-300 text-slate-700 border border-slate-200'
-                                                                }`}
-                                                            title={
-                                                                tieneAnticipo
-                                                                    ? `Anticipo asignado: ${trip.monedaAnticipo === 'USD' ? '$' : 'Bs.'} ${Number(trip.montoAnticipoConductor).toFixed(2)}`
-                                                                    : 'Registrar anticipo transferido al conductor'
-                                                            }
-                                                        >
-                                                            <Banknote className="w-3.5 h-3.5 shrink-0" />
-                                                            <span>Anticipo</span>
-                                                            {tieneAnticipo && (
-                                                                <Check className="w-3 h-3 stroke-[3] text-teal-100 shrink-0" />
-                                                            )}
-                                                        </button>
-
-                                                        {/* Botón % + Recargos */}
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => abrirModalRecargos(trip)}
-                                                            className={`flex items-center justify-center space-x-1 px-2 xl:px-2.5 py-1.5 rounded-xl font-bold text-[11px] xl:text-xs transition transform hover:scale-[1.02] active:scale-[0.98] shadow-xs cursor-pointer ${tieneRecargos
-                                                                ? 'bg-[#f97316] hover:bg-[#ea580c] active:bg-[#c2410c] text-white shadow-orange-500/25'
-                                                                : 'bg-slate-100 hover:bg-slate-200/80 active:bg-slate-300 text-slate-700 border border-slate-200'
-                                                                }`}
-                                                            title="Gestionar conceptos de recargos extraordinarios"
-                                                        >
-                                                            <span>% + Recargos</span>
-                                                            {tieneRecargos && (
-                                                                <span className="ml-0.5 px-1.5 py-0.2 rounded-full bg-white text-orange-600 font-extrabold text-[10px]">
-                                                                    {cantRecargos}
-                                                                </span>
-                                                            )}
-                                                        </button>
-
-                                                        {/* Slot de Botón Plancha Retorno (en viaje sin plancha) o Botón Editar (solo en la plancha) */}
-                                                        {esSubFila || trip.esRetorno ? (
+                                                            {/* Icono Editar Plancha */}
                                                             <button
                                                                 type="button"
                                                                 onClick={() => abrirModalEditarRetorno(trip)}
-                                                                className="flex items-center justify-center space-x-1 bg-white hover:bg-emerald-50 active:bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 xl:px-2.5 py-1.5 rounded-xl font-bold text-[11px] xl:text-xs w-[112px] xl:w-[122px] shadow-2xs transition transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
-                                                                title="Editar los datos de esta plancha de retorno"
+                                                                className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-emerald-700 hover:text-emerald-900 bg-emerald-50/70 hover:bg-emerald-100 border border-emerald-200/80 transition transform hover:scale-105 active:scale-95 cursor-pointer"
+                                                                title={`Editar datos de la plancha ${trip.nroTransporte}`}
                                                             >
-                                                                <Pencil className="w-3 h-3 text-emerald-600 shrink-0" />
-                                                                <span>Editar Plancha</span>
+                                                                <Pencil className="w-3.5 h-3.5 stroke-[2.2]" />
                                                             </button>
-                                                        ) : !tienePlanchaAsignada ? (
+
+                                                            {/* Icono Plancha Adicional (+) */}
                                                             <button
                                                                 type="button"
-                                                                onClick={() => abrirModalRetorno(trip)}
-                                                                className="flex items-center justify-center space-x-1 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white px-2 xl:px-2.5 py-1.5 rounded-xl font-bold text-[11px] xl:text-xs w-[112px] xl:w-[122px] shadow-sm shadow-emerald-600/30 transition transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
-                                                                title="Generar plancha de retorno debajo de este flete"
+                                                                onClick={() => abrirModalPlanchaAdicional(trip)}
+                                                                className={`inline-flex items-center justify-center gap-0.5 h-7 px-2 rounded-lg font-bold text-[10px] border transition transform hover:scale-105 active:scale-95 cursor-pointer ${llevaPlanchaAdicional
+                                                                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                                                                    : 'bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 border-slate-200 hover:border-emerald-300'
+                                                                    }`}
+                                                                title={
+                                                                    llevaPlanchaAdicional
+                                                                        ? `Lleva plancha adicional registrada — Click para agregar otra o ver bitácora (${trip.observaciones || ''})`
+                                                                        : 'Agregar plancha adicional (Doble Plancha)'
+                                                                }
                                                             >
-                                                                <CornerDownRight className="w-3 h-3 shrink-0 stroke-[2.5]" />
-                                                                <span>Plancha Retorno</span>
+                                                                <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                                                                {llevaPlanchaAdicional && (
+                                                                    <span className="text-[9px] font-extrabold leading-none">
+                                                                        2da
+                                                                    </span>
+                                                                )}
                                                             </button>
-                                                        ) : (
-                                                            <div className="w-[112px] xl:w-[122px] shrink-0" aria-hidden="true" />
-                                                        )}
-                                                    </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex items-center justify-end space-x-1 xl:space-x-1.5">
+                                                            {/* Icono Reasignar recursos de flota (Mack y Batea) */}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => abrirModalRecursos(trip)}
+                                                                className="hidden sm:inline-flex p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+                                                                title="Reasignar recursos de flota (Mack y Batea)"
+                                                            >
+                                                                <ArrowRightLeft className="w-3.5 h-3.5" />
+                                                            </button>
+
+                                                            {/* Icono de Mensajes / Notas rápidas */}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    const obs = trip.observaciones || 'Sin observaciones registradas.';
+                                                                    mostrarToast(`Nota Guía ${trip.nroTransporte}: ${obs}`, 'info');
+                                                                }}
+                                                                className="p-1 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition"
+                                                                title="Ver observaciones del viaje"
+                                                            >
+                                                                <MessageSquare className="w-3.5 h-3.5" />
+                                                            </button>
+
+                                                            {/* Botón Anticipo */}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => abrirModalAnticipo(trip)}
+                                                                className={`flex items-center justify-center space-x-1 px-2 xl:px-2.5 py-1.5 rounded-xl font-bold text-[11px] xl:text-xs transition transform hover:scale-[1.02] active:scale-[0.98] shadow-xs cursor-pointer ${tieneAnticipo
+                                                                    ? 'bg-teal-600 hover:bg-teal-700 active:bg-teal-800 text-white shadow-teal-600/25'
+                                                                    : 'bg-slate-100 hover:bg-slate-200/80 active:bg-slate-300 text-slate-700 border border-slate-200'
+                                                                    }`}
+                                                                title={
+                                                                    tieneAnticipo
+                                                                        ? `Anticipo asignado: ${trip.monedaAnticipo === 'USD' ? '$' : 'Bs.'} ${Number(trip.montoAnticipoConductor).toFixed(2)}`
+                                                                        : 'Registrar anticipo transferido al conductor'
+                                                                }
+                                                            >
+                                                                <Banknote className="w-3.5 h-3.5 shrink-0" />
+                                                                <span>Anticipo</span>
+                                                                {tieneAnticipo && (
+                                                                    <Check className="w-3 h-3 stroke-[3] text-teal-100 shrink-0" />
+                                                                )}
+                                                            </button>
+
+                                                            {/* Botón % + Recargos */}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => abrirModalRecargos(trip)}
+                                                                className={`flex items-center justify-center space-x-1 px-2 xl:px-2.5 py-1.5 rounded-xl font-bold text-[11px] xl:text-xs transition transform hover:scale-[1.02] active:scale-[0.98] shadow-xs cursor-pointer ${tieneRecargos
+                                                                    ? 'bg-[#f97316] hover:bg-[#ea580c] active:bg-[#c2410c] text-white shadow-orange-500/25'
+                                                                    : 'bg-slate-100 hover:bg-slate-200/80 active:bg-slate-300 text-slate-700 border border-slate-200'
+                                                                    }`}
+                                                                title="Gestionar conceptos de recargos extraordinarios"
+                                                            >
+                                                                <span>% + Recargos</span>
+                                                                {tieneRecargos && (
+                                                                    <span className="ml-0.5 px-1.5 py-0.2 rounded-full bg-white text-orange-600 font-extrabold text-[10px]">
+                                                                        {cantRecargos}
+                                                                    </span>
+                                                                )}
+                                                            </button>
+
+                                                            {/* Suiche de Plancha de Retorno */}
+                                                            <div
+                                                                className="flex flex-col items-center justify-center pl-1 min-w-[54px]"
+                                                                title={
+                                                                    tienePlanchaAsignada
+                                                                        ? 'Plancha activa para este viaje (Click para editar plancha)'
+                                                                        : 'Activar para generar plancha de retorno a este viaje'
+                                                                }
+                                                            >
+                                                                <button
+                                                                    type="button"
+                                                                    role="switch"
+                                                                    aria-checked={tienePlanchaAsignada}
+                                                                    onClick={() => {
+                                                                        if (!tienePlanchaAsignada) {
+                                                                            abrirModalRetorno(trip);
+                                                                        } else {
+                                                                            const planchaAsociada = viajes.find(
+                                                                                (v) => v.esRetorno && v.idOrdenPadre === trip.idOrden
+                                                                            );
+                                                                            if (planchaAsociada) {
+                                                                                abrirModalEditarRetorno(planchaAsociada);
+                                                                            }
+                                                                        }
+                                                                    }}
+                                                                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-emerald-500/30 ${tienePlanchaAsignada ? 'bg-[#059669]' : 'bg-slate-300 hover:bg-slate-400'
+                                                                        }`}
+                                                                >
+                                                                    <span
+                                                                        aria-hidden="true"
+                                                                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${tienePlanchaAsignada ? 'translate-x-4' : 'translate-x-0'
+                                                                            }`}
+                                                                    />
+                                                                </button>
+                                                                <span
+                                                                    className={`text-[9px] font-bold select-none leading-tight mt-0.5 ${tienePlanchaAsignada ? 'text-[#0b6641]' : 'text-slate-400'
+                                                                        }`}
+                                                                >
+                                                                    Plancha
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                 </td>
                                             </tr>
                                         );
@@ -2411,20 +2563,32 @@ export default function AsignacionRecursos() {
                                 <div className="w-12 h-12 rounded-2xl bg-emerald-600 flex items-center justify-center text-white shadow-md shadow-emerald-600/30 shrink-0">
                                     {planchaEditando ? (
                                         <Pencil className="w-5 h-5 stroke-[2.5]" />
+                                    ) : planchaBaseAdicional ? (
+                                        <Plus className="w-6 h-6 stroke-[2.5]" />
                                     ) : (
                                         <CornerDownRight className="w-6 h-6 stroke-[2.5]" />
                                     )}
                                 </div>
                                 <div>
                                     <span className="text-[10px] font-black tracking-wider text-emerald-700 bg-emerald-100/90 border border-emerald-300 px-2 py-0.5 rounded-md uppercase">
-                                        {planchaEditando ? 'EDICIÓN DE PLANCHA REGISTRADA' : 'LOGÍSTICA INVERSA & PLANCHAS'}
+                                        {planchaEditando
+                                            ? 'EDICIÓN DE PLANCHA REGISTRADA'
+                                            : planchaBaseAdicional
+                                                ? 'DOBLE PLANCHA • BITÁCORA EN OBSERVACIONES'
+                                                : 'LOGÍSTICA INVERSA & PLANCHAS'}
                                     </span>
                                     <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight leading-snug mt-1">
-                                        {planchaEditando ? `Editar Plancha ${planchaEditando.nroTransporte}` : 'Generar Plancha de Retorno'}
+                                        {planchaEditando
+                                            ? `Editar Plancha ${planchaEditando.nroTransporte}`
+                                            : planchaBaseAdicional
+                                                ? `Plancha Adicional (${planchaBaseAdicional.nroTransporte})`
+                                                : 'Generar Plancha de Retorno'}
                                     </h2>
                                     <p className="text-xs text-slate-500 font-medium mt-0.5">
                                         {planchaEditando ? (
                                             <>Modificar datos de la plancha asociada a la unidad de <strong>{viajeSeleccionadoRetorno.conductorNombre}</strong></>
+                                        ) : planchaBaseAdicional ? (
+                                            <>Registrar segunda plancha en guias_viajes con bitácora en observaciones para <strong>{viajeSeleccionadoRetorno.conductorNombre}</strong></>
                                         ) : (
                                             <>Asociar flete de regreso para la unidad de <strong>{viajeSeleccionadoRetorno.conductorNombre}</strong></>
                                         )}
@@ -2437,6 +2601,7 @@ export default function AsignacionRecursos() {
                                 onClick={() => {
                                     setModalRetornoAbierto(false);
                                     setPlanchaEditando(null);
+                                    setPlanchaBaseAdicional(null);
                                 }}
                                 className="text-slate-400 hover:text-slate-700 p-1.5 hover:bg-slate-100 rounded-xl transition"
                             >
@@ -2540,7 +2705,7 @@ export default function AsignacionRecursos() {
                                             <span>Punto de Salida de Retorno (Origen)</span>
                                         </label>
                                         <span className="text-[10px] font-bold text-orange-700 bg-orange-100/90 px-2 py-0.5 rounded-md">
-                                            Fijo • Destino Inicial
+                                            {planchaBaseAdicional ? 'Fijo • Destino Plancha Original' : 'Fijo • Destino Inicial'}
                                         </span>
                                     </div>
                                     <div className="relative flex items-center">
@@ -2661,6 +2826,7 @@ export default function AsignacionRecursos() {
                                 onClick={() => {
                                     setModalRetornoAbierto(false);
                                     setPlanchaEditando(null);
+                                    setPlanchaBaseAdicional(null);
                                 }}
                                 className="px-4 py-2 text-xs sm:text-sm font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition cursor-pointer"
                             >
@@ -2675,6 +2841,8 @@ export default function AsignacionRecursos() {
                             >
                                 {planchaEditando ? (
                                     <Save className="w-4 h-4 stroke-[2.5]" />
+                                ) : planchaBaseAdicional ? (
+                                    <Plus className="w-4 h-4 stroke-[2.5]" />
                                 ) : (
                                     <CornerDownRight className="w-4 h-4 stroke-[2.5]" />
                                 )}
@@ -2685,7 +2853,9 @@ export default function AsignacionRecursos() {
                                             : 'Generando...'
                                         : planchaEditando
                                             ? 'Guardar Cambios de Plancha'
-                                            : 'Generar Viaje de Retorno'}
+                                            : planchaBaseAdicional
+                                                ? 'Registrar Plancha Adicional'
+                                                : 'Generar Viaje de Retorno'}
                                 </span>
                             </button>
                         </div>
