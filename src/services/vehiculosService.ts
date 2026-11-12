@@ -305,7 +305,29 @@ function aVehiculo(raw: VehiculoApi, form?: VehiculoFormData): Vehiculo {
 export const vehiculosService = {
   async getVehiculos(): Promise<Vehiculo[]> {
     const response = await api.get<VehiculoApi[]>('/vehiculos');
-    return response.data.map((raw) => aVehiculo(raw));
+    const lista = response.data.map((raw) => aVehiculo(raw));
+    // En los acoplados, si no tienen conductor directo, heredar el conductor asignado a su chuto (unidad motriz)
+    return lista.map((v) => {
+      if (v.telemetriaDetalle?.operador || (v.conductoresHabituales && v.conductoresHabituales.length > 0)) {
+        return v;
+      }
+      const chutoAsignado = lista.find((m) => m.idAcopladoActual === v.idVehiculo);
+      if (!chutoAsignado) return v;
+      const operadorChuto =
+        chutoAsignado.telemetriaDetalle?.operador ||
+        (chutoAsignado.conductoresHabituales && chutoAsignado.conductoresHabituales.length > 0
+          ? `${chutoAsignado.conductoresHabituales[0].nombres} ${chutoAsignado.conductoresHabituales[0].apellidos}`.trim()
+          : undefined);
+      if (!operadorChuto) return v;
+      return {
+        ...v,
+        conductoresHabituales: chutoAsignado.conductoresHabituales,
+        telemetriaDetalle: {
+          ...v.telemetriaDetalle,
+          operador: operadorChuto,
+        },
+      };
+    });
   },
 
   async getTiposVehiculo(): Promise<TipoVehiculo[]> {

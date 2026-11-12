@@ -86,32 +86,67 @@ export interface RecargoModalItem {
     observaciones?: string;
 }
 
-// Helper para parsear fechas
+// Helper para parsear fechas tomando únicamente la fecha (día, mes, año) sin que la hora o zona horaria altere el día
 function formatearFechaHora(fechaStr?: string | null) {
-    if (!fechaStr) {
-        return { fecha: '24 Oct 2026', hora: '08:30 AM', iso: new Date().toISOString() };
-    }
-    const d = new Date(fechaStr);
-    if (isNaN(d.getTime())) {
-        return { fecha: fechaStr, hora: '08:30 AM', iso: new Date().toISOString() };
-    }
-
     const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-    const dia = String(d.getDate()).padStart(2, '0');
-    const mes = meses[d.getMonth()];
-    const anio = d.getFullYear();
 
-    let horas = d.getHours();
-    const minutos = String(d.getMinutes()).padStart(2, '0');
-    const ampm = horas >= 12 ? 'PM' : 'AM';
-    horas = horas % 12;
-    horas = horas ? horas : 12;
-    const horaFormateada = `${String(horas).padStart(2, '0')}:${minutos} ${ampm}`;
+    if (!fechaStr) {
+        const hoy = new Date();
+        const dia = String(hoy.getDate()).padStart(2, '0');
+        const mes = meses[hoy.getMonth()];
+        const anio = hoy.getFullYear();
+        return { fecha: `${dia} ${mes} ${anio}`, hora: '', iso: `${anio}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${dia}` };
+    }
+
+    const raw = String(fechaStr).trim();
+    const soloFecha = raw.split(/[T\s]/)[0].replace(/\./g, '/').replace(/-/g, '/');
+
+    let anio = 0;
+    let mes = 0;
+    let dia = 0;
+
+    // 1. Formato YYYY/MM/DD
+    const matchYMD = soloFecha.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+    if (matchYMD) {
+        anio = parseInt(matchYMD[1], 10);
+        mes = parseInt(matchYMD[2], 10);
+        dia = parseInt(matchYMD[3], 10);
+    } else {
+        // 2. Formato DD/MM/YYYY
+        const matchDMY = soloFecha.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+        if (matchDMY) {
+            dia = parseInt(matchDMY[1], 10);
+            mes = parseInt(matchDMY[2], 10);
+            anio = parseInt(matchDMY[3], 10);
+            if (anio < 100) anio += 2000;
+        }
+    }
+
+    if (anio >= 2000 && anio <= 2100 && mes >= 1 && mes <= 12 && dia >= 1 && dia <= 31) {
+        const diaStr = String(dia).padStart(2, '0');
+        const mesStr = String(mes).padStart(2, '0');
+        const mesNombre = meses[mes - 1] || mesStr;
+        return {
+            fecha: `${diaStr} ${mesNombre} ${anio}`,
+            hora: '',
+            iso: `${anio}-${mesStr}-${diaStr}`,
+        };
+    }
+
+    // Fallback con UTC para no cambiar de día por zona horaria
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) {
+        return { fecha: soloFecha || raw, hora: '', iso: soloFecha };
+    }
+
+    const diaUtc = String(d.getUTCDate()).padStart(2, '0');
+    const mesUtc = meses[d.getUTCMonth()];
+    const anioUtc = d.getUTCFullYear();
 
     return {
-        fecha: `${dia} ${mes} ${anio}`,
-        hora: horaFormateada,
-        iso: d.toISOString(),
+        fecha: `${diaUtc} ${mesUtc} ${anioUtc}`,
+        hora: '',
+        iso: `${anioUtc}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${diaUtc}`,
     };
 }
 
@@ -368,9 +403,9 @@ export default function AsignacionRecursos() {
     const [montoAnticipoInput, setMontoAnticipoInput] = useState<string>('');
     const [monedaAnticipoInput, setMonedaAnticipoInput] = useState<'Bs' | 'USD'>('Bs');
     const [guardandoAnticipo, setGuardandoAnticipo] = useState<boolean>(false);
-    const [campoCopiado, setCampoCopiado] = useState<'pagoMovil' | 'cuenta' | null>(null);
+    const [campoCopiado, setCampoCopiado] = useState<'cedula' | 'pagoMovil' | 'cuenta' | null>(null);
 
-    const handleCopiarDatoBancario = async (texto: string, tipo: 'pagoMovil' | 'cuenta', etiqueta: string) => {
+    const handleCopiarDatoBancario = async (texto: string, tipo: 'cedula' | 'pagoMovil' | 'cuenta', etiqueta: string) => {
         if (!texto || texto === '—') {
             mostrarToast(`No hay ${etiqueta.toLowerCase()} registrado en base de datos para copiar`, 'info');
             return;
@@ -493,7 +528,7 @@ export default function AsignacionRecursos() {
                     idRuta: g.idRuta,
                     nombreRuta: (g as any).ruta?.nombreRuta || `${g.puntoOrigen?.nombreSede || ''} — ${g.puntoDestino?.nombreSede || ''}`,
                     idCliente: g.idCliente || g.cliente?.idCliente || '',
-                    clienteNombre: g.cliente?.razonSocial || g.cliente?.nombreComercial || '',
+                    clienteNombre: g.cliente?.nombreComercial || g.cliente?.razonSocial || '',
                     idVehiculoMotriz: g.idVehiculoMotriz,
                     vehiculoMotrizNombre: nombreMack,
                     idAcoplado: g.idAcoplado,
@@ -616,6 +651,17 @@ export default function AsignacionRecursos() {
             }
         }
 
+        const compararPorConductor = (a: ViajeFleteItem, b: ViajeFleteItem) => {
+            const sinA = !a.idConductor || a.conductorNombre === 'Sin conductor asignado';
+            const sinB = !b.idConductor || b.conductorNombre === 'Sin conductor asignado';
+            if (sinA && !sinB) return 1;
+            if (!sinA && sinB) return -1;
+            return (a.conductorNombre || '').localeCompare(b.conductorNombre || '', 'es', { sensitivity: 'base' });
+        };
+
+        padres.sort(compararPorConductor);
+        retornosHuerfanos.sort(compararPorConductor);
+
         const resultado: Array<{ viaje: ViajeFleteItem; esSubFila: boolean }> = [];
 
         for (const p of padres) {
@@ -648,6 +694,34 @@ export default function AsignacionRecursos() {
             anden,
         };
     }, [viajes]);
+
+    // Totalización de anticipos asignados en las filas visibles de la tabla
+    const resumenAnticipos = useMemo(() => {
+        let totalGeneral = 0;
+        let totalBs = 0;
+        let totalUSD = 0;
+        let cantidadConAnticipo = 0;
+
+        for (const { viaje } of viajesOrdenadosJerarquicos) {
+            const monto = Number(viaje.montoAnticipoConductor || 0);
+            if (!isNaN(monto) && monto > 0) {
+                totalGeneral += monto;
+                cantidadConAnticipo += 1;
+                if (viaje.monedaAnticipo === 'USD') {
+                    totalUSD += monto;
+                } else {
+                    totalBs += monto;
+                }
+            }
+        }
+
+        return {
+            totalGeneral,
+            totalBs,
+            totalUSD,
+            cantidadConAnticipo,
+        };
+    }, [viajesOrdenadosJerarquicos]);
 
     // ==========================================================================
     // CAMBIO RÁPIDO DE GUÍA FÍSICA (SWITCH)
@@ -1140,6 +1214,11 @@ export default function AsignacionRecursos() {
                     idPuntoDestino: puntoRegresoSeleccionado,
                     idRuta: respuestaBd.idRuta,
                     idCliente: respuestaBd.idCliente,
+                    clienteNombre:
+                        respuestaBd.cliente?.razonSocial ||
+                        respuestaBd.cliente?.nombreComercial ||
+                        viajeSeleccionadoRetorno.clienteNombre ||
+                        '',
                     idVehiculoMotriz: respuestaBd.idVehiculoMotriz,
                     vehiculoMotrizNombre: viajeSeleccionadoRetorno.vehiculoMotrizNombre,
                     idAcoplado: respuestaBd.idAcoplado,
@@ -1148,6 +1227,11 @@ export default function AsignacionRecursos() {
                     conductorNombre: viajeSeleccionadoRetorno.conductorNombre,
                     conductorIniciales: viajeSeleccionadoRetorno.conductorIniciales,
                     conductorEstado: 'Programado Retorno',
+                    conductorCedula: viajeSeleccionadoRetorno.conductorCedula,
+                    conductorTelefono: viajeSeleccionadoRetorno.conductorTelefono,
+                    conductorBanco: viajeSeleccionadoRetorno.conductorBanco,
+                    conductorNroCuenta: viajeSeleccionadoRetorno.conductorNroCuenta,
+                    conductorPagoMovil: viajeSeleccionadoRetorno.conductorPagoMovil,
                     estadoOrden: 'Programado',
                     fisico: false,
                     observaciones: respuestaBd.observaciones,
@@ -1174,6 +1258,7 @@ export default function AsignacionRecursos() {
                     idPuntoDestino: puntoRegresoSeleccionado,
                     idRuta: idRutaCalculada,
                     idCliente: viajeSeleccionadoRetorno.idCliente,
+                    clienteNombre: viajeSeleccionadoRetorno.clienteNombre || '',
                     idVehiculoMotriz: viajeSeleccionadoRetorno.idVehiculoMotriz,
                     vehiculoMotrizNombre: viajeSeleccionadoRetorno.vehiculoMotrizNombre,
                     idAcoplado: viajeSeleccionadoRetorno.idAcoplado,
@@ -1182,6 +1267,11 @@ export default function AsignacionRecursos() {
                     conductorNombre: viajeSeleccionadoRetorno.conductorNombre,
                     conductorIniciales: viajeSeleccionadoRetorno.conductorIniciales,
                     conductorEstado: 'Programado Retorno',
+                    conductorCedula: viajeSeleccionadoRetorno.conductorCedula,
+                    conductorTelefono: viajeSeleccionadoRetorno.conductorTelefono,
+                    conductorBanco: viajeSeleccionadoRetorno.conductorBanco,
+                    conductorNroCuenta: viajeSeleccionadoRetorno.conductorNroCuenta,
+                    conductorPagoMovil: viajeSeleccionadoRetorno.conductorPagoMovil,
                     estadoOrden: 'Programado',
                     fisico: false,
                     observaciones: `[RETORNO_DE:${viajeSeleccionadoRetorno.idOrden}] ${observacionRetorno}`,
@@ -1356,35 +1446,80 @@ export default function AsignacionRecursos() {
     };
 
     // ==========================================================================
-    // EXPORTACIÓN DE CONCILIACIÓN
+    // EXPORTACIÓN TXT DE ANTICIPOS POR CONDUCTOR
     // ==========================================================================
     const handleExportarConciliacion = () => {
         try {
-            const lineas: string[] = [];
-            lineas.push('FECHA,HORA,GUIA,TIPO,ORIGEN,DESTINO,MACK,BATEA,CONDUCTOR,ESTATUS,GUIA_FISICA,FLETE_BASE,TOTAL_RECARGOS,TOTAL_LIQUIDABLE');
+            // Fecha actual: DDMMYYYY
+            const ahora = new Date();
+            const diaActual = String(ahora.getDate()).padStart(2, '0');
+            const mesActual = String(ahora.getMonth() + 1).padStart(2, '0');
+            const anioActual = String(ahora.getFullYear());
+            const fechaActualTxt = `${diaActual}${mesActual}${anioActual}`;
+
+            // Agrupar y sumar anticipos por conductor
+            const acumuladoPorConductor = new Map<string, { cedulaFormateada: string; montoTotal: number }>();
 
             for (const item of viajesFiltrados) {
-                const totalRec = (item.guiasViajesRecargos || []).reduce((acc, r) => acc + (Number(r.monto) || 0), 0);
-                const totalLiq = item.fleteBase + totalRec;
-                const tipoViaje = item.esRetorno ? 'RETORNO PLANCHA' : 'VIAJE INICIAL';
+                const monto = Number(item.montoAnticipoConductor || 0);
+                if (monto <= 0) continue;
 
-                lineas.push(
-                    `"${item.fecha}","${item.hora}","${item.nroTransporte}","${tipoViaje}","[${item.origenCodigo}] ${item.origenNombre}","[${item.destinoCodigo}] ${item.destinoNombre}","${item.vehiculoMotrizNombre}","${item.acopladoNombre}","${item.conductorNombre}","${item.estadoOrden}","${item.fisico ? 'RECIBIDO' : 'PENDIENTE'}","${item.fleteBase.toFixed(2)}","${totalRec.toFixed(2)}","${totalLiq.toFixed(2)}"`
-                );
+                const condCatalogo = item.idConductor
+                    ? conductores.find((c) => c.idConductor === item.idConductor)
+                    : undefined;
+                const rawCedula = (item.conductorCedula || condCatalogo?.cedulaIdentidad || '').trim();
+                if (!rawCedula && !item.idConductor) continue;
+
+                // Determinar letra inicial (V o E) y 9 dígitos rellenados con 0 a la izquierda
+                const letraMatch = rawCedula.toUpperCase().match(/[VE]/);
+                const letra = letraMatch ? letraMatch[0] : 'V';
+                const digitosCedula = rawCedula.replace(/\D/g, '').slice(-9).padStart(9, '0');
+                const cedulaFormateada = `${letra}${digitosCedula}`;
+
+                // Clave única por cédula formateada (o idConductor si no tuviera dígitos)
+                const claveAgrupacion = digitosCedula !== '000000000' ? cedulaFormateada : (item.idConductor || cedulaFormateada);
+
+                const existente = acumuladoPorConductor.get(claveAgrupacion);
+                if (existente) {
+                    existente.montoTotal += monto;
+                } else {
+                    acumuladoPorConductor.set(claveAgrupacion, {
+                        cedulaFormateada,
+                        montoTotal: monto,
+                    });
+                }
             }
 
-            const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + lineas.join('\n');
-            const encodedUri = encodeURI(csvContent);
+            if (acumuladoPorConductor.size === 0) {
+                mostrarToast('No hay anticipos asignados a conductores en la tabla para exportar', 'info');
+                return;
+            }
+
+            const lineas: string[] = [];
+            for (const { cedulaFormateada, montoTotal } of acumuladoPorConductor.values()) {
+                const [parteEnteraRaw, parteDecimalRaw = '00'] = Math.abs(montoTotal).toFixed(2).split('.');
+                const parteEntera = parteEnteraRaw.slice(-19).padStart(19, '0');
+                const parteDecimal = parteDecimalRaw.slice(0, 2).padEnd(2, '0');
+                const anticipoFormateado = `${parteEntera}${parteDecimal}`;
+
+                // Estructura: [V/E + 9 dígitos cédula] + [2 espacios] + [19 enteros + 2 decimales] + [DDMMYYYY]
+                lineas.push(`${cedulaFormateada}  ${anticipoFormateado}${fechaActualTxt}`);
+            }
+
+            const contenidoTxt = lineas.join('\r\n');
+            const blob = new Blob([contenidoTxt], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
-            link.setAttribute('href', encodedUri);
-            link.setAttribute('download', `Conciliacion_Fletes_Recargos_${new Date().toISOString().split('T')[0]}.csv`);
+            link.href = url;
+            link.setAttribute('download', `Anticipos_Conductores_${fechaActualTxt}.txt`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+            URL.revokeObjectURL(url);
 
-            mostrarToast('Archivo de conciliación exportado exitosamente', 'ok');
+            mostrarToast(`Archivo TXT de anticipos exportado (${lineas.length} ${lineas.length === 1 ? 'conductor' : 'conductores'})`, 'ok');
         } catch (err: any) {
-            mostrarToast(`Error al exportar conciliación: ${err?.message || err}`, 'error');
+            mostrarToast(`Error al exportar TXT de anticipos: ${err?.message || err}`, 'error');
         }
     };
 
@@ -1412,7 +1547,7 @@ export default function AsignacionRecursos() {
     // RENDER PRINCIPAL
     // ==========================================================================
     return (
-        <div className="min-h-screen bg-[#f8fafc] text-slate-800 p-4 sm:p-6 lg:p-8 select-none">
+        <div className="min-h-screen bg-[#f8fafc] text-slate-800 p-3 sm:p-4 lg:p-5 select-none">
             {/* Toast Notificación */}
             {toast.visible && (
                 <div className="fixed top-6 right-6 z-50 transition-all duration-300 ease-out transform translate-y-0">
@@ -1471,6 +1606,19 @@ export default function AsignacionRecursos() {
                         {/* En Andén */}
                         <div className="flex items-center px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold">
                             <span>{conteoKPI.anden} En Andén</span>
+                        </div>
+
+                        {/* Total Anticipos Asignados */}
+                        <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-teal-50 border border-teal-200 text-teal-800 text-xs font-bold shadow-2xs">
+                            <Banknote className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                            <span>
+                                Total Anticipos:{' '}
+                                {resumenAnticipos.totalUSD > 0 && resumenAnticipos.totalBs > 0
+                                    ? `Bs. ${resumenAnticipos.totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} + $${resumenAnticipos.totalUSD.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`
+                                    : resumenAnticipos.totalUSD > 0
+                                        ? `$${resumenAnticipos.totalUSD.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`
+                                        : `Bs. ${resumenAnticipos.totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -1666,7 +1814,7 @@ export default function AsignacionRecursos() {
                             className="flex items-center space-x-2 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 font-bold text-xs sm:text-sm px-4 py-2 border border-slate-200 rounded-xl shadow-xs transition transform hover:scale-[1.01]"
                         >
                             <Download className="w-4 h-4 text-slate-600" />
-                            <span>Exportar Conciliación</span>
+                            <span>Exportar Txt Anticipos</span>
                         </button>
                     </div>
                 </div>
@@ -1675,23 +1823,23 @@ export default function AsignacionRecursos() {
                 {/* TABLA PRINCIPAL DE ASIGNACIÓN & FLETES                            */}
                 {/* ================================================================= */}
                 <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse min-w-[1240px]">
+                    <div className="overflow-x-auto lg:overflow-x-visible">
+                        <table className="w-full text-left border-collapse">
                             {/* Encabezados de Columna */}
                             <thead>
-                                <tr className="bg-[#fff9f4] border-b border-[#fed7aa]/50 text-[11px] font-black tracking-wider text-slate-500 uppercase select-none">
-                                    <th className="py-3.5 px-4">FECHA / SALIDA</th>
-                                    <th className="py-3.5 px-4">Nº GUÍA / TRANSPORTE</th>
-                                    <th className="py-3.5 px-4">RUTA (ORIGEN — DESTINO)</th>
-                                    <th className="py-3.5 px-4">RECURSOS (MACK / BATEA)</th>
-                                    <th className="py-3.5 px-4">CONDUCTOR ASIGNADO</th>
-                                    <th className="py-3.5 px-4 text-center">GUÍA FÍSICA</th>
-                                    <th className="py-3.5 px-4 text-right">ACCIONES RÁPIDAS</th>
+                                <tr className="bg-[#fff9f4] border-b border-[#fed7aa]/50 text-[10px] xl:text-[11px] font-black tracking-wider text-slate-500 uppercase select-none">
+                                    <th className="py-3 px-2.5 xl:px-3.5 whitespace-nowrap">FECHA / SALIDA</th>
+                                    <th className="py-3 px-2.5 xl:px-3.5 whitespace-nowrap">Nº GUÍA / TRANSP.</th>
+                                    <th className="py-3 px-2.5 xl:px-3.5">RUTA (ORIGEN — DESTINO)</th>
+                                    <th className="py-3 px-2.5 xl:px-3.5">RECURSOS (MACK / BATEA)</th>
+                                    <th className="py-3 px-2.5 xl:px-3.5">CONDUCTOR</th>
+                                    <th className="py-3 px-2 xl:px-3 text-center whitespace-nowrap">GUÍA FÍSICA</th>
+                                    <th className="py-3 px-2.5 xl:px-3.5 text-right whitespace-nowrap">ACCIONES RÁPIDAS</th>
                                 </tr>
                             </thead>
 
                             {/* Cuerpo de Filas */}
-                            <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
+                            <tbody className="divide-y divide-slate-100 text-xs">
                                 {viajesOrdenadosJerarquicos.length === 0 ? (
                                     <tr>
                                         <td colSpan={7} className="py-12 text-center text-slate-400">
@@ -1733,124 +1881,128 @@ export default function AsignacionRecursos() {
                                                     }`}
                                             >
                                                 {/* 1. FECHA / SALIDA */}
-                                                <td className="py-4 px-4 align-middle whitespace-nowrap">
+                                                <td className="py-3 px-2.5 xl:px-3.5 align-middle whitespace-nowrap">
                                                     {esSubFila ? (
-                                                        <div className="flex items-center space-x-2">
-                                                            <CornerDownRight className="w-4 h-4 text-emerald-600 shrink-0 stroke-[2.5]" />
-                                                            <div>
-                                                                <div className="font-black text-emerald-900 text-xs">
-                                                                    {trip.fecha}
-                                                                </div>
-                                                                <div className="flex items-center space-x-1 text-[11px] text-emerald-700 font-bold">
-                                                                    <Clock className="w-3 h-3" />
-                                                                    <span>{trip.hora}</span>
-                                                                </div>
+                                                        <div className="flex items-center space-x-1.5">
+                                                            <CornerDownRight className="w-3.5 h-3.5 text-emerald-600 shrink-0 stroke-[2.5]" />
+                                                            <div className="font-black text-emerald-900 text-xs">
+                                                                {trip.fecha}
                                                             </div>
                                                         </div>
                                                     ) : (
-                                                        <div>
-                                                            <div className="font-bold text-slate-900 text-xs sm:text-sm">
-                                                                {trip.fecha}
-                                                            </div>
-                                                            <div className="flex items-center space-x-1 text-slate-500 text-[11px] font-medium mt-0.5">
-                                                                <Clock className="w-3 h-3 text-slate-400" />
-                                                                <span>{trip.hora}</span>
-                                                            </div>
+                                                        <div className="font-bold text-slate-900 text-xs">
+                                                            {trip.fecha}
                                                         </div>
                                                     )}
                                                 </td>
 
                                                 {/* 2. Nº GUÍA / TRANSPORTE */}
-                                                <td className="py-4 px-4 align-middle whitespace-nowrap">
-                                                    <div className="flex items-center space-x-1.5">
-                                                        <span className="font-black text-slate-900 tracking-tight text-xs sm:text-sm">
+                                                <td className="py-3 px-2.5 xl:px-3.5 align-middle whitespace-nowrap">
+                                                    <div className="flex items-center space-x-1">
+                                                        <span className="font-black text-slate-900 tracking-tight text-xs">
                                                             {trip.nroTransporte}
                                                         </span>
-                                                        {esSubFila ? (
-                                                            <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white font-black text-[9px] tracking-wider uppercase shadow-2xs">
-                                                                RETORNO
-                                                            </span>
-                                                        ) : (
-                                                            <span className="px-1.5 py-0.5 rounded-md bg-slate-100 border border-slate-200/70 text-slate-600 font-bold text-[9px] tracking-wide uppercase">
-                                                                SAP-MM
+                                                        {esSubFila && (
+                                                            <span className="px-1.5 py-0.5 rounded bg-emerald-600 text-white font-black text-[8px] tracking-wider uppercase shadow-2xs">
+                                                                Plancha
                                                             </span>
                                                         )}
                                                     </div>
-                                                    <div className="text-[11px] text-slate-500 font-medium mt-0.5">
-                                                        Flete Base:{' '}
+                                                    <div className="text-[10px] text-slate-500 font-medium mt-0.5">
+                                                        Flete:{' '}
                                                         <strong className="text-slate-800 font-bold">
                                                             ${trip.fleteBase.toFixed(2)}
                                                         </strong>
                                                     </div>
+                                                    {tieneAnticipo && (
+                                                        <div className="text-[10px] text-teal-700 font-semibold mt-0.5">
+                                                            Anticipo:{' '}
+                                                            <strong className="font-extrabold">
+                                                                {trip.monedaAnticipo === 'USD' ? '$' : 'Bs. '}
+                                                                {Number(trip.montoAnticipoConductor).toLocaleString('es-VE', {
+                                                                    minimumFractionDigits: 2,
+                                                                    maximumFractionDigits: 2,
+                                                                })}
+                                                            </strong>
+                                                        </div>
+                                                    )}
                                                 </td>
 
                                                 {/* 3. RUTA (ORIGEN — DESTINO) */}
-                                                <td className="py-4 px-4 align-middle min-w-[220px]">
-                                                    <div className="space-y-1">
-                                                        {/* Origen con punto doble círculo verde */}
-                                                        <div className="flex items-center space-x-2">
-                                                            <span className="relative flex h-2.5 w-2.5 shrink-0">
-                                                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
-                                                            </span>
-                                                            <span className="font-bold text-slate-800 text-xs truncate">
-                                                                [{trip.origenCodigo}] {trip.origenNombre}
+                                                <td className="py-1.5 px-2.5 xl:px-3.5 align-middle max-w-[160px] xl:max-w-[220px]">
+                                                    <div className="leading-tight space-y-0.5">
+                                                        {/* Origen */}
+                                                        <div className="flex items-center space-x-1.5 leading-tight" title={`[${trip.origenCodigo}] ${trip.origenNombre}`}>
+                                                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+                                                            <span className="font-semibold text-slate-800 text-[11px] xl:text-xs truncate">
+                                                                {trip.origenNombre}
                                                             </span>
                                                         </div>
 
-                                                        {/* Destino con pin naranja */}
-                                                        <div className="flex items-center space-x-2">
-                                                            <MapPin className="w-3.5 h-3.5 text-orange-500 shrink-0" />
-                                                            <span className="text-slate-600 text-xs font-medium truncate">
-                                                                [{trip.destinoCodigo}] {trip.destinoNombre}
+                                                        {/* Destino */}
+                                                        <div className="flex items-center space-x-1.5 leading-tight" title={`[${trip.destinoCodigo}] ${trip.destinoNombre}`}>
+                                                            <span className="h-1.5 w-1.5 rounded-full bg-slate-300 shrink-0" />
+                                                            <span className="text-slate-500 text-[11px] xl:text-xs font-normal truncate">
+                                                                {trip.destinoNombre}
                                                             </span>
                                                         </div>
+
+                                                        {/* Cliente en naranja suave y limpio (solo en viajes principales, no en plancha) */}
+                                                        {!esSubFila && !trip.esRetorno && trip.clienteNombre && (
+                                                            <div
+                                                                className="pl-3 text-[10px] font-medium text-orange-500 truncate leading-none pt-0.5 capitalize"
+                                                                title={trip.clienteNombre}
+                                                            >
+                                                                {trip.clienteNombre.toLowerCase()}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </td>
 
                                                 {/* 4. RECURSOS (MACK / BATEA) */}
-                                                <td className="py-4 px-4 align-middle min-w-[200px]">
+                                                <td className="py-3 px-2.5 xl:px-3.5 align-middle max-w-[140px] xl:max-w-[180px]">
                                                     <div
                                                         onClick={() => abrirModalRecursos(trip)}
-                                                        className="group cursor-pointer p-1.5 -m-1.5 rounded-xl hover:bg-slate-100/90 transition"
+                                                        className="group cursor-pointer p-1 -m-1 rounded-xl hover:bg-slate-100/90 transition"
                                                         title="Click para reasignar unidad Mack o Batea"
                                                     >
-                                                        <div className="flex items-center space-x-1.5 font-bold text-slate-800 text-xs group-hover:text-orange-600 transition">
-                                                            <Truck className="w-4 h-4 text-slate-600 group-hover:text-orange-500 shrink-0" />
+                                                        <div className="flex items-center space-x-1 font-bold text-slate-800 text-[11px] xl:text-xs group-hover:text-orange-600 transition">
+                                                            <Truck className="w-3.5 h-3.5 text-slate-600 group-hover:text-orange-500 shrink-0" />
                                                             <span className="truncate">{trip.vehiculoMotrizNombre}</span>
                                                         </div>
-                                                        <div className="text-[11px] text-slate-500 font-medium mt-0.5 truncate pl-5">
+                                                        <div className="text-[10px] text-slate-500 font-medium mt-0.5 truncate pl-4">
                                                             {trip.acopladoNombre}
                                                         </div>
                                                     </div>
                                                 </td>
 
                                                 {/* 5. CONDUCTOR ASIGNADO */}
-                                                <td className="py-4 px-4 align-middle whitespace-nowrap min-w-[170px]">
-                                                    <div className="flex items-center space-x-2.5">
+                                                <td className="py-3 px-2.5 xl:px-3.5 align-middle max-w-[145px] xl:max-w-[180px]">
+                                                    <div className="flex items-center space-x-2">
                                                         {/* Avatar Iniciales */}
-                                                        <div className="w-8 h-8 rounded-full bg-[#d1fae5] text-[#065f46] font-black text-xs flex items-center justify-center shrink-0 shadow-2xs">
+                                                        <div className="w-7 h-7 rounded-full bg-[#d1fae5] text-[#065f46] font-black text-[10px] flex items-center justify-center shrink-0 shadow-2xs">
                                                             {trip.conductorIniciales}
                                                         </div>
-                                                        <div>
-                                                            <div className="font-bold text-slate-800 text-xs">
+                                                        <div className="min-w-0">
+                                                            <div className="font-bold text-slate-800 text-[11px] xl:text-xs truncate" title={trip.conductorNombre}>
                                                                 {trip.conductorNombre}
                                                             </div>
-                                                            <div className="flex items-center space-x-1 text-[11px] text-slate-500 font-medium">
+                                                            <div className="flex items-center space-x-1 text-[10px] text-slate-500 font-medium">
                                                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                                                                <span>{trip.conductorEstado}</span>
+                                                                <span className="truncate">{trip.conductorEstado}</span>
                                                             </div>
                                                         </div>
                                                     </div>
                                                 </td>
 
                                                 {/* 6. GUÍA FÍSICA (SWITCH RÁPIDO CON ETIQUETA DEBAJO) */}
-                                                <td className="py-4 px-4 align-middle text-center whitespace-nowrap">
-                                                    <div className="flex flex-col items-center justify-center gap-1.5">
+                                                <td className="py-3 px-2 xl:px-3 align-middle text-center whitespace-nowrap">
+                                                    <div className="flex flex-col items-center justify-center gap-1">
                                                         {/* Switch interactivo */}
                                                         <button
                                                             type="button"
                                                             onClick={() => handleToggleFisico(trip.idOrden, trip.fisico)}
-                                                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-emerald-500/30 ${trip.fisico ? 'bg-[#059669]' : 'bg-slate-300'
+                                                            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-emerald-500/30 ${trip.fisico ? 'bg-[#059669]' : 'bg-slate-300'
                                                                 }`}
                                                             role="switch"
                                                             aria-checked={trip.fisico}
@@ -1858,32 +2010,32 @@ export default function AsignacionRecursos() {
                                                         >
                                                             <span
                                                                 aria-hidden="true"
-                                                                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${trip.fisico ? 'translate-x-5' : 'translate-x-0'
+                                                                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${trip.fisico ? 'translate-x-4' : 'translate-x-0'
                                                                     }`}
                                                             />
                                                         </button>
 
                                                         {/* Label de estado físico debajo del switch */}
                                                         <span
-                                                            className={`text-[10px] sm:text-[11px] font-bold select-none leading-tight text-center ${trip.fisico ? 'text-[#0b6641]' : 'text-slate-400'
+                                                            className={`text-[9px] xl:text-[10px] font-bold select-none leading-tight text-center ${trip.fisico ? 'text-[#0b6641]' : 'text-slate-400'
                                                                 }`}
                                                         >
-                                                            {trip.fisico ? 'Físico Recibido' : 'Guía Pendiente'}
+                                                            {trip.fisico ? 'Recibido' : 'Pendiente'}
                                                         </span>
                                                     </div>
                                                 </td>
 
-                                                {/* 8. ACCIONES RÁPIDAS: BOTÓN RECARGOS + BOTÓN PLANCHA RETORNO */}
-                                                <td className="py-4 px-4 align-middle text-right whitespace-nowrap min-w-[340px]">
-                                                    <div className="flex items-center justify-end space-x-2">
+                                                {/* 7. ACCIONES RÁPIDAS: ANTICIPO + RECARGOS + PLANCHA RETORNO */}
+                                                <td className="py-3 px-2.5 xl:px-3.5 align-middle text-right whitespace-nowrap">
+                                                    <div className="flex items-center justify-end space-x-1 xl:space-x-1.5">
                                                         {/* Icono Reasignar recursos de flota (Mack y Batea) */}
                                                         <button
                                                             type="button"
                                                             onClick={() => abrirModalRecursos(trip)}
-                                                            className="hidden sm:inline-flex p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+                                                            className="hidden sm:inline-flex p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
                                                             title="Reasignar recursos de flota (Mack y Batea)"
                                                         >
-                                                            <ArrowRightLeft className="w-4 h-4" />
+                                                            <ArrowRightLeft className="w-3.5 h-3.5" />
                                                         </button>
 
                                                         {/* Icono de Mensajes / Notas rápidas */}
@@ -1893,17 +2045,17 @@ export default function AsignacionRecursos() {
                                                                 const obs = trip.observaciones || 'Sin observaciones registradas.';
                                                                 mostrarToast(`Nota Guía ${trip.nroTransporte}: ${obs}`, 'info');
                                                             }}
-                                                            className="p-1.5 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition"
+                                                            className="p-1 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition"
                                                             title="Ver observaciones del viaje"
                                                         >
-                                                            <MessageSquare className="w-4 h-4" />
+                                                            <MessageSquare className="w-3.5 h-3.5" />
                                                         </button>
 
                                                         {/* Botón Anticipo */}
                                                         <button
                                                             type="button"
                                                             onClick={() => abrirModalAnticipo(trip)}
-                                                            className={`flex items-center justify-center space-x-1.5 px-3 py-1.5 rounded-xl font-bold text-xs min-w-[98px] transition transform hover:scale-[1.02] active:scale-[0.98] shadow-xs cursor-pointer ${tieneAnticipo
+                                                            className={`flex items-center justify-center space-x-1 px-2 xl:px-2.5 py-1.5 rounded-xl font-bold text-[11px] xl:text-xs transition transform hover:scale-[1.02] active:scale-[0.98] shadow-xs cursor-pointer ${tieneAnticipo
                                                                 ? 'bg-teal-600 hover:bg-teal-700 active:bg-teal-800 text-white shadow-teal-600/25'
                                                                 : 'bg-slate-100 hover:bg-slate-200/80 active:bg-slate-300 text-slate-700 border border-slate-200'
                                                                 }`}
@@ -1920,11 +2072,11 @@ export default function AsignacionRecursos() {
                                                             )}
                                                         </button>
 
-                                                        {/* Botón % + Recargos (con ancho uniforme para alineación vertical exacta en todas las filas) */}
+                                                        {/* Botón % + Recargos */}
                                                         <button
                                                             type="button"
                                                             onClick={() => abrirModalRecargos(trip)}
-                                                            className={`flex items-center justify-center space-x-1.5 px-3 py-1.5 rounded-xl font-bold text-xs min-w-[114px] transition transform hover:scale-[1.02] active:scale-[0.98] shadow-xs cursor-pointer ${tieneRecargos
+                                                            className={`flex items-center justify-center space-x-1 px-2 xl:px-2.5 py-1.5 rounded-xl font-bold text-[11px] xl:text-xs transition transform hover:scale-[1.02] active:scale-[0.98] shadow-xs cursor-pointer ${tieneRecargos
                                                                 ? 'bg-[#f97316] hover:bg-[#ea580c] active:bg-[#c2410c] text-white shadow-orange-500/25'
                                                                 : 'bg-slate-100 hover:bg-slate-200/80 active:bg-slate-300 text-slate-700 border border-slate-200'
                                                                 }`}
@@ -1943,24 +2095,24 @@ export default function AsignacionRecursos() {
                                                             <button
                                                                 type="button"
                                                                 onClick={() => abrirModalEditarRetorno(trip)}
-                                                                className="flex items-center justify-center space-x-1.5 bg-white hover:bg-emerald-50 active:bg-emerald-100 text-emerald-800 border border-emerald-300 px-3 py-1.5 rounded-xl font-bold text-xs min-w-[136px] shadow-2xs transition transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                                                                className="flex items-center justify-center space-x-1 bg-white hover:bg-emerald-50 active:bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 xl:px-2.5 py-1.5 rounded-xl font-bold text-[11px] xl:text-xs w-[112px] xl:w-[122px] shadow-2xs transition transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
                                                                 title="Editar los datos de esta plancha de retorno"
                                                             >
-                                                                <Pencil className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                                                <Pencil className="w-3 h-3 text-emerald-600 shrink-0" />
                                                                 <span>Editar Plancha</span>
                                                             </button>
                                                         ) : !tienePlanchaAsignada ? (
                                                             <button
                                                                 type="button"
                                                                 onClick={() => abrirModalRetorno(trip)}
-                                                                className="flex items-center justify-center space-x-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white px-3 py-1.5 rounded-xl font-bold text-xs min-w-[136px] shadow-sm shadow-emerald-600/30 transition transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                                                                className="flex items-center justify-center space-x-1 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white px-2 xl:px-2.5 py-1.5 rounded-xl font-bold text-[11px] xl:text-xs w-[112px] xl:w-[122px] shadow-sm shadow-emerald-600/30 transition transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
                                                                 title="Generar plancha de retorno debajo de este flete"
                                                             >
-                                                                <CornerDownRight className="w-3.5 h-3.5 shrink-0 stroke-[2.5]" />
+                                                                <CornerDownRight className="w-3 h-3 shrink-0 stroke-[2.5]" />
                                                                 <span>Plancha Retorno</span>
                                                             </button>
                                                         ) : (
-                                                            <div className="w-[136px] shrink-0" aria-hidden="true" />
+                                                            <div className="w-[112px] xl:w-[122px] shrink-0" aria-hidden="true" />
                                                         )}
                                                     </div>
                                                 </td>
@@ -1972,8 +2124,8 @@ export default function AsignacionRecursos() {
                         </table>
                     </div>
 
-                    {/* Pie de tabla con resumen y estado de sincronización */}
-                    <div className="bg-[#fafaf9] border-t border-slate-200/80 px-5 py-3 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2">
+                    {/* Pie de tabla con resumen y totalización de anticipos */}
+                    <div className="bg-[#fafaf9] border-t border-slate-200/80 px-5 py-3 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-3">
                         <div className="flex items-center space-x-2">
                             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                             <span>
@@ -1981,11 +2133,24 @@ export default function AsignacionRecursos() {
                                 <strong className="text-slate-800 font-bold">
                                     {viajesOrdenadosJerarquicos.length}
                                 </strong>{' '}
-                                de {viajes.length} viajes activos en tiempo real (Filtro forzado: viajes cancelados purgados de la matriz de fletes).
+                                de {viajes.length} viajes activos en tiempo real.
                             </span>
                         </div>
-                        <div className="flex items-center space-x-1 text-slate-400 font-medium">
-                            <span>Sincronizado vía GPS Gateway: hace 18s</span>
+
+                        <div className="flex flex-wrap items-center gap-3">
+                            <div className="flex items-center gap-2 bg-teal-50 border border-teal-200/90 text-teal-900 px-3.5 py-1.5 rounded-xl shadow-2xs">
+                                <Banknote className="w-4 h-4 text-teal-600 shrink-0" />
+                                <span className="font-semibold text-teal-800">
+                                    Total Anticipos ({resumenAnticipos.cantidadConAnticipo} viajes):
+                                </span>
+                                <span className="font-black text-teal-950 text-xs sm:text-sm">
+                                    {resumenAnticipos.totalUSD > 0 && resumenAnticipos.totalBs > 0
+                                        ? `Bs. ${resumenAnticipos.totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / $${resumenAnticipos.totalUSD.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`
+                                        : resumenAnticipos.totalUSD > 0
+                                            ? `$${resumenAnticipos.totalUSD.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`
+                                            : `Bs. ${resumenAnticipos.totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                                </span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2713,9 +2878,30 @@ export default function AsignacionRecursos() {
                                             </span>
                                         </div>
                                     </div>
-                                    <span className="text-[11px] font-bold text-teal-900 bg-white/90 border border-teal-200 px-2.5 py-1 rounded-lg">
-                                        C.I: {cedulaChofer}
-                                    </span>
+                                    <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-teal-900 bg-white/90 border border-teal-200 px-2.5 py-1 rounded-lg">
+                                        <span>C.I: {cedulaChofer}</span>
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                handleCopiarDatoBancario(
+                                                    cedulaChofer,
+                                                    'cedula',
+                                                    'Cédula'
+                                                )
+                                            }
+                                            className={`inline-flex items-center justify-center p-0.5 rounded transition shrink-0 cursor-pointer ${campoCopiado === 'cedula'
+                                                ? 'text-emerald-600'
+                                                : 'text-slate-400 hover:text-slate-600'
+                                                }`}
+                                            title="Copiar Cédula"
+                                        >
+                                            {campoCopiado === 'cedula' ? (
+                                                <Check className="w-3.5 h-3.5" />
+                                            ) : (
+                                                <Copy className="w-3.5 h-3.5" />
+                                            )}
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">

@@ -205,6 +205,27 @@ export default function Vehiculos() {
     return vehiculos.find((v) => v.idVehiculo === formData.idAcopladoActual) || null;
   }, [formData.idAcopladoActual, vehiculos]);
 
+  // Helper: obtiene el conductor directo de un vehículo o, si es un acoplado, el conductor asignado a su chuto
+  const obtenerConductorAsignado = (v?: Vehiculo | null): string | null => {
+    if (!v) return null;
+    const directo =
+      v.telemetriaDetalle?.operador ||
+      (v.conductoresHabituales && v.conductoresHabituales.length > 0
+        ? `${v.conductoresHabituales[0].nombres} ${v.conductoresHabituales[0].apellidos}`.trim()
+        : null);
+    if (directo) return directo;
+
+    const chutoVinculado = vehiculos.find((m) => m.idAcopladoActual === v.idVehiculo);
+    if (!chutoVinculado) return null;
+
+    return (
+      chutoVinculado.telemetriaDetalle?.operador ||
+      (chutoVinculado.conductoresHabituales && chutoVinculado.conductoresHabituales.length > 0
+        ? `${chutoVinculado.conductoresHabituales[0].nombres} ${chutoVinculado.conductoresHabituales[0].apellidos}`.trim()
+        : null)
+    );
+  };
+
   // Filtrado reactivo
   const filteredVehiculos = useMemo(() => {
     return vehiculos.filter((v) => {
@@ -237,7 +258,8 @@ export default function Vehiculos() {
         const matchesModelo = v.modelo.toLowerCase().includes(term);
         const matchesVIN = v.numeroChasis.toLowerCase().includes(term);
         const matchesCodigo = v.codigoUnidad.toLowerCase().includes(term);
-        const matchesConductor = v.telemetriaDetalle?.operador?.toLowerCase().includes(term) ?? false;
+        const conductorReal = obtenerConductorAsignado(v);
+        const matchesConductor = conductorReal ? conductorReal.toLowerCase().includes(term) : false;
         const matchesClasificacion = (v.nombreClasificacion || v.clasificacion || '').toLowerCase().includes(term);
         const matchesTipo = (v.nombreTipo || '').toLowerCase().includes(term);
 
@@ -278,7 +300,7 @@ export default function Vehiculos() {
       v.nombreTipo || (v.idTipo === 1 ? 'Unidad Motora' : 'Acoplado'),
       v.nombreClasificacion || v.clasificacion,
       v.estadoTipo,
-      v.telemetriaDetalle?.operador || 'Sin asignar',
+      obtenerConductorAsignado(v) || 'Sin asignar',
       v.telemetriaDetalle?.odometro || 'N/A',
     ]);
 
@@ -774,11 +796,6 @@ export default function Vehiculos() {
                   ) : (
                     paginatedVehiculos.map((v) => {
                       const unitNumber = v.codigoUnidad.replace('#TR-', '').replace('#AC-', '');
-                      const assignedDriver =
-                        v.telemetriaDetalle?.operador ||
-                        (v.conductoresHabituales && v.conductoresHabituales.length > 0
-                          ? `${v.conductoresHabituales[0].nombres} ${v.conductoresHabituales[0].apellidos}`
-                          : null);
 
                       // Relación BD: vehiculos.id_clasificacion -> clasificaciones_vehiculos.id_tipo -> tipos_vehiculos
                       // 1 = Unidad Motora (motor), 2 = Acoplado
@@ -805,6 +822,8 @@ export default function Vehiculos() {
                       const motrizDeFila = !esUnidadMotriz
                         ? vehiculos.find((m) => m.idAcopladoActual === v.idVehiculo)
                         : null;
+
+                      const assignedDriver = obtenerConductorAsignado(v);
 
                       return (
                         <TableRow
@@ -1478,7 +1497,7 @@ export default function Vehiculos() {
                 <div className="px-4 py-2.5 flex justify-between">
                   <span className="text-slate-400">Operador Asignado:</span>
                   <span className="font-semibold text-slate-800">
-                    {activeVehicle.telemetriaDetalle?.operador || 'Sin operador asignado'}
+                    {obtenerConductorAsignado(activeVehicle) || 'Sin operador asignado'}
                   </span>
                 </div>
                 <div className="px-4 py-2.5 flex justify-between items-center">
@@ -1793,6 +1812,7 @@ export default function Vehiculos() {
                             </span>
                             <span className="text-[11px] text-slate-500 font-medium block truncate">
                               {motrizAsignada.marca} {motrizAsignada.modelo} ({motrizAsignada.nombreClasificacion || 'Unidad Motora'})
+                              {obtenerConductorAsignado(motrizAsignada) ? ` • Conductor: ${obtenerConductorAsignado(motrizAsignada)}` : ''}
                             </span>
                           </div>
                         </div>
