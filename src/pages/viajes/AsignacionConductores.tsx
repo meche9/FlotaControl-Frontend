@@ -23,7 +23,11 @@ import {
   AlertTriangle,
   Save,
   XCircle,
-  FileCheck
+  FileCheck,
+  Check,
+  ShieldCheck,
+  LayoutGrid,
+  Download
 } from 'lucide-react';
 import { conductoresService } from '../../services/conductoresService';
 import { programacionService, type GuiaProgramada } from '../../services/programacionService';
@@ -363,6 +367,11 @@ export default function AsignacionConductores() {
   const [guardandoViajeId, setGuardandoViajeId] = useState<string | null>(null);
   const [actualizandoFisicoId, setActualizandoFisicoId] = useState<string | null>(null);
 
+  // Selección de viajes para generar la Matriz Consolidada
+  const [viajesSeleccionadosIds, setViajesSeleccionadosIds] = useState<string[]>([]);
+  const [modalMatrizAbierto, setModalMatrizAbierto] = useState<boolean>(false);
+  const [vistaMatriz, setVistaMatriz] = useState<'tabla' | 'conductores'>('tabla');
+
   // Cargar conductores desde la base de datos al montar
   useEffect(() => {
     async function fetchCatalogos() {
@@ -428,6 +437,7 @@ export default function AsignacionConductores() {
 
       const viajesMapeados = guiasPrincipales.map(mapGuiaToViaje);
       setViajes(viajesMapeados);
+      setViajesSeleccionadosIds(viajesMapeados.filter((v) => v.estadoOrden !== 'Cancelado').map((v) => v.id));
 
       // Reconstruir guiasPanel a partir de las guias principales que ya tienen conductor en BD y no están canceladas
       const panelItems: GuiaAsignadaPanel[] = [];
@@ -835,6 +845,527 @@ export default function AsignacionConductores() {
     return listado;
   }, [conductores, guiasPanel]);
 
+  // Helpers de selección de viajes para la matriz
+  const viajesSeleccionadosSet = useMemo(() => new Set(viajesSeleccionadosIds), [viajesSeleccionadosIds]);
+
+  const viajesSeleccionadosLista = useMemo(() => {
+    const conductorNombreById = new Map<string, string>();
+    conductores.forEach((c) => conductorNombreById.set(c.id, c.nombre));
+
+    return viajes
+      .filter((v) => viajesSeleccionadosSet.has(v.id))
+      .sort((a, b) => {
+        const cmpDia = (a.diaKey || '').localeCompare(b.diaKey || '');
+        if (cmpDia !== 0) return cmpDia;
+
+        const nombreA = a.conductorId ? conductorNombreById.get(a.conductorId) ?? '' : '';
+        const nombreB = b.conductorId ? conductorNombreById.get(b.conductorId) ?? '' : '';
+
+        if (!nombreA && nombreB) return 1;
+        if (nombreA && !nombreB) return -1;
+
+        const cmpConductor = nombreA.localeCompare(nombreB, 'es', { sensitivity: 'base' });
+        if (cmpConductor !== 0) return cmpConductor;
+
+        return (a.nroTransporte || '').localeCompare(b.nroTransporte || '', 'es', { numeric: true });
+      });
+  }, [viajes, viajesSeleccionadosSet, conductores]);
+
+  const todosVisiblesSeleccionados = useMemo(() => {
+    if (viajesFiltrados.length === 0) return false;
+    return viajesFiltrados.every((v) => viajesSeleccionadosSet.has(v.id));
+  }, [viajesFiltrados, viajesSeleccionadosSet]);
+
+  const toggleSeleccionViaje = (viajeId: string) => {
+    setViajesSeleccionadosIds((prev) =>
+      prev.includes(viajeId) ? prev.filter((id) => id !== viajeId) : [...prev, viajeId]
+    );
+  };
+
+  const toggleSeleccionarTodosVisibles = () => {
+    if (todosVisiblesSeleccionados) {
+      const idsVisibles = new Set(viajesFiltrados.map((v) => v.id));
+      setViajesSeleccionadosIds((prev) => prev.filter((id) => !idsVisibles.has(id)));
+    } else {
+      const nuevos = new Set(viajesSeleccionadosIds);
+      viajesFiltrados.forEach((v) => nuevos.add(v.id));
+      setViajesSeleccionadosIds(Array.from(nuevos));
+    }
+  };
+
+  const toggleSeleccionarGrupo = (viajesGrupo: ViajeAsignacion[]) => {
+    const todosEnGrupoSeleccionados =
+      viajesGrupo.length > 0 && viajesGrupo.every((v) => viajesSeleccionadosSet.has(v.id));
+    const idsGrupo = new Set(viajesGrupo.map((v) => v.id));
+
+    if (todosEnGrupoSeleccionados) {
+      setViajesSeleccionadosIds((prev) => prev.filter((id) => !idsGrupo.has(id)));
+    } else {
+      const nuevos = new Set(viajesSeleccionadosIds);
+      viajesGrupo.forEach((v) => nuevos.add(v.id));
+      setViajesSeleccionadosIds(Array.from(nuevos));
+    }
+  };
+
+  const handleAbrirMatrizSeleccionados = () => {
+    if (viajes.length === 0) {
+      mostrarToast('Primero cargue los viajes programados por fecha para generar la matriz.');
+      return;
+    }
+    if (viajesSeleccionadosIds.length === 0) {
+      mostrarToast('Seleccione al menos un viaje en la tabla para generar la matriz.');
+      return;
+    }
+    setModalMatrizAbierto(true);
+  };
+
+  const handleExportarMatrizCSV = () => {
+    if (viajesSeleccionadosLista.length === 0) return;
+    const encabezados = ['FECHA', 'NRO_TRANSPORTE', 'CLIENTE', 'ORIGEN', 'DESTINO', 'CONDUCTOR', 'UNIDAD_PLACA', 'FISICO', 'ESTADO', 'OBSERVACIONES'];
+    const filas = viajesSeleccionadosLista.map((v) => {
+      const ch = conductores.find((c) => c.id === v.conductorId);
+      const choferNombre = ch ? ch.nombre : 'Sin asignar';
+      const unidadPlaca = ch ? `${ch.vehiculo} - ${ch.placa}` : 'Sin unidad';
+      const fisicoTxt = v.fisico ? 'FÍSICO RECIBIDO' : 'SIN FÍSICO';
+      const obsTxt = (v.observaciones || '').replace(/"/g, '""');
+      return `"${v.fecha}","${v.nroTransporte}","${v.clienteNombre || ''}","${v.origenCodigo} ${v.origenNombre}","${v.destinoCodigo} ${v.destinoNombre}","${choferNombre}","${unidadPlaca}","${fisicoTxt}","${v.estadoOrden || 'Programado'}","${obsTxt}"`;
+    });
+
+    const csv = '\uFEFF' + [encabezados.join(','), ...filas].join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Matriz_Despacho_Seleccionados_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    mostrarToast(`Matriz exportada con ${viajesSeleccionadosLista.length} viajes seleccionados.`);
+  };
+
+  const handleCopiarMatrizPortapapeles = async () => {
+    if (viajesSeleccionadosLista.length === 0) return;
+    const lineas = viajesSeleccionadosLista.map((v, idx) => {
+      const ch = conductores.find((c) => c.id === v.conductorId);
+      const choferNombre = ch ? `${ch.nombre} (${ch.placa})` : 'Sin conductor';
+      return `${idx + 1}. [${v.fecha}] ${v.nroTransporte} | ${v.clienteNombre || 'Cliente'} | ${v.origenNombre} ➔ ${v.destinoNombre} | Chofer: ${choferNombre}`;
+    });
+    const texto = `📊 MATRIZ DE DESPACHO (${viajesSeleccionadosLista.length} VIAJES)\n\n` + lineas.join('\n');
+    try {
+      await navigator.clipboard.writeText(texto);
+      mostrarToast('Matriz copiada al portapapeles.');
+    } catch {
+      mostrarToast('No se pudo copiar la matriz.');
+    }
+  };
+
+  // Handler para imprimir / generar PDF idéntico a la Matriz General
+  const handleImprimirMatrizPDF = () => {
+    if (viajesSeleccionadosLista.length === 0) {
+      mostrarToast('Seleccione al menos un viaje para generar el PDF de la matriz.');
+      return;
+    }
+
+    const escapeHtml = (value: string | number | null | undefined): string =>
+      String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const totalSel = viajesSeleccionadosLista.length;
+    const conConductorSel = viajesSeleccionadosLista.filter((v) => v.conductorId).length;
+    const sinConductorSel = totalSel - conConductorSel;
+    const clientesUnicosSel = new Set(viajesSeleccionadosLista.map((v) => v.clienteNombre).filter(Boolean)).size || 1;
+    const conFisicoSel = viajesSeleccionadosLista.filter((v) => v.fisico).length;
+    const fechaGeneracion = new Date().toLocaleString('es-VE', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
+
+    const filasHtml = viajesSeleccionadosLista
+      .map((v, idx) => {
+        const ch = conductores.find((c) => c.id === v.conductorId);
+        const clienteHtml = v.clienteNombre
+          ? `<div class="cliente-sub">${escapeHtml(v.clienteNombre.toLowerCase())}</div>`
+          : '';
+        const conductorHtml = ch
+          ? `<div class="conductor-wrap"><span class="avatar">${escapeHtml(ch.iniciales)}</span><span class="conductor-name">${escapeHtml(ch.nombre)}</span></div>`
+          : `<span class="badge-unassigned">Sin asignar</span>`;
+        const unidadHtml = ch
+          ? `<span class="unidad-txt"><strong>${escapeHtml(ch.placa)}</strong></span>`
+          : `<span class="muted">&mdash;</span>`;
+
+        return `
+          <tr>
+            <td class="col-num">${idx + 1}</td>
+            <td class="col-fecha">${escapeHtml(v.fecha)}</td>
+            <td class="col-tr">${escapeHtml(v.nroTransporte)}</td>
+            <td>
+              <div class="loc-main">${escapeHtml(v.origenNombre)}</div>
+              ${clienteHtml}
+            </td>
+            <td>
+              <div class="loc-sub">${escapeHtml(v.destinoNombre)}</div>
+            </td>
+            <td>${conductorHtml}</td>
+            <td class="nowrap">${unidadHtml}</td>
+          </tr>
+        `;
+      })
+      .join('');
+
+    const estadoConductorBadge =
+      sinConductorSel > 0
+        ? `<span class="kpi-pill amber">${sinConductorSel} Pend.</span>`
+        : `<span class="kpi-pill emerald">100% Listo</span>`;
+
+    const htmlDoc = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Matriz Operativa de Viajes Seleccionados</title>
+  <style>
+    @page { size: landscape; margin: 10mm; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #0f172a;
+      background: #ffffff;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    .sheet {
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      overflow: hidden;
+      background: #ffffff;
+    }
+    .header {
+      background: linear-gradient(90deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+      color: #ffffff;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .header-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      background: #f97316;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+    .header-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .sync-pill {
+      font-size: 9px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(249, 115, 22, 0.2);
+      color: #fdba74;
+      border: 1px solid rgba(249, 115, 22, 0.35);
+    }
+    .count-meta {
+      font-size: 10px;
+      font-weight: 700;
+      color: #94a3b8;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 900;
+      letter-spacing: -0.01em;
+    }
+    .header-right {
+      text-align: right;
+      font-size: 10px;
+      color: #cbd5e1;
+      font-weight: 600;
+    }
+    .header-right strong {
+      display: block;
+      color: #ffffff;
+      font-size: 11px;
+      margin-bottom: 2px;
+    }
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      padding: 12px 20px;
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .kpi-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .kpi-label {
+      display: block;
+      font-size: 9px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #94a3b8;
+      margin-bottom: 2px;
+    }
+    .kpi-val {
+      font-size: 15px;
+      font-weight: 900;
+      color: #0f172a;
+    }
+    .kpi-val.emerald { color: #047857; }
+    .kpi-val.teal { color: #0f766e; }
+    .kpi-sub {
+      font-size: 11px;
+      font-weight: 600;
+      color: #94a3b8;
+    }
+    .kpi-pill {
+      font-size: 9px;
+      font-weight: 800;
+      padding: 2px 8px;
+      border-radius: 999px;
+    }
+    .kpi-pill.orange { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; }
+    .kpi-pill.emerald { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+    .kpi-pill.amber { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+    .kpi-pill.slate { background: #f1f5f9; color: #475569; }
+    .kpi-pill.teal { background: #f0fdfa; color: #0f766e; border: 1px solid #99f6e4; }
+    .table-wrap {
+      padding: 14px 20px;
+      background: #f8fafc;
+    }
+    .table-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      text-align: left;
+    }
+    thead tr {
+      background: #fff9f4;
+      border-bottom: 1px solid #fed7aa;
+    }
+    th {
+      padding: 9px 10px;
+      font-size: 9px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #64748b;
+    }
+    th.col-fisico { text-align: center; }
+    tbody tr {
+      border-bottom: 1px solid #f1f5f9;
+      page-break-inside: avoid;
+    }
+    tbody tr:last-child { border-bottom: none; }
+    td {
+      padding: 8px 10px;
+      vertical-align: middle;
+    }
+    .col-num { font-weight: 700; color: #94a3b8; width: 28px; }
+    .col-fecha { font-weight: 700; color: #334155; white-space: nowrap; }
+    .col-tr { font-weight: 900; color: #0f172a; white-space: nowrap; }
+    .loc-main { font-weight: 700; color: #1e293b; }
+    .loc-sub { font-weight: 600; color: #334155; }
+    .code-ori { color: #047857; font-weight: 800; margin-right: 3px; }
+    .code-des { color: #0f766e; font-weight: 800; margin-right: 3px; }
+    .cliente-sub {
+      font-size: 9.5px;
+      font-weight: 600;
+      color: #f97316;
+      text-transform: capitalize;
+      margin-top: 1px;
+    }
+    .conductor-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .avatar {
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      background: #d1fae5;
+      color: #065f46;
+      font-size: 9px;
+      font-weight: 900;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .conductor-name { font-weight: 700; color: #0f172a; }
+    .badge-unassigned {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 9.5px;
+      font-weight: 700;
+      background: #fffbeb;
+      color: #b45309;
+      border: 1px solid #fde68a;
+    }
+    .unidad-txt { font-weight: 600; color: #334155; }
+    .unidad-txt strong { color: #0f172a; }
+    .muted { color: #94a3b8; }
+    .nowrap { white-space: nowrap; }
+    .col-fisico { text-align: center; white-space: nowrap; }
+    .badge-fisico {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 9.5px;
+      font-weight: 700;
+    }
+    .badge-fisico.ok { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+    .badge-fisico.pend { background: #f1f5f9; color: #64748b; }
+    .footer {
+      padding: 10px 20px;
+      border-top: 1px solid #e2e8f0;
+      background: #ffffff;
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: #64748b;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="header">
+      <div class="header-left">
+        <div class="header-icon">&#9638;</div>
+        <div>
+          <div class="header-meta">
+            <span class="sync-pill">Sincronizado en Tiempo Real</span>
+            <span class="count-meta">&bull; ${totalSel} ${totalSel === 1 ? 'viaje incluido' : 'viajes incluidos'}</span>
+          </div>
+          <h1>Matriz Operativa de Viajes Seleccionados</h1>
+        </div>
+      </div>
+      <div class="header-right">
+        <strong>Matriz General</strong>
+        Generado: ${escapeHtml(fechaGeneracion)}
+      </div>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi-card">
+        <div>
+          <span class="kpi-label">Viajes en Matriz</span>
+          <span class="kpi-val">${totalSel}</span>
+        </div>
+        <span class="kpi-pill orange">Seleccionados</span>
+      </div>
+      <div class="kpi-card">
+        <div>
+          <span class="kpi-label">Con Conductor</span>
+          <span class="kpi-val emerald">${conConductorSel} <span class="kpi-sub">/ ${totalSel}</span></span>
+        </div>
+        ${estadoConductorBadge}
+      </div>
+      <div class="kpi-card">
+        <div>
+          <span class="kpi-label">Clientes Activos</span>
+          <span class="kpi-val">${clientesUnicosSel}</span>
+        </div>
+        <span class="kpi-pill slate">En ruta</span>
+      </div>
+      <div class="kpi-card">
+        <div>
+          <span class="kpi-label">Gu&iacute;as F&iacute;sicas</span>
+          <span class="kpi-val teal">${conFisicoSel} <span class="kpi-sub">/ ${totalSel}</span></span>
+        </div>
+        <span class="kpi-pill teal">Recibidos</span>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <div class="table-card">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>FECHA</th>
+              <th>N&deg; TRANSPORTE</th>
+              <th>ORIGEN / CLIENTE</th>
+              <th>DESTINO</th>
+              <th>CONDUCTOR ASIGNADO</th>
+              <th>UNIDAD / PLACA</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filasHtml}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span>Matriz generada en tiempo real a partir de la selecci&oacute;n activa en consola</span>
+      <span>FlotaControl &bull; Ordenado por d&iacute;a y conductor</span>
+    </div>
+  </div>
+  <script>
+    window.addEventListener('load', function () {
+      setTimeout(function () {
+        window.focus();
+        window.print();
+      }, 250);
+    });
+  </script>
+</body>
+</html>`;
+
+    const printWindow = window.open('', '_blank', 'width=1200,height=850');
+    if (!printWindow) {
+      mostrarToast('Permita las ventanas emergentes para generar el PDF de la matriz.');
+      return;
+    }
+
+    printWindow.document.open();
+    printWindow.document.write(htmlDoc);
+    printWindow.document.close();
+    mostrarToast(`Preparando PDF de Matriz General (${totalSel} viajes)...`);
+  };
+
   // Handler para exportar PDF
   const handleExportarPDF = (choferNombre?: string) => {
     mostrarToast(`Generando hoja de despacho PDF para ${choferNombre || 'la flota'}...`);
@@ -1057,6 +1588,31 @@ export default function AsignacionConductores() {
             <FileCheck className="w-3.5 h-3.5 text-emerald-600" />
             <span>{conteoConFisico}/{viajes.length} Físicos</span>
           </div>
+
+          {/* Control global de Seleccionar Todos para la Matriz */}
+          {viajesFiltrados.length > 0 && (
+            <button
+              type="button"
+              onClick={toggleSeleccionarTodosVisibles}
+              className={`px-3 py-1 rounded-full text-xs font-extrabold border transition flex items-center gap-1.5 cursor-pointer select-none ${todosVisiblesSeleccionados
+                ? 'bg-orange-50 border-orange-300 text-orange-700 shadow-2xs'
+                : 'bg-white border-gray-200 text-slate-600 hover:bg-gray-50'
+                }`}
+              title="Seleccionar o deseleccionar todos los viajes visibles para generar la matriz"
+            >
+              <span
+                className={`w-3.5 h-3.5 rounded flex items-center justify-center border transition ${todosVisiblesSeleccionados
+                  ? 'bg-orange-500 border-orange-500 text-white'
+                  : 'border-slate-300 bg-white'
+                  }`}
+              >
+                {todosVisiblesSeleccionados && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+              </span>
+              <span>
+                {todosVisiblesSeleccionados ? 'Todos seleccionados' : 'Seleccionar todos'} ({viajesSeleccionadosIds.length})
+              </span>
+            </button>
+          )}
         </div>
 
         {/* Input de Búsqueda */}
@@ -1179,258 +1735,310 @@ export default function AsignacionConductores() {
                   </div>
 
                   {/* Contenido / Tabla del Grupo */}
-                  {!estaColapsado && (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="border-b border-gray-100 bg-gray-50/60 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
-                            <th className="py-2.5 px-4">N° TRANSPORTE</th>
-                            <th className="py-2.5 px-4">ORIGEN SALIDA</th>
-                            <th className="py-2.5 px-4">DESTINO LLEGADA</th>
-                            <th className="py-2.5 px-4">CONDUCTOR Y OBSERVACIÓN</th>
-                            <th className="py-2.5 px-4 text-right">ACCIONES RÁPIDAS</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100 text-xs">
-                          {grupo.viajes.map((viaje) => {
-                            const conductorActual = conductores.find((c) => c.id === viaje.conductorId);
-                            const estaAsignado = !!conductorActual;
-                            const esCancelado = viaje.estadoOrden === 'Cancelado';
-                            const tieneConductorEnBD = Boolean(
-                              !esCancelado &&
-                              viaje.conductorId &&
-                              viaje.conductorIdEnBD &&
-                              viaje.conductorId === viaje.conductorIdEnBD
-                            );
-                            const yaNotificadoWhatsapp = viajesConWhatsappEnviado.includes(viaje.id);
+                  {!estaColapsado && (() => {
+                    const todosEnGrupoSeleccionados =
+                      grupo.viajes.length > 0 && grupo.viajes.every((v) => viajesSeleccionadosSet.has(v.id));
+                    const algunosEnGrupoSeleccionados =
+                      !todosEnGrupoSeleccionados && grupo.viajes.some((v) => viajesSeleccionadosSet.has(v.id));
 
-                            return (
-                              <tr
-                                key={viaje.id}
-                                className={`transition-colors duration-150 ${esCancelado
-                                  ? 'bg-rose-50/40 hover:bg-rose-50/60'
-                                  : 'hover:bg-slate-50/70'
-                                  }`}
-                              >
-                                {/* 1. N° TRANSPORTE */}
-                                <td className="py-3 px-4 whitespace-nowrap">
-                                  <div className="flex items-center space-x-2">
-                                    <span className={`font-black text-sm tracking-tight ${esCancelado ? 'text-slate-800' : 'text-slate-900'}`}>
-                                      {viaje.nroTransporte}
-                                    </span>
-                                    {esCancelado && (
-                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-rose-100 text-rose-700 uppercase tracking-tight">
-                                        Cancelado
-                                      </span>
-                                    )}
-                                    {/* Botón interactivo para alternar estado Físico */}
+                    return (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="border-b border-gray-100 bg-gray-50/60 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                              <th className="py-2.5 pl-4 pr-2 w-10">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleSeleccionarGrupo(grupo.viajes)}
+                                  title={
+                                    todosEnGrupoSeleccionados
+                                      ? 'Deseleccionar todos los viajes de este día'
+                                      : 'Seleccionar todos los viajes de este día para la matriz'
+                                  }
+                                  className={`w-4 h-4 rounded-md border flex items-center justify-center transition cursor-pointer ${todosEnGrupoSeleccionados
+                                    ? 'bg-orange-500 border-orange-500 text-white shadow-2xs'
+                                    : algunosEnGrupoSeleccionados
+                                      ? 'bg-orange-100 border-orange-400 text-orange-600'
+                                      : 'bg-white border-slate-300 hover:border-orange-400'
+                                    }`}
+                                >
+                                  {todosEnGrupoSeleccionados ? (
+                                    <Check className="w-3 h-3 stroke-[3]" />
+                                  ) : algunosEnGrupoSeleccionados ? (
+                                    <span className="w-2 h-0.5 bg-orange-500 rounded-full" />
+                                  ) : null}
+                                </button>
+                              </th>
+                              <th className="py-2.5 px-3">N° TRANSPORTE</th>
+                              <th className="py-2.5 px-4">ORIGEN SALIDA</th>
+                              <th className="py-2.5 px-4">DESTINO LLEGADA</th>
+                              <th className="py-2.5 px-4">CONDUCTOR Y OBSERVACIÓN</th>
+                              <th className="py-2.5 px-4 text-right">ACCIONES RÁPIDAS</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100 text-xs">
+                            {grupo.viajes.map((viaje) => {
+                              const conductorActual = conductores.find((c) => c.id === viaje.conductorId);
+                              const estaAsignado = !!conductorActual;
+                              const esCancelado = viaje.estadoOrden === 'Cancelado';
+                              const estaSeleccionado = viajesSeleccionadosSet.has(viaje.id);
+                              const tieneConductorEnBD = Boolean(
+                                !esCancelado &&
+                                viaje.conductorId &&
+                                viaje.conductorIdEnBD &&
+                                viaje.conductorId === viaje.conductorIdEnBD
+                              );
+                              const yaNotificadoWhatsapp = viajesConWhatsappEnviado.includes(viaje.id);
+
+                              return (
+                                <tr
+                                  key={viaje.id}
+                                  className={`transition-colors duration-150 ${esCancelado
+                                    ? 'bg-rose-50/40 hover:bg-rose-50/60'
+                                    : estaSeleccionado
+                                      ? 'bg-orange-50/25 hover:bg-orange-50/45'
+                                      : 'hover:bg-slate-50/70'
+                                    }`}
+                                >
+                                  {/* 0. CHECK DE SELECCIÓN PARA LA MATRIZ */}
+                                  <td className="py-3 pl-4 pr-2 w-10 whitespace-nowrap">
                                     <button
                                       type="button"
+                                      onClick={() => toggleSeleccionViaje(viaje.id)}
                                       title={
-                                        viaje.fisico
-                                          ? 'Documento Físico Recibido (Haga clic para cambiar a Pendiente)'
-                                          : 'Documento Físico Pendiente (Haga clic para marcar como Recibido)'
+                                        estaSeleccionado
+                                          ? 'Quitar viaje de la matriz'
+                                          : 'Incluir viaje en la matriz'
                                       }
-                                      disabled={actualizandoFisicoId === viaje.id}
-                                      onClick={() => handleToggleFisico(viaje)}
-                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-tight border transition cursor-pointer select-none active:scale-95 ${viaje.fisico
-                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-                                        : 'bg-slate-50 text-slate-400 border-slate-200 hover:border-slate-300 hover:text-slate-600'
+                                      className={`w-4 h-4 rounded-md border flex items-center justify-center transition transform active:scale-90 cursor-pointer ${estaSeleccionado
+                                        ? 'bg-orange-500 border-orange-500 text-white shadow-2xs'
+                                        : 'bg-white border-slate-300 hover:border-orange-400'
                                         }`}
                                     >
-                                      <FileCheck className={`w-3 h-3 ${viaje.fisico ? 'text-emerald-600' : 'text-slate-400'}`} />
-                                      <span>{viaje.fisico ? 'Físico' : 'Sin Físico'}</span>
+                                      {estaSeleccionado && <Check className="w-3 h-3 stroke-[3]" />}
                                     </button>
-                                  </div>
-                                </td>
+                                  </td>
 
-                                {/* 2. ORIGEN SALIDA & CLIENTE */}
-                                <td className="py-3 px-4 whitespace-nowrap">
-                                  <div className="flex items-center space-x-1.5">
-                                    <span className="text-emerald-700 font-extrabold text-xs">
-                                      {viaje.origenCodigo}
-                                    </span>
-                                    <span className="font-bold text-slate-800 text-xs sm:text-[13px]">
-                                      {viaje.origenNombre}
-                                    </span>
-                                  </div>
-                                  {viaje.clienteNombre && (
-                                    <div
-                                      className="text-[10.5px] font-medium text-orange-500 truncate capitalize mt-0.5 leading-tight"
-                                      title={viaje.clienteNombre}
-                                    >
-                                      {viaje.clienteNombre.toLowerCase()}
-                                    </div>
-                                  )}
-                                </td>
-
-                                {/* 3. DESTINO LLEGADA & FECHA ESTIMADA */}
-                                <td className="py-3 px-4 whitespace-nowrap">
-                                  <div className="flex items-center space-x-1.5">
-                                    <span className="text-teal-700 font-extrabold text-xs">
-                                      {viaje.destinoCodigo}
-                                    </span>
-                                    <span className="font-bold text-slate-800 text-xs sm:text-[13px]">
-                                      {viaje.destinoNombre}
-                                    </span>
-                                  </div>
-                                  <div className="text-[11px] text-slate-400 mt-0.5">
-                                    Pr. Est. {viaje.fechaEstimadaLlegada}
-                                  </div>
-                                </td>
-
-                                {/* 4. CONDUCTOR ASIGNADO, ASIGNACIÓN URGENTE & OBSERVACIÓN */}
-                                <td className="py-3 px-4">
-                                  <div className="flex items-center space-x-2">
-                                    {esCancelado ? (
-                                      /* Si está cancelado, mostrar la palabra "Viaje Cancelado" de manera fácilmente identificable en lugar del conductor */
-                                      <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-rose-600 text-white font-black text-xs shadow-sm shadow-rose-600/30 select-none min-w-[190px] sm:min-w-[210px] justify-center tracking-wider uppercase border border-rose-700 animate-in fade-in duration-150">
-                                        <XCircle className="w-4 h-4 text-white shrink-0" />
-                                        <span>Viaje Cancelado</span>
-                                      </div>
-                                    ) : (
-                                      <>
-                                        {/* Select de Conductor */}
-                                        <div className="relative min-w-[190px] sm:min-w-[210px] max-w-[240px]">
-                                          <select
-                                            value={viaje.conductorId || ''}
-                                            onChange={(e) => {
-                                              const val = e.target.value;
-                                              asignarConductorAViaje(viaje.id, val ? val : null);
-                                            }}
-                                            className={`w-full py-1.5 pl-3 pr-8 rounded-xl text-xs font-semibold appearance-none border transition cursor-pointer ${estaAsignado
-                                              ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950 font-bold'
-                                              : 'bg-amber-50/40 border-amber-300/80 text-slate-700 hover:border-amber-400'
-                                              }`}
-                                          >
-                                            <option value="">
-                                              {conductores.length === 0 ? 'Cargando choferes...' : 'Seleccionar chofer activo...'}
-                                            </option>
-                                            {conductores.map((c) => (
-                                              <option key={c.id} value={c.id}>
-                                                {c.nombre} ({c.vehiculo} • {c.placa})
-                                              </option>
-                                            ))}
-                                          </select>
-                                          <ChevronDown className="w-3.5 h-3.5 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                                        </div>
-
-                                        {/* Botón Asignar Urgente - Icono pequeño alusivo a urgente */}
-                                        <button
-                                          type="button"
-                                          title="Asignación Urgente de Conductor"
-                                          aria-label="Asignar Urgente"
-                                          onClick={() => setViajeParaAsignarUrgente(viaje)}
-                                          className="p-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white shadow-xs transition transform active:scale-95 cursor-pointer shrink-0"
-                                        >
-                                          <AlertTriangle className="w-3.5 h-3.5" />
-                                        </button>
-                                      </>
-                                    )}
-
-                                    {/* Observación del Viaje (muestra la observación dada por el usuario) */}
-                                    {esCancelado ? (
-                                      <div
-                                        title={`Observación del Usuario / Motivo de Cancelación:\n${viaje.observaciones || 'Sin observación registrada'}`}
-                                        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs bg-rose-50 border border-rose-200/90 text-rose-950 font-medium max-w-[260px] sm:max-w-[340px] lg:max-w-[420px] min-w-0 shadow-2xs transition"
-                                      >
-                                        <FileText className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                                        <span className="truncate">
-                                          <strong className="text-rose-700 font-bold mr-1">Obs:</strong>
-                                          {viaje.observaciones || 'Cancelado sin observación'}
-                                        </span>
-                                      </div>
-                                    ) : viaje.observaciones ? (
-                                      <div
-                                        title={`Observación:\n${viaje.observaciones}`}
-                                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11.5px] min-w-0 max-w-[220px] lg:max-w-[280px] transition cursor-default font-medium bg-slate-50 hover:bg-slate-100/90 border border-slate-200/80 text-slate-700"
-                                      >
-                                        <FileText className="w-3 h-3 text-slate-400 shrink-0" />
-                                        <span className="truncate">
-                                          {viaje.observaciones}
-                                        </span>
-                                      </div>
-                                    ) : (
-                                      <span className="text-[11px] text-slate-400 italic whitespace-nowrap">
-                                        Sin observación
+                                  {/* 1. N° TRANSPORTE */}
+                                  <td className="py-3 px-3 whitespace-nowrap">
+                                    <div className="flex items-center space-x-2">
+                                      <span className={`font-black text-sm tracking-tight ${esCancelado ? 'text-slate-800' : 'text-slate-900'}`}>
+                                        {viaje.nroTransporte}
                                       </span>
-                                    )}
-                                  </div>
-                                </td>
-
-                                {/* 5. ACCIONES RÁPIDAS (Guardar, WhatsApp, Cancelar) */}
-                                <td className="py-3 px-4 text-right whitespace-nowrap">
-                                  {esCancelado ? (
-                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-rose-50 border border-rose-200 text-rose-600 text-xs font-bold shadow-2xs">
-                                      <XCircle className="w-3.5 h-3.5 text-rose-500" />
-                                      <span>Cancelado</span>
-                                    </span>
-                                  ) : (
-                                    <div className="inline-flex items-center space-x-1.5">
-                                      {/* Botón Guardar (solo icono) */}
+                                      {esCancelado && (
+                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-rose-100 text-rose-700 uppercase tracking-tight">
+                                          Cancelado
+                                        </span>
+                                      )}
+                                      {/* Botón interactivo para alternar estado Físico */}
                                       <button
                                         type="button"
-                                        title={guardandoViajeId === viaje.id ? 'Guardando...' : 'Guardar cambios de este viaje'}
-                                        aria-label="Guardar cambios de este viaje"
-                                        disabled={guardandoViajeId === viaje.id}
-                                        onClick={() => handleGuardarViaje(viaje)}
-                                        className="p-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 active:scale-95 text-white shadow-xs transition cursor-pointer disabled:opacity-60"
-                                      >
-                                        {guardandoViajeId === viaje.id ? (
-                                          <RotateCw className="w-3.5 h-3.5 animate-spin" />
-                                        ) : (
-                                          <Save className="w-3.5 h-3.5" />
-                                        )}
-                                      </button>
-
-                                      {/* Icono del WhatsApp (habilitado solo si ya tiene conductor registrado en BD) */}
-                                      <button
-                                        type="button"
-                                        disabled={!tieneConductorEnBD}
                                         title={
-                                          !tieneConductorEnBD
-                                            ? viaje.conductorId
-                                              ? 'Debe guardar los cambios para registrar el conductor en base de datos'
-                                              : 'Este viaje no tiene conductor registrado en base de datos'
-                                            : yaNotificadoWhatsapp
-                                              ? 'Mensaje ya enviado por WhatsApp (Haga clic para ver, modificar o reenviar)'
-                                              : 'Notificar por WhatsApp al conductor'
+                                          viaje.fisico
+                                            ? 'Documento Físico Recibido (Haga clic para cambiar a Pendiente)'
+                                            : 'Documento Físico Pendiente (Haga clic para marcar como Recibido)'
                                         }
-                                        aria-label="Notificar por WhatsApp"
-                                        onClick={() => {
-                                          if (tieneConductorEnBD) {
-                                            setViajeParaWhatsapp(viaje);
-                                          }
-                                        }}
-                                        className={`p-1.5 rounded-lg shadow-xs transition ${!tieneConductorEnBD
-                                          ? 'bg-slate-100 text-slate-300 border border-slate-200 cursor-not-allowed opacity-50 shadow-none'
-                                          : yaNotificadoWhatsapp
-                                            ? 'bg-purple-600 hover:bg-purple-700 active:scale-95 text-white cursor-pointer ring-2 ring-purple-300/80'
-                                            : 'bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white cursor-pointer'
+                                        disabled={actualizandoFisicoId === viaje.id}
+                                        onClick={() => handleToggleFisico(viaje)}
+                                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-tight border transition cursor-pointer select-none active:scale-95 ${viaje.fisico
+                                          ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                                          : 'bg-slate-50 text-slate-400 border-slate-200 hover:border-slate-300 hover:text-slate-600'
                                           }`}
                                       >
-                                        <MessageCircle className="w-3.5 h-3.5" />
-                                      </button>
-
-                                      {/* Icono para cambio de estado_orden rápido a cancelar */}
-                                      <button
-                                        type="button"
-                                        title="Cancelar orden de viaje (cambio rápido a Cancelado)"
-                                        onClick={() => abrirModalCancelar(viaje)}
-                                        className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 border border-rose-200/90 shadow-2xs active:scale-95 transition cursor-pointer"
-                                      >
-                                        <XCircle className="w-3.5 h-3.5" />
+                                        <FileCheck className={`w-3 h-3 ${viaje.fisico ? 'text-emerald-600' : 'text-slate-400'}`} />
+                                        <span>{viaje.fisico ? 'Físico' : 'Sin Físico'}</span>
                                       </button>
                                     </div>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+                                  </td>
+
+                                  {/* 2. ORIGEN SALIDA & CLIENTE */}
+                                  <td className="py-3 px-4 whitespace-nowrap">
+                                    <div className="flex items-center space-x-1.5">
+                                      <span className="text-emerald-700 font-extrabold text-xs">
+                                        {viaje.origenCodigo}
+                                      </span>
+                                      <span className="font-bold text-slate-800 text-xs sm:text-[13px]">
+                                        {viaje.origenNombre}
+                                      </span>
+                                    </div>
+                                    {viaje.clienteNombre && (
+                                      <div
+                                        className="text-[10.5px] font-medium text-orange-500 truncate capitalize mt-0.5 leading-tight"
+                                        title={viaje.clienteNombre}
+                                      >
+                                        {viaje.clienteNombre.toLowerCase()}
+                                      </div>
+                                    )}
+                                  </td>
+
+                                  {/* 3. DESTINO LLEGADA & FECHA ESTIMADA */}
+                                  <td className="py-3 px-4 whitespace-nowrap">
+                                    <div className="flex items-center space-x-1.5">
+                                      <span className="text-teal-700 font-extrabold text-xs">
+                                        {viaje.destinoCodigo}
+                                      </span>
+                                      <span className="font-bold text-slate-800 text-xs sm:text-[13px]">
+                                        {viaje.destinoNombre}
+                                      </span>
+                                    </div>
+                                    <div className="text-[11px] text-slate-400 mt-0.5">
+                                      Pr. Est. {viaje.fechaEstimadaLlegada}
+                                    </div>
+                                  </td>
+
+                                  {/* 4. CONDUCTOR ASIGNADO, ASIGNACIÓN URGENTE & OBSERVACIÓN */}
+                                  <td className="py-3 px-4">
+                                    <div className="flex items-center space-x-2">
+                                      {esCancelado ? (
+                                        /* Si está cancelado, mostrar la palabra "Viaje Cancelado" de manera fácilmente identificable en lugar del conductor */
+                                        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-rose-600 text-white font-black text-xs shadow-sm shadow-rose-600/30 select-none min-w-[190px] sm:min-w-[210px] justify-center tracking-wider uppercase border border-rose-700 animate-in fade-in duration-150">
+                                          <XCircle className="w-4 h-4 text-white shrink-0" />
+                                          <span>Viaje Cancelado</span>
+                                        </div>
+                                      ) : (
+                                        <>
+                                          {/* Select de Conductor */}
+                                          <div className="relative min-w-[190px] sm:min-w-[210px] max-w-[240px]">
+                                            <select
+                                              value={viaje.conductorId || ''}
+                                              onChange={(e) => {
+                                                const val = e.target.value;
+                                                asignarConductorAViaje(viaje.id, val ? val : null);
+                                              }}
+                                              className={`w-full py-1.5 pl-3 pr-8 rounded-xl text-xs font-semibold appearance-none border transition cursor-pointer ${estaAsignado
+                                                ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950 font-bold'
+                                                : 'bg-amber-50/40 border-amber-300/80 text-slate-700 hover:border-amber-400'
+                                                }`}
+                                            >
+                                              <option value="">
+                                                {conductores.length === 0 ? 'Cargando choferes...' : 'Seleccionar chofer activo...'}
+                                              </option>
+                                              {conductores.map((c) => (
+                                                <option key={c.id} value={c.id}>
+                                                  {c.nombre} ({c.placa})
+                                                </option>
+                                              ))}
+                                            </select>
+                                            <ChevronDown className="w-3.5 h-3.5 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                          </div>
+
+                                          {/* Botón Asignar Urgente - Icono pequeño alusivo a urgente */}
+                                          <button
+                                            type="button"
+                                            title="Asignación Urgente de Conductor"
+                                            aria-label="Asignar Urgente"
+                                            onClick={() => setViajeParaAsignarUrgente(viaje)}
+                                            className="p-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white shadow-xs transition transform active:scale-95 cursor-pointer shrink-0"
+                                          >
+                                            <AlertTriangle className="w-3.5 h-3.5" />
+                                          </button>
+                                        </>
+                                      )}
+
+                                      {/* Observación del Viaje (muestra la observación dada por el usuario) */}
+                                      {esCancelado ? (
+                                        <div
+                                          title={`Observación del Usuario / Motivo de Cancelación:\n${viaje.observaciones || 'Sin observación registrada'}`}
+                                          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs bg-rose-50 border border-rose-200/90 text-rose-950 font-medium max-w-[260px] sm:max-w-[340px] lg:max-w-[420px] min-w-0 shadow-2xs transition"
+                                        >
+                                          <FileText className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                                          <span className="truncate">
+                                            <strong className="text-rose-700 font-bold mr-1">Obs:</strong>
+                                            {viaje.observaciones || 'Cancelado sin observación'}
+                                          </span>
+                                        </div>
+                                      ) : viaje.observaciones ? (
+                                        <div
+                                          title={`Observación:\n${viaje.observaciones}`}
+                                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11.5px] min-w-0 max-w-[220px] lg:max-w-[280px] transition cursor-default font-medium bg-slate-50 hover:bg-slate-100/90 border border-slate-200/80 text-slate-700"
+                                        >
+                                          <FileText className="w-3 h-3 text-slate-400 shrink-0" />
+                                          <span className="truncate">
+                                            {viaje.observaciones}
+                                          </span>
+                                        </div>
+                                      ) : (
+                                        <span className="text-[11px] text-slate-400 italic whitespace-nowrap">
+                                          Sin observación
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+
+                                  {/* 5. ACCIONES RÁPIDAS (Guardar, WhatsApp, Cancelar) */}
+                                  <td className="py-3 px-4 text-right whitespace-nowrap">
+                                    {esCancelado ? (
+                                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-rose-50 border border-rose-200 text-rose-600 text-xs font-bold shadow-2xs">
+                                        <XCircle className="w-3.5 h-3.5 text-rose-500" />
+                                        <span>Cancelado</span>
+                                      </span>
+                                    ) : (
+                                      <div className="inline-flex items-center space-x-1.5">
+                                        {/* Botón Guardar (solo icono) */}
+                                        <button
+                                          type="button"
+                                          title={guardandoViajeId === viaje.id ? 'Guardando...' : 'Guardar cambios de este viaje'}
+                                          aria-label="Guardar cambios de este viaje"
+                                          disabled={guardandoViajeId === viaje.id}
+                                          onClick={() => handleGuardarViaje(viaje)}
+                                          className="p-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 active:scale-95 text-white shadow-xs transition cursor-pointer disabled:opacity-60"
+                                        >
+                                          {guardandoViajeId === viaje.id ? (
+                                            <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                                          ) : (
+                                            <Save className="w-3.5 h-3.5" />
+                                          )}
+                                        </button>
+
+                                        {/* Icono del WhatsApp (habilitado solo si ya tiene conductor registrado en BD) */}
+                                        <button
+                                          type="button"
+                                          disabled={!tieneConductorEnBD}
+                                          title={
+                                            !tieneConductorEnBD
+                                              ? viaje.conductorId
+                                                ? 'Debe guardar los cambios para registrar el conductor en base de datos'
+                                                : 'Este viaje no tiene conductor registrado en base de datos'
+                                              : yaNotificadoWhatsapp
+                                                ? 'Mensaje ya enviado por WhatsApp (Haga clic para ver, modificar o reenviar)'
+                                                : 'Notificar por WhatsApp al conductor'
+                                          }
+                                          aria-label="Notificar por WhatsApp"
+                                          onClick={() => {
+                                            if (tieneConductorEnBD) {
+                                              setViajeParaWhatsapp(viaje);
+                                            }
+                                          }}
+                                          className={`p-1.5 rounded-lg shadow-xs transition ${!tieneConductorEnBD
+                                            ? 'bg-slate-100 text-slate-300 border border-slate-200 cursor-not-allowed opacity-50 shadow-none'
+                                            : yaNotificadoWhatsapp
+                                              ? 'bg-purple-600 hover:bg-purple-700 active:scale-95 text-white cursor-pointer ring-2 ring-purple-300/80'
+                                              : 'bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white cursor-pointer'
+                                            }`}
+                                        >
+                                          <MessageCircle className="w-3.5 h-3.5" />
+                                        </button>
+
+                                        {/* Icono para cambio de estado_orden rápido a cancelar */}
+                                        <button
+                                          type="button"
+                                          title="Cancelar orden de viaje (cambio rápido a Cancelado)"
+                                          onClick={() => abrirModalCancelar(viaje)}
+                                          className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 border border-rose-200/90 shadow-2xs active:scale-95 transition cursor-pointer"
+                                        >
+                                          <XCircle className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })
@@ -1576,6 +2184,34 @@ export default function AsignacionConductores() {
                     );
                   })
                 )}
+              </div>
+
+              {/* Footer Innovador de Generación de Matriz de Viajes Seleccionados */}
+              <div className="mt-4 pt-3.5 border-t border-slate-100">
+                <div className="group rounded-2xl border border-slate-200/90 hover:border-orange-200 bg-gradient-to-r from-white via-slate-50/40 to-orange-50/20 px-3.5 py-3 shadow-2xs hover:shadow-md transition-all duration-200 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-200/80 text-emerald-600 flex items-center justify-center shrink-0 shadow-2xs">
+                      <ShieldCheck className="w-4 h-4 stroke-[2.2]" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold text-slate-600 leading-snug truncate">
+                        Sincronización de despachos en tiempo real
+                      </p>
+                      <p className="text-[10px] font-bold text-emerald-700 mt-0.5">
+                        {viajesSeleccionadosIds.length} {viajesSeleccionadosIds.length === 1 ? 'viaje seleccionado' : 'viajes seleccionados'} para matriz
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleAbrirMatrizSeleccionados}
+                    className="inline-flex items-center gap-1.5 text-xs font-extrabold text-orange-600 hover:text-orange-700 whitespace-nowrap shrink-0 cursor-pointer group-hover:translate-x-0.5 transition-transform"
+                  >
+                    <span>Ver Matriz de Viajes</span>
+                    <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -2175,6 +2811,353 @@ export default function AsignacionConductores() {
           </div>
         </div>
       )}
+
+      {/* ======================================================== */}
+      {/* MODAL 6: MATRIZ CONSOLIDADA DE VIAJES SELECCIONADOS      */}
+      {/* ======================================================== */}
+      {modalMatrizAbierto && (() => {
+        const totalSeleccionados = viajesSeleccionadosLista.length;
+        const conConductor = viajesSeleccionadosLista.filter((v) => v.conductorId).length;
+        const sinConductor = totalSeleccionados - conConductor;
+        const conFisicoSel = viajesSeleccionadosLista.filter((v) => v.fisico).length;
+        const clientesUnicos = new Set(
+          viajesSeleccionadosLista.map((v) => v.clienteNombre).filter(Boolean)
+        ).size;
+
+        // Agrupación por conductor para la vista matricial por chofer
+        const mapaPorConductor = new Map<string, { nombre: string; placa: string; vehiculo: string; iniciales: string; items: ViajeAsignacion[] }>();
+        viajesSeleccionadosLista.forEach((v) => {
+          const ch = conductores.find((c) => c.id === v.conductorId);
+          const key = ch ? ch.id : 'sin-asignar';
+          if (!mapaPorConductor.has(key)) {
+            mapaPorConductor.set(key, {
+              nombre: ch ? ch.nombre : 'Sin conductor asignado',
+              placa: ch ? ch.placa : 'S/P',
+              vehiculo: ch ? ch.vehiculo : 'Pendiente de unidad',
+              iniciales: ch ? ch.iniciales : '--',
+              items: [],
+            });
+          }
+          mapaPorConductor.get(key)!.items.push(v);
+        });
+        const gruposConductoresMatriz = Array.from(mapaPorConductor.values()).sort((a, b) => {
+          if (a.nombre === 'Sin conductor asignado') return 1;
+          if (b.nombre === 'Sin conductor asignado') return -1;
+          return a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' });
+        });
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/65 backdrop-blur-xs animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
+              {/* Cabecera del Modal de Matriz */}
+              <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-11 h-11 rounded-2xl bg-orange-500/20 border border-orange-400/40 text-orange-400 flex items-center justify-center shrink-0 shadow-inner">
+                    <LayoutGrid className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                        Sincronizado en Tiempo Real
+                      </span>
+                      <span className="text-[10px] font-bold text-slate-400">
+                        • {totalSeleccionados} {totalSeleccionados === 1 ? 'viaje incluido' : 'viajes incluidos'}
+                      </span>
+                    </div>
+                    <h3 className="text-base sm:text-lg font-black tracking-tight text-white mt-1">
+                      Matriz Operativa de Viajes Seleccionados
+                    </h3>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-end sm:self-auto">
+                  {/* Selector de vista */}
+                  <div className="inline-flex items-center bg-slate-800/90 border border-slate-700 rounded-xl p-1 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setVistaMatriz('tabla')}
+                      className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${vistaMatriz === 'tabla'
+                        ? 'bg-orange-500 text-white shadow-xs'
+                        : 'text-slate-300 hover:text-white'
+                        }`}
+                    >
+                      Matriz General
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVistaMatriz('conductores')}
+                      className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${vistaMatriz === 'conductores'
+                        ? 'bg-orange-500 text-white shadow-xs'
+                        : 'text-slate-300 hover:text-white'
+                        }`}
+                    >
+                      Por Conductor ({gruposConductoresMatriz.length})
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setModalMatrizAbierto(false)}
+                    className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Barra de KPIs de la Matriz */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-6 py-3.5 bg-slate-50/90 border-b border-slate-200/80">
+                <div className="bg-white rounded-xl border border-slate-200/80 px-3.5 py-2.5 flex items-center justify-between shadow-2xs">
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block">
+                      Viajes en Matriz
+                    </span>
+                    <span className="text-base font-black text-slate-900">
+                      {totalSeleccionados}
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-50 text-orange-700 border border-orange-200">
+                    Seleccionados
+                  </span>
+                </div>
+
+                <div className="bg-white rounded-xl border border-slate-200/80 px-3.5 py-2.5 flex items-center justify-between shadow-2xs">
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block">
+                      Con Conductor
+                    </span>
+                    <span className="text-base font-black text-emerald-700">
+                      {conConductor} <span className="text-xs font-semibold text-slate-400">/ {totalSeleccionados}</span>
+                    </span>
+                  </div>
+                  {sinConductor > 0 ? (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                      {sinConductor} Pend.
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      100% Listo
+                    </span>
+                  )}
+                </div>
+
+                <div className="bg-white rounded-xl border border-slate-200/80 px-3.5 py-2.5 flex items-center justify-between shadow-2xs">
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block">
+                      Clientes Activos
+                    </span>
+                    <span className="text-base font-black text-slate-900">
+                      {clientesUnicos || 1}
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                    En ruta
+                  </span>
+                </div>
+
+                <div className="bg-white rounded-xl border border-slate-200/80 px-3.5 py-2.5 flex items-center justify-between shadow-2xs">
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block">
+                      Guías Físicas
+                    </span>
+                    <span className="text-base font-black text-teal-700">
+                      {conFisicoSel} <span className="text-xs font-semibold text-slate-400">/ {totalSeleccionados}</span>
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">
+                    Recibidos
+                  </span>
+                </div>
+              </div>
+
+              {/* Cuerpo de la Matriz */}
+              <div className="flex-1 overflow-y-auto p-5 sm:p-6 bg-slate-50/40">
+                {vistaMatriz === 'tabla' ? (
+                  <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-[#fff9f4] border-b border-orange-200/60 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                            <th className="py-3 px-3.5">#</th>
+                            <th className="py-3 px-3.5">FECHA</th>
+                            <th className="py-3 px-3.5">N° TRANSPORTE</th>
+                            <th className="py-3 px-3.5">ORIGEN / CLIENTE</th>
+                            <th className="py-3 px-3.5">DESTINO</th>
+                            <th className="py-3 px-3.5">CONDUCTOR ASIGNADO</th>
+                            <th className="py-3 px-3.5">UNIDAD / PLACA</th>
+                            <th className="py-3 px-3.5 text-center">FÍSICO</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {viajesSeleccionadosLista.map((v, idx) => {
+                            const ch = conductores.find((c) => c.id === v.conductorId);
+                            return (
+                              <tr key={v.id} className="hover:bg-slate-50/80 transition">
+                                <td className="py-2.5 px-3.5 font-bold text-slate-400">
+                                  {idx + 1}
+                                </td>
+                                <td className="py-2.5 px-3.5 font-bold text-slate-700 whitespace-nowrap">
+                                  {v.fecha}
+                                </td>
+                                <td className="py-2.5 px-3.5 font-black text-slate-900 whitespace-nowrap">
+                                  {v.nroTransporte}
+                                </td>
+                                <td className="py-2.5 px-3.5">
+                                  <div className="font-bold text-slate-800">
+                                    <span className="text-emerald-700 font-extrabold mr-1">{v.origenCodigo}</span>
+                                    {v.origenNombre}
+                                  </div>
+                                  {v.clienteNombre && (
+                                    <div className="text-[10px] font-medium text-orange-500 capitalize">
+                                      {v.clienteNombre.toLowerCase()}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-3.5">
+                                  <div className="font-semibold text-slate-700">
+                                    <span className="text-teal-700 font-extrabold mr-1">{v.destinoCodigo}</span>
+                                    {v.destinoNombre}
+                                  </div>
+                                </td>
+                                <td className="py-2.5 px-3.5">
+                                  {ch ? (
+                                    <div className="flex items-center gap-2">
+                                      <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 font-black text-[10px] flex items-center justify-center shrink-0">
+                                        {ch.iniciales}
+                                      </span>
+                                      <span className="font-bold text-slate-900">{ch.nombre}</span>
+                                    </div>
+                                  ) : (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                      Sin asignar
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-3.5 whitespace-nowrap">
+                                  {ch ? (
+                                    <span className="font-semibold text-slate-700">
+                                      {ch.vehiculo} • <strong className="text-slate-900">{ch.placa}</strong>
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400">—</span>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
+                                  <span
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${v.fisico
+                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                      : 'bg-slate-100 text-slate-500'
+                                      }`}
+                                  >
+                                    {v.fisico ? 'Recibido' : 'Pendiente'}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {gruposConductoresMatriz.map((grupoCh, i) => (
+                      <div
+                        key={i}
+                        className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-2xs space-y-3"
+                      >
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-9 h-9 rounded-xl bg-slate-900 text-white font-black text-xs flex items-center justify-center shrink-0">
+                              {grupoCh.iniciales}
+                            </div>
+                            <div>
+                              <h4 className="font-black text-slate-900 text-xs sm:text-sm">
+                                {grupoCh.nombre}
+                              </h4>
+                              <p className="text-[11px] font-medium text-slate-500">
+                                {grupoCh.vehiculo} • {grupoCh.placa}
+                              </p>
+                            </div>
+                          </div>
+                          <span className="bg-orange-100 text-orange-800 text-[11px] font-extrabold px-2.5 py-1 rounded-full">
+                            {grupoCh.items.length} {grupoCh.items.length === 1 ? 'Viaje' : 'Viajes'}
+                          </span>
+                        </div>
+
+                        <div className="space-y-2">
+                          {grupoCh.items.map((item) => (
+                            <div
+                              key={item.id}
+                              className="p-2.5 rounded-xl bg-slate-50/80 border border-slate-200/60 text-xs flex flex-col gap-1"
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-black text-slate-900">
+                                  {item.nroTransporte}
+                                </span>
+                                <span className="text-[11px] font-semibold text-slate-500">
+                                  {item.fecha}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1 text-[11px] font-semibold text-slate-700">
+                                <span className="truncate">{item.origenNombre}</span>
+                                <ArrowRight className="w-3 h-3 text-orange-500 shrink-0" />
+                                <span className="truncate">{item.destinoNombre}</span>
+                              </div>
+                              {item.clienteNombre && (
+                                <span className="text-[10px] font-medium text-orange-500 capitalize">
+                                  {item.clienteNombre.toLowerCase()}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer del Modal de Matriz */}
+              <div className="px-6 py-4 border-t border-slate-200/80 bg-white flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Matriz generada en tiempo real a partir de la selección activa en consola</span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCopiarMatrizPortapapeles}
+                    className="px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+                  >
+                    <Copy className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Copiar Resumen</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleImprimirMatrizPDF}
+                    className="px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Imprimir / PDF</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleExportarMatrizCSV}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#ea580c] to-[#f97316] hover:from-[#c2410c] hover:to-[#ea580c] text-white font-extrabold text-xs flex items-center gap-1.5 shadow-md shadow-orange-500/25 transition cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Exportar Matriz CSV</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
