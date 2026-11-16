@@ -337,12 +337,13 @@ export default function Dashboard() {
 
       const id = viaje.conductor.idConductor || obtenerNombreConductor(viaje);
       const nombre = obtenerNombreConductor(viaje);
-      const flete =
+      const fleteBruto =
         viaje.montoFleteCliente !== null &&
           viaje.montoFleteCliente !== undefined &&
           Number(viaje.montoFleteCliente) > 0
           ? Number(viaje.montoFleteCliente)
           : Number(viaje.ruta?.montoTarifa || 0);
+      const flete = fleteBruto * 0.115;
 
       const tieneGps =
         viaje.gpsConectado === true ||
@@ -381,6 +382,72 @@ export default function Dashboard() {
       totalKmRanking: Math.round(totalKm),
     };
   }, [viajesSemana]);
+
+  // Kilometraje semanal por día (Lunes a Domingo) y conteo de viajes efectuados / cancelados
+  const kilometrajeSemanal = useMemo(() => {
+    const nombresDias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    const letrasDias = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+
+    const [ly, lm, ld] = rangoSemana.lunesISO.split('-').map(Number);
+    const fechaBase = new Date(ly, (lm || 1) - 1, ld || 1);
+
+    const dias = nombresDias.map((nombreCompleto, idx) => {
+      const f = new Date(fechaBase);
+      f.setDate(fechaBase.getDate() + idx);
+      const fechaISO = `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}-${String(f.getDate()).padStart(2, '0')}`;
+      return {
+        fechaISO,
+        letra: letrasDias[idx],
+        nombreCompleto,
+        km: 0,
+        viajesEfectuados: 0,
+        viajesCancelados: 0,
+      };
+    });
+
+    const indicePorFecha = new Map(dias.map((d, idx) => [d.fechaISO, idx]));
+
+    let totalEfectuados = 0;
+    let totalCancelados = 0;
+
+    for (const viaje of viajesSemana) {
+      const fechaISO = extraerFechaISO(viaje.fechaProgramadaCarga);
+      const idx = indicePorFecha.get(fechaISO);
+      if (idx === undefined) continue;
+
+      const estadoNorm = (viaje.estadoOrden || '').toLowerCase();
+      if (estadoNorm.includes('cancel')) {
+        dias[idx].viajesCancelados += 1;
+        totalCancelados += 1;
+        continue;
+      }
+
+      dias[idx].viajesEfectuados += 1;
+      totalEfectuados += 1;
+
+      const tieneGps =
+        viaje.gpsConectado === true ||
+        (viaje.distanciaRecorridaKm !== undefined && viaje.distanciaRecorridaKm !== null);
+      const km = tieneGps
+        ? Math.max(0, Number(viaje.distanciaRecorridaKm ?? 0))
+        : Math.max(0, Number(viaje.ruta?.distanciaKm || 0));
+
+      dias[idx].km += km;
+    }
+
+    const totalKm = Math.round(dias.reduce((acc, d) => acc + d.km, 0));
+    const maxKm = Math.max(...dias.map((d) => d.km), 0);
+    const diaPico = maxKm > 0 ? dias.find((d) => d.km === maxKm) ?? null : null;
+
+    return {
+      dias,
+      totalKm,
+      maxKm,
+      diaPico,
+      totalEfectuados,
+      totalCancelados,
+    };
+  }, [viajesSemana, rangoSemana.lunesISO]);
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto pb-12">
@@ -570,8 +637,8 @@ export default function Dashboard() {
                   type="button"
                   onClick={() => setAlcanceSemana('desde_hoy')}
                   className={`px-3 py-1 text-xs font-bold rounded-full transition cursor-pointer ${alcanceSemana === 'desde_hoy'
-                      ? 'bg-orange-500 text-white shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-orange-500 text-white shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
                     }`}
                 >
                   Desde Hoy
@@ -580,8 +647,8 @@ export default function Dashboard() {
                   type="button"
                   onClick={() => setAlcanceSemana('toda_semana')}
                   className={`px-3 py-1 text-xs font-bold rounded-full transition cursor-pointer ${alcanceSemana === 'toda_semana'
-                      ? 'bg-orange-500 text-white shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-orange-500 text-white shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
                     }`}
                 >
                   Semana (Lun–Dom)
@@ -610,8 +677,8 @@ export default function Dashboard() {
                   type="button"
                   onClick={() => setFiltroEstado(estado)}
                   className={`px-3 py-1.5 text-[11px] font-bold rounded-xl border transition cursor-pointer ${filtroEstado === estado
-                      ? 'bg-sky-100/80 text-sky-800 border-sky-200'
-                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    ? 'bg-sky-100/80 text-sky-800 border-sky-200'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                     }`}
                 >
                   {estado === 'todos' ? 'Todos' : estado}
@@ -673,8 +740,8 @@ export default function Dashboard() {
                         onClick={alternarOrdenRuta}
                         title="Ordenar por ruta (plantas)"
                         className={`inline-flex items-center gap-1 uppercase tracking-wider transition cursor-pointer ${ordenTabla !== 'conductor'
-                            ? 'text-orange-600'
-                            : 'text-slate-400 hover:text-slate-700'
+                          ? 'text-orange-600'
+                          : 'text-slate-400 hover:text-slate-700'
                           }`}
                       >
                         <span>Ruta / Viaje</span>
@@ -693,8 +760,8 @@ export default function Dashboard() {
                         onClick={() => setOrdenTabla('conductor')}
                         title="Ordenar por conductor"
                         className={`inline-flex items-center gap-1 uppercase tracking-wider transition cursor-pointer ${ordenTabla === 'conductor'
-                            ? 'text-teal-700'
-                            : 'text-slate-400 hover:text-slate-700'
+                          ? 'text-teal-700'
+                          : 'text-slate-400 hover:text-slate-700'
                           }`}
                       >
                         <span>Conductor</span>
@@ -839,8 +906,8 @@ export default function Dashboard() {
                               <div className="flex items-center gap-2.5">
                                 <div
                                   className={`w-7 h-7 rounded-full font-bold text-[10px] flex items-center justify-center shrink-0 border ${viaje.conductor
-                                      ? 'bg-teal-50 text-teal-800 border-teal-200'
-                                      : 'bg-slate-100 text-slate-400 border-slate-200'
+                                    ? 'bg-teal-50 text-teal-800 border-teal-200'
+                                    : 'bg-slate-100 text-slate-400 border-slate-200'
                                     }`}
                                 >
                                   {obtenerIniciales(conductorNombre)}
@@ -848,8 +915,8 @@ export default function Dashboard() {
                                 <div className="min-w-0">
                                   <span
                                     className={`block text-xs truncate max-w-[150px] ${viaje.conductor
-                                        ? 'font-semibold text-slate-800'
-                                        : 'italic text-slate-400'
+                                      ? 'font-semibold text-slate-800'
+                                      : 'italic text-slate-400'
                                       }`}
                                     title={conductorNombre}
                                   >
@@ -902,10 +969,10 @@ export default function Dashboard() {
                                     {/* Barra de progreso recorrido */}
                                     <div
                                       className={`h-full rounded-full transition-all duration-500 ${completado
-                                          ? 'bg-emerald-500'
-                                          : tieneGps
-                                            ? 'bg-teal-600'
-                                            : 'bg-slate-300'
+                                        ? 'bg-emerald-500'
+                                        : tieneGps
+                                          ? 'bg-teal-600'
+                                          : 'bg-slate-300'
                                         }`}
                                       style={{ width: `${progresoPct}%` }}
                                     />
@@ -930,10 +997,10 @@ export default function Dashboard() {
                                           : 'En espera de datos GPS'
                                       }
                                       className={`absolute top-1/2 -translate-x-1/2 -translate-y-1/2 z-20 w-6 h-6 rounded-full flex items-center justify-center border shadow-sm transition-all duration-500 ${completado
-                                          ? 'bg-emerald-600 border-white text-white'
-                                          : tieneGps
-                                            ? 'bg-white border-teal-600 text-teal-700'
-                                            : 'bg-white border-slate-300 text-slate-500'
+                                        ? 'bg-emerald-600 border-white text-white'
+                                        : tieneGps
+                                          ? 'bg-white border-teal-600 text-teal-700'
+                                          : 'bg-white border-slate-300 text-slate-500'
                                         }`}
                                       style={{ left: `${progresoPct}%` }}
                                     >
@@ -1181,74 +1248,108 @@ export default function Dashboard() {
           </div>
 
           {/* Posición 3: Kilometraje Semanal */}
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-xs p-5 space-y-4">
-            <div className="flex items-start justify-between">
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-xs p-5 flex flex-col justify-between space-y-4">
+            <div className="flex items-start justify-between gap-2">
               <div>
                 <h3 className="font-bold text-slate-900 text-sm">
                   Kilometraje Semanal
                 </h3>
                 <p className="text-[11px] text-slate-400">
-                  Rendimiento acumulado de flota
+                  Rendimiento acumulado • {rangoSemana.etiquetaSemana}
                 </p>
               </div>
-              <div className="flex items-center gap-1 font-bold text-xs text-slate-800">
+              <div className="flex items-center gap-1 font-bold text-xs text-slate-800 shrink-0">
                 <ArrowUpRight className="w-4 h-4 text-emerald-600" />
-                <span>88,410 km</span>
+                <span>{kilometrajeSemanal.totalKm.toLocaleString('es-VE')} km</span>
               </div>
             </div>
 
             {/* Bar Chart */}
-            <div className="pt-4 pb-2">
-              <div className="flex items-end justify-between h-32 gap-2 px-1">
-                {/* Lunes */}
-                <div className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
-                  <div className="w-full bg-indigo-100/70 hover:bg-indigo-200 rounded-t-lg transition h-[52%]"></div>
-                  <span className="text-[10px] font-bold text-slate-400">L</span>
-                </div>
-                {/* Martes */}
-                <div className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
-                  <div className="w-full bg-indigo-100/70 hover:bg-indigo-200 rounded-t-lg transition h-[68%]"></div>
-                  <span className="text-[10px] font-bold text-slate-400">M</span>
-                </div>
-                {/* Miércoles */}
-                <div className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
-                  <div className="w-full bg-teal-700 hover:bg-teal-800 rounded-t-lg transition h-[76%]"></div>
-                  <span className="text-[10px] font-bold text-slate-700">M</span>
-                </div>
-                {/* Jueves */}
-                <div className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
-                  <div className="w-full bg-indigo-100/70 hover:bg-indigo-200 rounded-t-lg transition h-[84%]"></div>
-                  <span className="text-[10px] font-bold text-slate-400">J</span>
-                </div>
-                {/* Viernes (Peak Max) */}
-                <div className="flex-1 flex flex-col items-center gap-1 h-full justify-end relative">
-                  <span className="w-2 h-2 rounded-full bg-orange-500 mb-0.5"></span>
-                  <div className="w-full bg-orange-500 hover:bg-orange-600 rounded-t-lg transition h-[90%] shadow-xs"></div>
-                  <span className="text-[10px] font-bold text-orange-600">V</span>
-                </div>
-                {/* Sábado */}
-                <div className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
-                  <div className="w-full bg-indigo-100/70 hover:bg-indigo-200 rounded-t-lg transition h-[58%]"></div>
-                  <span className="text-[10px] font-bold text-slate-400">S</span>
-                </div>
-                {/* Domingo */}
-                <div className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
-                  <div className="w-full bg-indigo-100/70 hover:bg-indigo-200 rounded-t-lg transition h-[36%]"></div>
-                  <span className="text-[10px] font-bold text-slate-400">D</span>
-                </div>
+            <div className="pt-3 pb-1">
+              <div className="flex items-end justify-between h-36 gap-2 px-1">
+                {kilometrajeSemanal.dias.map((dia) => {
+                  const esPico = kilometrajeSemanal.maxKm > 0 && dia.km === kilometrajeSemanal.maxKm;
+                  const esHoy = dia.fechaISO === rangoSemana.hoyISO;
+                  const tieneActividad = dia.km > 0 || dia.viajesEfectuados > 0;
+
+                  const alturaPct =
+                    kilometrajeSemanal.maxKm > 0 && dia.km > 0
+                      ? Math.max(28, Math.round((dia.km / kilometrajeSemanal.maxKm) * 90))
+                      : dia.viajesEfectuados > 0
+                        ? 28
+                        : 8;
+
+                  const barColorClass = esPico
+                    ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-xs'
+                    : esHoy && tieneActividad
+                      ? 'bg-teal-700 hover:bg-teal-800 text-white'
+                      : tieneActividad
+                        ? 'bg-indigo-100/80 hover:bg-indigo-200 text-indigo-900'
+                        : 'bg-slate-100 text-slate-400';
+
+                  const labelDiaClass = esPico
+                    ? 'text-orange-600'
+                    : esHoy
+                      ? 'text-slate-700'
+                      : 'text-slate-400';
+
+                  const tooltip = `${dia.nombreCompleto}: ${Math.round(dia.km).toLocaleString('es-VE')} km • ${dia.viajesEfectuados} ${dia.viajesEfectuados === 1 ? 'viaje efectuado' : 'viajes efectuados'}${dia.viajesCancelados > 0 ? ` • ${dia.viajesCancelados} ${dia.viajesCancelados === 1 ? 'cancelado' : 'cancelados'}` : ''}`;
+
+                  return (
+                    <div
+                      key={dia.fechaISO}
+                      title={tooltip}
+                      className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end"
+                    >
+                      {esPico && <span className="w-2 h-2 rounded-full bg-orange-500 -mb-0.5 shrink-0"></span>}
+                      <div
+                        style={{ height: `${alturaPct}%` }}
+                        className={`w-full rounded-t-lg transition-all flex items-center justify-center overflow-hidden px-0.5 ${barColorClass}`}
+                      >
+                        {dia.viajesEfectuados > 0 && (
+                          <span className="[writing-mode:vertical-rl] rotate-180 text-[10px] font-bold tracking-tight whitespace-nowrap select-none leading-none">
+                            {dia.viajesEfectuados} {dia.viajesEfectuados === 1 ? 'viaje' : 'viajes'}
+                          </span>
+                        )}
+                      </div>
+                      <span className={`text-[10px] font-bold ${labelDiaClass}`}>{dia.letra}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
             {/* Chart Legend */}
-            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-600">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-sm bg-orange-500"></span>
-                <span className="font-medium text-slate-600">Máx: Viernes (16,400 km)</span>
+            <div className="pt-2.5 border-t border-slate-100 space-y-1.5 text-[11px] text-slate-600">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-teal-700 shrink-0"></span>
+                  <span className="text-slate-500">
+                    Efectuados:{' '}
+                    <strong className="font-bold text-slate-800">
+                      {kilometrajeSemanal.totalEfectuados}
+                    </strong>
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-rose-400 shrink-0"></span>
+                  <span className="text-slate-500">
+                    Cancelados:{' '}
+                    <strong className="font-bold text-slate-800">
+                      {kilometrajeSemanal.totalCancelados}
+                    </strong>
+                  </span>
+                </div>
               </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-sm bg-teal-700"></span>
-                <span className="font-medium text-slate-600">Media Operativa</span>
-              </div>
+              {kilometrajeSemanal.diaPico && (
+                <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+                  <span className="w-2 h-2 rounded-full bg-orange-500 shrink-0"></span>
+                  <span>
+                    Máx: {kilometrajeSemanal.diaPico.nombreCompleto} (
+                    {Math.round(kilometrajeSemanal.diaPico.km).toLocaleString('es-VE')} km)
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>
