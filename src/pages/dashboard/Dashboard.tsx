@@ -188,7 +188,7 @@ export default function Dashboard() {
   const toggleDiaPlegado = (fechaISO: string) => {
     setDiasPlegados((prev) => ({
       ...prev,
-      [fechaISO]: !prev[fechaISO],
+      [fechaISO]: !(prev[fechaISO] ?? true),
     }));
   };
 
@@ -775,7 +775,7 @@ export default function Dashboard() {
                 </thead>
 
                 {viajesAgrupadosPorDia.map((grupo) => {
-                  const estaPlegado = Boolean(diasPlegados[grupo.fechaISO]);
+                  const estaPlegado = diasPlegados[grupo.fechaISO] ?? true;
                   return (
                     <tbody key={grupo.fechaISO} className="divide-y divide-slate-100 text-xs">
                       {/* Corte por Día (plegable / desplegable) */}
