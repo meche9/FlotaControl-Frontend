@@ -482,9 +482,10 @@ export default function AsignacionRecursos() {
             const listaMapeada: ViajeFleteItem[] = (guiasBd || []).map((g: GuiaProgramada) => {
                 const fh = formatearFechaHora(g.fechaProgramadaCarga);
                 const obs = g.observaciones || '';
-                const esRet = obs.includes('[RETORNO_DE:') || obs.toLowerCase().includes('retorno');
+                const obsTrimmed = obs.trimStart();
+                const esRet = obsTrimmed.startsWith('[RETORNO_DE:');
                 let idPadre: string | null = null;
-                const matchPadre = obs.match(/\[RETORNO_DE:([a-zA-Z0-9-]+)\]/);
+                const matchPadre = esRet ? obsTrimmed.match(/^\[RETORNO_DE:([a-zA-Z0-9-]+)\]/) : null;
                 if (matchPadre && matchPadre[1]) {
                     idPadre = matchPadre[1];
                 }

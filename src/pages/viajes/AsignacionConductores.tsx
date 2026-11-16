@@ -2333,11 +2333,31 @@ export default function AsignacionConductores() {
       {viajeParaWhatsapp && (() => {
         const choferWhatsapp = conductores.find((c) => c.id === viajeParaWhatsapp.conductorId);
         const telefonoDigitos = choferWhatsapp?.telefono ? choferWhatsapp.telefono.replace(/[^0-9]/g, '') : '';
+        const telefonoNormalizado =
+          telefonoDigitos.length === 11 && telefonoDigitos.startsWith('0')
+            ? `58${telefonoDigitos.slice(1)}`
+            : telefonoDigitos;
         const fueEnviado = viajesConWhatsappEnviado.includes(viajeParaWhatsapp.id);
 
-        const whatsappUrl = telefonoDigitos
-          ? `https://api.whatsapp.com/send?phone=${telefonoDigitos}&text=${encodeURIComponent(mensajeWhatsapp)}`
-          : `https://api.whatsapp.com/send?text=${encodeURIComponent(mensajeWhatsapp)}`;
+        const encodedMsg = encodeURIComponent(mensajeWhatsapp);
+        const whatsappApiUrl = telefonoNormalizado
+          ? `https://api.whatsapp.com/send?phone=${telefonoNormalizado}&text=${encodedMsg}`
+          : `https://api.whatsapp.com/send?text=${encodedMsg}`;
+        const whatsappWebUrl = telefonoNormalizado
+          ? `https://web.whatsapp.com/send?phone=${telefonoNormalizado}&text=${encodedMsg}`
+          : `https://web.whatsapp.com/send?text=${encodedMsg}`;
+
+        const registrarEnvioWhatsapp = () => {
+          const idActual = viajeParaWhatsapp.id;
+          if (navigator.clipboard?.writeText) {
+            navigator.clipboard.writeText(mensajeWhatsapp).catch(() => {});
+          }
+          marcarWhatsappEnviado(idActual);
+          mostrarToast('Abriendo WhatsApp y viaje marcado como notificado');
+          window.setTimeout(() => {
+            setViajeParaWhatsapp(null);
+          }, 150);
+        };
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
@@ -2501,23 +2521,30 @@ export default function AsignacionConductores() {
                   )}
                 </div>
 
-                <a
-                  href={whatsappUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={() => {
-                    marcarWhatsappEnviado(viajeParaWhatsapp.id);
-                    mostrarToast('Abriendo WhatsApp y viaje marcado como notificado');
-                    setViajeParaWhatsapp(null);
-                  }}
-                  className={`px-4 py-2 ${fueEnviado
-                    ? 'bg-purple-600 hover:bg-purple-700 text-white'
-                    : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                    } rounded-xl text-xs font-bold shadow-md transition flex items-center gap-1.5 cursor-pointer`}
-                >
-                  <MessageCircle className="w-4 h-4" />
-                  <span>{fueEnviado ? 'Reenviar WhatsApp' : 'Abrir WhatsApp Web'}</span>
-                </a>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={whatsappWebUrl}
+                    target="flotacontrol_whatsapp_web"
+                    onClick={registrarEnvioWhatsapp}
+                    className="px-3 py-2 border border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold transition cursor-pointer"
+                    title="Abrir directo en WhatsApp Web (reutiliza la misma pestaña)"
+                  >
+                    Web
+                  </a>
+
+                  <a
+                    href={whatsappApiUrl}
+                    target="flotacontrol_whatsapp_web"
+                    onClick={registrarEnvioWhatsapp}
+                    className={`px-4 py-2 ${fueEnviado
+                      ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                      : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                      } rounded-xl text-xs font-bold shadow-md transition flex items-center gap-1.5 cursor-pointer`}
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    <span>{fueEnviado ? 'Reenviar WhatsApp' : 'Enviar por WhatsApp'}</span>
+                  </a>
+                </div>
               </div>
             </div>
           </div>
