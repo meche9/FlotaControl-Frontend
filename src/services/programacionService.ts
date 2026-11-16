@@ -328,6 +328,7 @@ export const programacionService = {
       idRecargo?: string | null;
       concepto?: string;
       monto: number | string;
+      moneda?: 'Bs' | 'USD';
       observaciones?: string | null;
       estado?: 'Pendiente' | 'Procesado' | 'Rechazado';
     }>,

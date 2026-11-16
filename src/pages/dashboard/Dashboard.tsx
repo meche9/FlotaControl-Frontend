@@ -402,6 +402,7 @@ export default function Dashboard() {
         km: 0,
         viajesEfectuados: 0,
         viajesCancelados: 0,
+        fleteAcumulado: 0,
       };
     });
 
@@ -425,6 +426,15 @@ export default function Dashboard() {
       dias[idx].viajesEfectuados += 1;
       totalEfectuados += 1;
 
+      const fleteBruto =
+        viaje.montoFleteCliente !== null &&
+          viaje.montoFleteCliente !== undefined &&
+          Number(viaje.montoFleteCliente) > 0
+          ? Number(viaje.montoFleteCliente)
+          : Number(viaje.ruta?.montoTarifa || 0);
+
+      dias[idx].fleteAcumulado += Math.max(0, fleteBruto);
+
       const tieneGps =
         viaje.gpsConectado === true ||
         (viaje.distanciaRecorridaKm !== undefined && viaje.distanciaRecorridaKm !== null);
@@ -436,12 +446,14 @@ export default function Dashboard() {
     }
 
     const totalKm = Math.round(dias.reduce((acc, d) => acc + d.km, 0));
+    const totalFlete = dias.reduce((acc, d) => acc + d.fleteAcumulado, 0);
     const maxKm = Math.max(...dias.map((d) => d.km), 0);
     const diaPico = maxKm > 0 ? dias.find((d) => d.km === maxKm) ?? null : null;
 
     return {
       dias,
       totalKm,
+      totalFlete,
       maxKm,
       diaPico,
       totalEfectuados,
@@ -1175,7 +1187,132 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* Posición 2: Mantenimiento Crítico */}
+          {/* Posición 2: Kilometraje Semanal */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-xs p-5 flex flex-col justify-between space-y-4">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">
+                  Kilometraje Semanal
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  Rendimiento acumulado • {rangoSemana.etiquetaSemana}
+                </p>
+              </div>
+              <div className="flex items-center gap-1 font-bold text-xs text-slate-800 shrink-0">
+                <ArrowUpRight className="w-4 h-4 text-emerald-600" />
+                <span>{kilometrajeSemanal.totalKm.toLocaleString('es-VE')} km</span>
+              </div>
+            </div>
+
+            {/* Bar Chart */}
+            <div className="pt-3 pb-1">
+              <div className="flex items-end justify-between h-44 gap-2 px-1">
+                {kilometrajeSemanal.dias.map((dia) => {
+                  const esPico = kilometrajeSemanal.maxKm > 0 && dia.km === kilometrajeSemanal.maxKm;
+                  const esHoy = dia.fechaISO === rangoSemana.hoyISO;
+                  const tieneActividad = dia.km > 0 || dia.viajesEfectuados > 0;
+
+                  const alturaPct =
+                    kilometrajeSemanal.maxKm > 0 && dia.km > 0
+                      ? Math.max(26, Math.round((dia.km / kilometrajeSemanal.maxKm) * 76))
+                      : dia.viajesEfectuados > 0
+                        ? 26
+                        : 8;
+
+                  const barColorClass = esPico
+                    ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-xs'
+                    : esHoy && tieneActividad
+                      ? 'bg-teal-700 hover:bg-teal-800 text-white'
+                      : tieneActividad
+                        ? 'bg-indigo-100/80 hover:bg-indigo-200 text-indigo-900'
+                        : 'bg-slate-100 text-slate-400';
+
+                  const labelDiaClass = esPico
+                    ? 'text-orange-600'
+                    : esHoy
+                      ? 'text-slate-700'
+                      : 'text-slate-400';
+
+                  const fleteTextoCorto = `$${dia.fleteAcumulado.toLocaleString('es-VE', {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 2,
+                  })}`;
+
+                  const tooltip = `${dia.nombreCompleto}: ${Math.round(dia.km).toLocaleString('es-VE')} km • ${dia.viajesEfectuados} ${dia.viajesEfectuados === 1 ? 'viaje efectuado' : 'viajes efectuados'} • $${dia.fleteAcumulado.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} en fletes${dia.viajesCancelados > 0 ? ` • ${dia.viajesCancelados} ${dia.viajesCancelados === 1 ? 'cancelado' : 'cancelados'}` : ''}`;
+
+                  return (
+                    <div
+                      key={dia.fechaISO}
+                      title={tooltip}
+                      className="flex-1 flex flex-col items-center gap-1 h-full justify-end min-w-0"
+                    >
+                      {esPico && <span className="w-2 h-2 rounded-full bg-orange-500 -mb-0.5 shrink-0"></span>}
+                      {dia.fleteAcumulado > 0 && (
+                        <span className="text-[9px] font-extrabold text-emerald-700 tracking-tighter tabular-nums whitespace-nowrap leading-none">
+                          {fleteTextoCorto}
+                        </span>
+                      )}
+                      <div
+                        style={{ height: `${alturaPct}%` }}
+                        className={`w-full rounded-t-lg transition-all flex items-center justify-center overflow-hidden px-0.5 ${barColorClass}`}
+                      >
+                        {dia.viajesEfectuados > 0 && (
+                          <span className="[writing-mode:vertical-rl] rotate-180 text-[10px] font-bold tracking-tight whitespace-nowrap select-none leading-none">
+                            {dia.viajesEfectuados} {dia.viajesEfectuados === 1 ? 'viaje' : 'viajes'}
+                          </span>
+                        )}
+                      </div>
+                      <span className={`text-[10px] font-bold ${labelDiaClass}`}>{dia.letra}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Chart Legend */}
+            <div className="pt-2.5 border-t border-slate-100 space-y-1.5 text-[11px] text-slate-600">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-teal-700 shrink-0"></span>
+                  <span className="text-slate-500">
+                    Efectuados:{' '}
+                    <strong className="font-bold text-slate-800">
+                      {kilometrajeSemanal.totalEfectuados}
+                    </strong>
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-rose-400 shrink-0"></span>
+                  <span className="text-slate-500">
+                    Cancelados:{' '}
+                    <strong className="font-bold text-slate-800">
+                      {kilometrajeSemanal.totalCancelados}
+                    </strong>
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 shrink-0"></span>
+                  <span className="text-slate-500">
+                    Fletes:{' '}
+                    <strong className="font-bold text-emerald-700 tabular-nums">
+                      ${kilometrajeSemanal.totalFlete.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </strong>
+                  </span>
+                </div>
+              </div>
+              {kilometrajeSemanal.diaPico && (
+                <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+                  <span className="w-2 h-2 rounded-full bg-orange-500 shrink-0"></span>
+                  <span>
+                    Máx: {kilometrajeSemanal.diaPico.nombreCompleto} (
+                    {Math.round(kilometrajeSemanal.diaPico.km).toLocaleString('es-VE')} km)
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Posición 3: Mantenimiento Crítico */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-xs p-5 space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1245,112 +1382,6 @@ export default function Dashboard() {
               <Calendar className="w-4 h-4" />
               <span>Programar Ingreso a Taller</span>
             </button>
-          </div>
-
-          {/* Posición 3: Kilometraje Semanal */}
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-xs p-5 flex flex-col justify-between space-y-4">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <h3 className="font-bold text-slate-900 text-sm">
-                  Kilometraje Semanal
-                </h3>
-                <p className="text-[11px] text-slate-400">
-                  Rendimiento acumulado • {rangoSemana.etiquetaSemana}
-                </p>
-              </div>
-              <div className="flex items-center gap-1 font-bold text-xs text-slate-800 shrink-0">
-                <ArrowUpRight className="w-4 h-4 text-emerald-600" />
-                <span>{kilometrajeSemanal.totalKm.toLocaleString('es-VE')} km</span>
-              </div>
-            </div>
-
-            {/* Bar Chart */}
-            <div className="pt-3 pb-1">
-              <div className="flex items-end justify-between h-36 gap-2 px-1">
-                {kilometrajeSemanal.dias.map((dia) => {
-                  const esPico = kilometrajeSemanal.maxKm > 0 && dia.km === kilometrajeSemanal.maxKm;
-                  const esHoy = dia.fechaISO === rangoSemana.hoyISO;
-                  const tieneActividad = dia.km > 0 || dia.viajesEfectuados > 0;
-
-                  const alturaPct =
-                    kilometrajeSemanal.maxKm > 0 && dia.km > 0
-                      ? Math.max(28, Math.round((dia.km / kilometrajeSemanal.maxKm) * 90))
-                      : dia.viajesEfectuados > 0
-                        ? 28
-                        : 8;
-
-                  const barColorClass = esPico
-                    ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-xs'
-                    : esHoy && tieneActividad
-                      ? 'bg-teal-700 hover:bg-teal-800 text-white'
-                      : tieneActividad
-                        ? 'bg-indigo-100/80 hover:bg-indigo-200 text-indigo-900'
-                        : 'bg-slate-100 text-slate-400';
-
-                  const labelDiaClass = esPico
-                    ? 'text-orange-600'
-                    : esHoy
-                      ? 'text-slate-700'
-                      : 'text-slate-400';
-
-                  const tooltip = `${dia.nombreCompleto}: ${Math.round(dia.km).toLocaleString('es-VE')} km • ${dia.viajesEfectuados} ${dia.viajesEfectuados === 1 ? 'viaje efectuado' : 'viajes efectuados'}${dia.viajesCancelados > 0 ? ` • ${dia.viajesCancelados} ${dia.viajesCancelados === 1 ? 'cancelado' : 'cancelados'}` : ''}`;
-
-                  return (
-                    <div
-                      key={dia.fechaISO}
-                      title={tooltip}
-                      className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end"
-                    >
-                      {esPico && <span className="w-2 h-2 rounded-full bg-orange-500 -mb-0.5 shrink-0"></span>}
-                      <div
-                        style={{ height: `${alturaPct}%` }}
-                        className={`w-full rounded-t-lg transition-all flex items-center justify-center overflow-hidden px-0.5 ${barColorClass}`}
-                      >
-                        {dia.viajesEfectuados > 0 && (
-                          <span className="[writing-mode:vertical-rl] rotate-180 text-[10px] font-bold tracking-tight whitespace-nowrap select-none leading-none">
-                            {dia.viajesEfectuados} {dia.viajesEfectuados === 1 ? 'viaje' : 'viajes'}
-                          </span>
-                        )}
-                      </div>
-                      <span className={`text-[10px] font-bold ${labelDiaClass}`}>{dia.letra}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Chart Legend */}
-            <div className="pt-2.5 border-t border-slate-100 space-y-1.5 text-[11px] text-slate-600">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-sm bg-teal-700 shrink-0"></span>
-                  <span className="text-slate-500">
-                    Efectuados:{' '}
-                    <strong className="font-bold text-slate-800">
-                      {kilometrajeSemanal.totalEfectuados}
-                    </strong>
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-sm bg-rose-400 shrink-0"></span>
-                  <span className="text-slate-500">
-                    Cancelados:{' '}
-                    <strong className="font-bold text-slate-800">
-                      {kilometrajeSemanal.totalCancelados}
-                    </strong>
-                  </span>
-                </div>
-              </div>
-              {kilometrajeSemanal.diaPico && (
-                <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
-                  <span className="w-2 h-2 rounded-full bg-orange-500 shrink-0"></span>
-                  <span>
-                    Máx: {kilometrajeSemanal.diaPico.nombreCompleto} (
-                    {Math.round(kilometrajeSemanal.diaPico.km).toLocaleString('es-VE')} km)
-                  </span>
-                </div>
-              )}
-            </div>
           </div>
         </div>
       </div>

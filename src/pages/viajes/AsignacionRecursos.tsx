@@ -82,6 +82,7 @@ export interface RecargoModalItem {
     concepto: string;
     tipoCalculo: string;
     valor: string | number;
+    moneda?: 'Bs' | 'USD';
     selected: boolean;
     observaciones?: string;
 }
@@ -262,11 +263,21 @@ export default function AsignacionRecursos() {
         return recargosModalItems.filter((r) => r.selected);
     }, [recargosModalItems]);
 
-    const costoTotalRecargos = useMemo(() => {
-        return recargosSeleccionados.reduce((acc, curr) => {
-            const val = parseFloat(String(curr.valor)) || 0;
-            return acc + Math.max(0, val);
-        }, 0);
+    const resumenRecargosModal = useMemo(() => {
+        let totalUSD = 0;
+        let totalBs = 0;
+
+        for (const curr of recargosSeleccionados) {
+            if (curr.tipoCalculo === 'Porcentaje') continue;
+            const val = Math.max(0, parseFloat(String(curr.valor)) || 0);
+            if (curr.moneda === 'Bs') {
+                totalBs += val;
+            } else {
+                totalUSD += val;
+            }
+        }
+
+        return { totalUSD, totalBs };
     }, [recargosSeleccionados]);
 
     const recargosFiltradosModal = useMemo(() => {
@@ -787,7 +798,7 @@ export default function AsignacionRecursos() {
                 )
             );
 
-            let recargosBase: Array<{
+            let recargosRuta: Array<{
                 idRecargo?: string;
                 concepto: string;
                 tipoCalculo: string;
@@ -798,18 +809,40 @@ export default function AsignacionRecursos() {
             for (const idRutaCand of idsRutasCandidatas) {
                 const deRuta = await rutasService.getRecargosByRuta(idRutaCand).catch(() => []);
                 if (Array.isArray(deRuta) && deRuta.length > 0) {
-                    recargosBase = deRuta;
+                    recargosRuta = deRuta;
                     break;
                 }
             }
 
-            if (recargosBase.length > 0) {
+            // 2. Siempre consultar recargos_generales para mostrarlos si la ruta no tiene recargos
+            // o para mantener visibles los conceptos no seleccionados por si se requieren agregar luego
+            const catalogoGenerales = await rutasService.getRecargosGenerales().catch(() => []);
+            const recargosGenerales = Array.isArray(catalogoGenerales) ? catalogoGenerales : [];
+
+            if (recargosRuta.length > 0) {
                 setOrigenRecargosModal('rutas_recargos');
             } else {
-                // 2. Si no existen recargos para esa ruta en rutas_recargos, mostrar los de recargos_generales
                 setOrigenRecargosModal('recargos_generales');
-                const catalogoGenerales = await rutasService.getRecargosGenerales().catch(() => []);
-                recargosBase = Array.isArray(catalogoGenerales) ? catalogoGenerales : [];
+            }
+
+            const recargosBase: Array<{
+                idRecargo?: string;
+                concepto: string;
+                tipoCalculo: string;
+                valor: number | string;
+                moneda?: 'Bs' | 'USD';
+            }> = [...recargosRuta];
+
+            const conceptosBaseSet = new Set(
+                recargosRuta.map((r) => (r.concepto || '').trim().toLowerCase()).filter(Boolean)
+            );
+
+            for (const gen of recargosGenerales) {
+                const concNorm = (gen.concepto || '').trim().toLowerCase();
+                if (concNorm && !conceptosBaseSet.has(concNorm)) {
+                    recargosBase.push(gen);
+                    conceptosBaseSet.add(concNorm);
+                }
             }
 
             // 3. Cruzar con los recargos ya asignados a este viaje en guias_viajes_recargos
@@ -839,6 +872,7 @@ export default function AsignacionRecursos() {
                     concepto: rb.concepto,
                     tipoCalculo: asignado?.recargo?.tipoCalculo || rb.tipoCalculo || 'Monto_Fijo',
                     valor: valor,
+                    moneda: asignado?.recargo?.moneda || rb.moneda || 'USD',
                     selected: isSelected,
                     observaciones: asignado?.observaciones || '',
                 };
@@ -855,6 +889,7 @@ export default function AsignacionRecursos() {
                         concepto: conc,
                         tipoCalculo: asig.recargo?.tipoCalculo || 'Monto_Fijo',
                         valor: asig.monto ?? '0.00',
+                        moneda: asig.recargo?.moneda || 'USD',
                         selected: true,
                         observaciones: asig.observaciones || '',
                     });
@@ -917,6 +952,7 @@ export default function AsignacionRecursos() {
                 idRecargo: r.idRecargo,
                 concepto: r.concepto.trim(),
                 monto: Math.max(0, parseFloat(String(r.valor)) || 0),
+                moneda: r.moneda || ('USD' as const),
                 observaciones: r.observaciones || `Recargo de ruta ${viajeSeleccionadoRecargos.nombreRuta || ''}`.trim(),
                 estado: 'Pendiente' as const,
             }));
@@ -938,6 +974,7 @@ export default function AsignacionRecursos() {
                         concepto: r.concepto,
                         tipoCalculo: 'Monto_Fijo',
                         valor: r.monto,
+                        moneda: r.moneda,
                     },
                 }));
             }
@@ -2324,7 +2361,7 @@ export default function AsignacionRecursos() {
                                 Recargos y Viáticos — {viajeSeleccionadoRecargos?.nombreRuta || 'Ruta'}
                             </span>
                             <span className="text-[11px] text-slate-500 font-normal block">
-                                Seleccione los conceptos y defina el monto a guardar en la tabla rutas_recargos
+                                Seleccione los conceptos y defina el monto a guardar en la tabla guias_viajes_recargos
                             </span>
                         </div>
                     </div>
@@ -2376,7 +2413,7 @@ export default function AsignacionRecursos() {
                                 </span>
                                 <span className="text-[11px] text-orange-800">
                                     {origenRecargosModal === 'rutas_recargos'
-                                        ? 'Conceptos registrados para la ruta correspondiente al viaje'
+                                        ? 'Conceptos de la ruta junto con los disponibles en recargos_generales'
                                         : 'La ruta no tiene recargos propios; se muestran los de recargos_generales'}
                                 </span>
                             </div>
@@ -2447,7 +2484,7 @@ export default function AsignacionRecursos() {
                                                     >
                                                         {recargo.concepto}
                                                     </label>
-                                                    <div className="flex items-center gap-2 mt-0.5">
+                                                    <div className="flex flex-wrap items-center gap-1.5 mt-1">
                                                         <span
                                                             className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border ${isSelected
                                                                 ? 'bg-orange-100/90 text-orange-800 border-orange-200'
@@ -2456,6 +2493,16 @@ export default function AsignacionRecursos() {
                                                         >
                                                             {tipoTexto}
                                                         </span>
+                                                        {recargo.tipoCalculo !== 'Porcentaje' && (
+                                                            <span
+                                                                className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border font-mono ${recargo.moneda === 'Bs'
+                                                                    ? 'bg-sky-50 text-sky-700 border-sky-200'
+                                                                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                                    }`}
+                                                            >
+                                                                {recargo.moneda === 'Bs' ? 'Bs.' : 'USD'}
+                                                            </span>
+                                                        )}
                                                         {isSelected && (
                                                             <span className="text-[10px] text-emerald-700 font-semibold flex items-center gap-1">
                                                                 <Check className="w-3 h-3 text-emerald-600" />
@@ -2471,17 +2518,16 @@ export default function AsignacionRecursos() {
                                                 <div className="flex flex-col items-end">
                                                     <label
                                                         htmlFor={`monto-${itemKey}`}
-                                                        className="text-[9px] font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-1"
+                                                        className="text-[9px] font-extrabold text-slate-500 uppercase tracking-wider mb-0.5"
                                                     >
-                                                        <span>Monto a guardar</span>
-                                                        <span className="text-orange-600 font-mono">
-                                                            ({recargo.tipoCalculo === 'Porcentaje' ? '%' : 'USD'})
-                                                        </span>
+                                                        Monto a guardar
                                                     </label>
-                                                    <div className="flex items-center mt-0.5 relative">
-                                                        <span className="text-xs font-bold text-slate-400 px-1 select-none">
-                                                            {recargo.tipoCalculo === 'Porcentaje' ? '%' : '$'}
-                                                        </span>
+                                                    <div
+                                                        className={`flex items-center rounded-lg overflow-hidden border transition-all shadow-2xs ${isSelected
+                                                            ? 'bg-white border-orange-400 focus-within:ring-2 focus-within:ring-orange-500/30 focus-within:border-orange-500'
+                                                            : 'bg-slate-50 border-slate-300 focus-within:bg-white focus-within:border-orange-400'
+                                                            }`}
+                                                    >
                                                         <input
                                                             id={`monto-${itemKey}`}
                                                             type="number"
@@ -2497,11 +2543,14 @@ export default function AsignacionRecursos() {
                                                                     handleToggleRecargo(itemKey, true);
                                                                 }
                                                             }}
-                                                            className={`w-24 text-xs font-black rounded-lg py-1 px-2 text-right transition-all shadow-2xs ${isSelected
-                                                                ? 'text-slate-900 bg-white border border-orange-400 focus:ring-2 focus:ring-orange-500 focus:border-orange-500'
-                                                                : 'text-slate-500 bg-slate-50 border border-slate-300 focus:bg-white focus:text-slate-900 focus:border-orange-400'
+                                                            className={`w-24 text-xs font-black py-1 px-2 text-right bg-transparent focus:outline-none tabular-nums ${isSelected
+                                                                ? 'text-slate-900'
+                                                                : 'text-slate-500 focus:text-slate-900'
                                                                 }`}
                                                         />
+                                                        <span className="text-[10px] font-bold text-slate-400 pr-2 select-none font-mono">
+                                                            {recargo.tipoCalculo === 'Porcentaje' ? '%' : (recargo.moneda === 'Bs' ? 'Bs' : 'USD')}
+                                                        </span>
                                                     </div>
                                                 </div>
 
@@ -2527,25 +2576,43 @@ export default function AsignacionRecursos() {
                     )}
 
                     {/* Banner de Resumen y Totalización de Recargos */}
-                    <div className="p-3.5 bg-gradient-to-r from-orange-50 via-amber-50/50 to-orange-50 border border-orange-200 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between text-xs gap-2">
-                        <div className="flex items-center gap-2">
-                            <Coins className="w-4 h-4 text-orange-600 shrink-0" />
+                    <div className="p-3.5 bg-gradient-to-r from-orange-50 via-amber-50/50 to-orange-50 border border-orange-200 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between text-xs gap-3">
+                        <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-lg bg-orange-100 border border-orange-200 flex items-center justify-center text-orange-600 shrink-0">
+                                <Coins className="w-4 h-4" />
+                            </div>
                             <div>
                                 <span className="font-bold text-orange-950 block">
-                                    Resumen de Recargos para la Ruta:
+                                    Resumen de Recargos del Viaje
                                 </span>
                                 <span className="text-[11px] text-orange-800">
-                                    {recargosSeleccionados.length} recargo(s) asignados que se guardarán en <code className="bg-orange-100 text-orange-900 px-1 py-0.5 rounded font-mono text-[10px]">rutas_recargos</code>
+                                    {recargosSeleccionados.length} recargo(s) asignados para <code className="bg-orange-100 text-orange-900 px-1 py-0.5 rounded font-mono text-[10px]">guias_viajes_recargos</code>
                                 </span>
                             </div>
                         </div>
-                        <div className="text-right">
-                            <span className="font-black text-orange-950 text-base block">
-                                ${costoTotalRecargos.toFixed(2)} USD
-                            </span>
-                            <span className="text-[10px] text-orange-700 font-semibold">
-                                Subtotal recargos fijos por viaje
-                            </span>
+
+                        <div className="flex flex-wrap items-center justify-end gap-2 w-full sm:w-auto">
+                            {(resumenRecargosModal.totalUSD > 0 || resumenRecargosModal.totalBs === 0) && (
+                                <div className="bg-white/95 border border-emerald-200 rounded-xl px-3 py-1.5 shadow-2xs text-right min-w-[130px]">
+                                    <span className="text-[9px] font-extrabold uppercase tracking-wider text-emerald-700 block leading-none mb-0.5">
+                                        Total USD
+                                    </span>
+                                    <span className="font-black text-slate-900 text-sm tabular-nums leading-tight">
+                                        ${resumenRecargosModal.totalUSD.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        <span className="text-[10px] font-bold text-emerald-700 ml-1">USD</span>
+                                    </span>
+                                </div>
+                            )}
+                            {resumenRecargosModal.totalBs > 0 && (
+                                <div className="bg-white/95 border border-sky-200 rounded-xl px-3 py-1.5 shadow-2xs text-right min-w-[130px]">
+                                    <span className="text-[9px] font-extrabold uppercase tracking-wider text-sky-700 block leading-none mb-0.5">
+                                        Total Bolívares
+                                    </span>
+                                    <span className="font-black text-slate-900 text-sm tabular-nums leading-tight">
+                                        Bs. {resumenRecargosModal.totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
