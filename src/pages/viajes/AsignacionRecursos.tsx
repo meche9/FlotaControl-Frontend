@@ -694,7 +694,12 @@ export default function AsignacionRecursos() {
             }
         }
 
-        const compararPorConductor = (a: ViajeFleteItem, b: ViajeFleteItem) => {
+        const compararPorFechaYConductor = (a: ViajeFleteItem, b: ViajeFleteItem) => {
+            const fechaA = (a.fechaISO || '').split(/[T\s]/)[0];
+            const fechaB = (b.fechaISO || '').split(/[T\s]/)[0];
+            const cmpFecha = fechaA.localeCompare(fechaB);
+            if (cmpFecha !== 0) return cmpFecha;
+
             const sinA = !a.idConductor || a.conductorNombre === 'Sin conductor asignado';
             const sinB = !b.idConductor || b.conductorNombre === 'Sin conductor asignado';
             if (sinA && !sinB) return 1;
@@ -702,8 +707,8 @@ export default function AsignacionRecursos() {
             return (a.conductorNombre || '').localeCompare(b.conductorNombre || '', 'es', { sensitivity: 'base' });
         };
 
-        padres.sort(compararPorConductor);
-        retornosHuerfanos.sort(compararPorConductor);
+        padres.sort(compararPorFechaYConductor);
+        retornosHuerfanos.sort(compararPorFechaYConductor);
 
         const resultado: Array<{ viaje: ViajeFleteItem; esSubFila: boolean }> = [];
 
