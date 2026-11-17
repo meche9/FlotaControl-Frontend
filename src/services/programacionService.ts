@@ -105,6 +105,7 @@ export interface GuiaProgramada {
   moneda: string;
   montoFleteCliente: number | string;
   montoAnticipoConductor: number | string;
+  montoGasoil?: number | string | null;
   estadoFacturacion: string;
   estadoOrden: string;
   fisico: boolean;
@@ -386,17 +387,19 @@ export const programacionService = {
   },
 
   /**
-   * Actualiza el campo monto_anticipo_conductor de una orden de viaje en guias_viajes.
+   * Actualiza los campos monto_anticipo_conductor y (opcionalmente) monto_gasoil de una orden de viaje en guias_viajes.
    */
   async actualizarAnticipo(
     idOrden: string,
     montoAnticipoConductor: number,
     moneda?: 'Bs' | 'USD',
+    montoGasoil?: number,
   ): Promise<GuiaProgramada> {
     const response = await api.patch<GuiaProgramada>('/schedules/actualizar-anticipo', {
       idOrden,
       montoAnticipoConductor,
       moneda,
+      ...(montoGasoil !== undefined ? { montoGasoil } : {}),
     });
     return response.data;
   },

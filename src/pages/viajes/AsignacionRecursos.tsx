@@ -24,6 +24,7 @@ import {
     Banknote,
     Copy,
     Plus,
+    Fuel,
 } from 'lucide-react';
 import { Button, Modal } from '../../components/ui';
 import { programacionService, type GuiaProgramada, type GuiaViajeRecargoItem } from '../../services/programacionService';
@@ -45,6 +46,7 @@ export interface ViajeFleteItem {
     fleteBase: number;
     montoAnticipoConductor: number;
     monedaAnticipo?: 'Bs' | 'USD';
+    montoGasoil?: number;
     origenCodigo: string;
     origenNombre: string;
     idPuntoOrigen: string;
@@ -218,6 +220,7 @@ export default function AsignacionRecursos() {
     const [cargando, setCargando] = useState<boolean>(false);
     const [busqueda, setBusqueda] = useState<string>('');
     const [excluirCancelados, setExcluirCancelados] = useState<boolean>(true);
+    const [filtroFisico, setFiltroFisico] = useState<'todos' | 'true' | 'false'>('todos');
 
     // Intervalo de fechas para auditoría (sin fecha predeterminada)
     const [fechaInicio, setFechaInicio] = useState<string>('');
@@ -300,6 +303,7 @@ export default function AsignacionRecursos() {
     const [montoRetorno, setMontoRetorno] = useState<string>('0');
     const [observacionRetorno, setObservacionRetorno] = useState<string>('Retorno de Plancha en vacío');
     const [guardandoRetorno, setGuardandoRetorno] = useState<boolean>(false);
+    const [errorRetorno, setErrorRetorno] = useState<string | null>(null);
 
     // Helper: dado que la plancha va de Origen B -> Destino C,
     // busca en la tabla rutas la ruta inversa registrada (Origen C -> Destino B)
@@ -414,6 +418,8 @@ export default function AsignacionRecursos() {
     const [viajeSeleccionadoAnticipo, setViajeSeleccionadoAnticipo] = useState<ViajeFleteItem | null>(null);
     const [montoAnticipoInput, setMontoAnticipoInput] = useState<string>('');
     const [monedaAnticipoInput, setMonedaAnticipoInput] = useState<'Bs' | 'USD'>('Bs');
+    const [incluirGasoil, setIncluirGasoil] = useState<boolean>(false);
+    const [montoGasoilInput, setMontoGasoilInput] = useState<string>('');
     const [guardandoAnticipo, setGuardandoAnticipo] = useState<boolean>(false);
     const [campoCopiado, setCampoCopiado] = useState<'cedula' | 'pagoMovil' | 'cuenta' | null>(null);
 
@@ -501,14 +507,25 @@ export default function AsignacionRecursos() {
                     idPadre = matchPadre[1];
                 }
 
+                const formatearVehiculo = (
+                    v?: { placa?: string | null; marca?: string | null; modelo?: string | null } | null,
+                    fallbackMarca = '',
+                ) => {
+                    if (!v) return '';
+                    const placa = (v.placa || '').trim();
+                    const marcaModelo = `${v.marca || fallbackMarca} ${v.modelo || ''}`.trim();
+                    if (placa && marcaModelo) return `${placa} • ${marcaModelo}`;
+                    return placa || marcaModelo;
+                };
+
                 const nombreMack = g.vehiculoMotriz
-                    ? `${g.vehiculoMotriz.marca || ''} ${g.vehiculoMotriz.modelo || ''} #${g.vehiculoMotriz.placa || ''}`.trim()
+                    ? formatearVehiculo(g.vehiculoMotriz)
                     : g.conductor?.vehiculoHabitual
-                        ? `${g.conductor.vehiculoHabitual.marca || ''} ${g.conductor.vehiculoHabitual.modelo || ''} #${g.conductor.vehiculoHabitual.placa || ''}`.trim()
+                        ? formatearVehiculo(g.conductor.vehiculoHabitual)
                         : 'Sin unidad motriz';
 
                 const nombreBatea = g.acoplado
-                    ? `${g.acoplado.marca || ''} ${g.acoplado.modelo || ''} • ${g.acoplado.placa || ''}`.trim()
+                    ? formatearVehiculo(g.acoplado)
                     : 'Sin acoplado';
 
                 const condNombre = g.conductor
@@ -523,6 +540,10 @@ export default function AsignacionRecursos() {
                     ? Number(g.montoAnticipoConductor)
                     : 0;
 
+                const gasoilReal = g.montoGasoil !== null && g.montoGasoil !== undefined
+                    ? Number(g.montoGasoil)
+                    : 0;
+
                 return {
                     idOrden: g.idOrden,
                     nroTransporte: g.nroTransporte || g.idOrden,
@@ -532,6 +553,7 @@ export default function AsignacionRecursos() {
                     fleteBase: !isNaN(fleteBaseReal) ? fleteBaseReal : 0,
                     montoAnticipoConductor: !isNaN(anticipoReal) ? anticipoReal : 0,
                     monedaAnticipo: 'Bs',
+                    montoGasoil: !isNaN(gasoilReal) ? gasoilReal : 0,
                     origenCodigo: g.puntoOrigen?.codigoPuntoc || '',
                     origenNombre: g.puntoOrigen?.nombreSede || '',
                     idPuntoOrigen: g.idPuntoOrigen,
@@ -621,6 +643,12 @@ export default function AsignacionRecursos() {
             if (excluirCancelados && v.estadoOrden?.toLowerCase() === 'cancelado') {
                 return false;
             }
+            if (filtroFisico === 'true' && !v.fisico) {
+                return false;
+            }
+            if (filtroFisico === 'false' && v.fisico) {
+                return false;
+            }
 
             if (!q) return true;
 
@@ -633,7 +661,7 @@ export default function AsignacionRecursos() {
 
             return coincideGuia || coincideChofer || coincideOrigen || coincideDestino || coincideMack || coincideBatea;
         });
-    }, [viajes, busqueda, excluirCancelados]);
+    }, [viajes, busqueda, excluirCancelados, filtroFisico]);
 
     // Conjunto de viajes iniciales que ya tienen al menos una plancha de retorno asignada
     const padresConPlancha = useMemo(() => {
@@ -652,8 +680,10 @@ export default function AsignacionRecursos() {
         const retornosPorPadre = new Map<string, ViajeFleteItem[]>();
         const retornosHuerfanos: ViajeFleteItem[] = [];
 
+        const idsPresentes = new Set(viajesFiltrados.map((v) => v.idOrden));
+
         for (const v of viajesFiltrados) {
-            if (v.esRetorno && v.idOrdenPadre) {
+            if (v.esRetorno && v.idOrdenPadre && idsPresentes.has(v.idOrdenPadre)) {
                 const arr = retornosPorPadre.get(v.idOrdenPadre) || [];
                 arr.push(v);
                 retornosPorPadre.set(v.idOrdenPadre, arr);
@@ -724,7 +754,7 @@ export default function AsignacionRecursos() {
         let cantidadConAnticipo = 0;
 
         for (const { viaje } of viajesOrdenadosJerarquicos) {
-            const monto = Number(viaje.montoAnticipoConductor || 0);
+            const monto = Number(viaje.montoAnticipoConductor || 0) + Number(viaje.montoGasoil || 0);
             if (!isNaN(monto) && monto > 0) {
                 totalGeneral += monto;
                 cantidadConAnticipo += 1;
@@ -1227,6 +1257,7 @@ export default function AsignacionRecursos() {
             return;
         }
 
+        setErrorRetorno(null);
         setGuardandoRetorno(true);
 
         try {
@@ -1315,6 +1346,7 @@ export default function AsignacionRecursos() {
                     fleteBase: Number(respuestaBd.montoFleteCliente) || parseFloat(montoRetorno) || 0,
                     montoAnticipoConductor: Number(respuestaBd.montoAnticipoConductor) || 0,
                     monedaAnticipo: 'Bs',
+                    montoGasoil: Number(respuestaBd.montoGasoil) || 0,
                     origenCodigo: viajeSeleccionadoRetorno.destinoCodigo,
                     origenNombre: viajeSeleccionadoRetorno.destinoNombre,
                     idPuntoOrigen: viajeSeleccionadoRetorno.idPuntoDestino,
@@ -1402,10 +1434,17 @@ export default function AsignacionRecursos() {
             setModalRetornoAbierto(false);
             setPlanchaBaseAdicional(null);
         } catch (err: any) {
-            mostrarToast(
-                `Error al ${planchaEditando ? 'actualizar' : 'crear'} la plancha de retorno: ${err?.message || err}`,
-                'error'
-            );
+            const status = err?.response?.status;
+            const backendMsg = err?.response?.data?.message || err?.message || String(err);
+            const esDuplicado =
+                status === 409 ||
+                String(backendMsg).toLowerCase().includes('ya está registrado') ||
+                String(backendMsg).includes('409');
+            const mensajeAlerta = esDuplicado
+                ? `El número de transporte "${nroTrim}" ya pertenece a otro viaje.`
+                : `Error al ${planchaEditando ? 'actualizar' : 'crear'} la plancha de retorno: ${backendMsg}`;
+            setErrorRetorno(mensajeAlerta);
+            mostrarToast(mensajeAlerta, 'error');
         } finally {
             setGuardandoRetorno(false);
         }
@@ -1432,10 +1471,10 @@ export default function AsignacionRecursos() {
             const condObj = conductores.find((c) => c.idConductor === selConductor);
 
             const nombreMack = vMotrizObj
-                ? `${vMotrizObj.marca || 'Mack'} ${vMotrizObj.modelo || ''} #${vMotrizObj.placa}`
+                ? `${vMotrizObj.placa ? `${vMotrizObj.placa} • ` : ''}${vMotrizObj.marca || 'Mack'} ${vMotrizObj.modelo || ''}`.trim()
                 : viajeSeleccionadoRecursos.vehiculoMotrizNombre;
             const nombreBatea = vAcopladoObj
-                ? `${vAcopladoObj.marca || 'Batea'} ${vAcopladoObj.modelo || ''} • ${vAcopladoObj.placa}`
+                ? `${vAcopladoObj.placa ? `${vAcopladoObj.placa} • ` : ''}${vAcopladoObj.marca || 'Batea'} ${vAcopladoObj.modelo || ''}`.trim()
                 : viajeSeleccionadoRecursos.acopladoNombre;
             const nombreChofer = condObj
                 ? `${condObj.nombres} ${condObj.apellidos}`
@@ -1487,7 +1526,15 @@ export default function AsignacionRecursos() {
     const abrirModalAnticipo = async (viaje: ViajeFleteItem) => {
         setViajeSeleccionadoAnticipo(viaje);
         const montoActual = Number(viaje.montoAnticipoConductor || 0);
+        const gasoilActual = Number(viaje.montoGasoil || 0);
         setMontoAnticipoInput(montoActual > 0 ? montoActual.toFixed(2) : '');
+        if (gasoilActual > 0) {
+            setIncluirGasoil(true);
+            setMontoGasoilInput(gasoilActual.toFixed(2));
+        } else {
+            setIncluirGasoil(false);
+            setMontoGasoilInput('');
+        }
         setMonedaAnticipoInput(viaje.monedaAnticipo || 'Bs');
         setModalAnticipoAbierto(true);
 
@@ -1517,19 +1564,25 @@ export default function AsignacionRecursos() {
     const handleGuardarAnticipo = async () => {
         if (!viajeSeleccionadoAnticipo) return;
 
-        const montoNum = Math.max(0, parseFloat(montoAnticipoInput) || 0);
+        const montoBaseNum = Math.max(0, parseFloat(montoAnticipoInput) || 0);
+        const montoGasoilNum = incluirGasoil ? Math.max(0, parseFloat(montoGasoilInput) || 0) : 0;
         setGuardandoAnticipo(true);
 
         try {
-            let montoGuardado = montoNum;
+            let montoGuardado = montoBaseNum;
+            let gasoilGuardado = montoGasoilNum;
             if (!viajeSeleccionadoAnticipo.idOrden.startsWith('mock-') && !viajeSeleccionadoAnticipo.idOrden.startsWith('retorno-')) {
                 const actualizado = await programacionService.actualizarAnticipo(
                     viajeSeleccionadoAnticipo.idOrden,
-                    montoNum,
-                    monedaAnticipoInput
+                    montoBaseNum,
+                    monedaAnticipoInput,
+                    montoGasoilNum
                 );
                 if (actualizado?.montoAnticipoConductor !== undefined && actualizado?.montoAnticipoConductor !== null) {
                     montoGuardado = Number(actualizado.montoAnticipoConductor);
+                }
+                if (actualizado?.montoGasoil !== undefined && actualizado?.montoGasoil !== null) {
+                    gasoilGuardado = Number(actualizado.montoGasoil);
                 }
             }
 
@@ -1540,13 +1593,19 @@ export default function AsignacionRecursos() {
                             ...v,
                             montoAnticipoConductor: montoGuardado,
                             monedaAnticipo: monedaAnticipoInput,
+                            montoGasoil: gasoilGuardado,
                         }
                         : v
                 )
             );
 
+            const simbolo = monedaAnticipoInput === 'Bs' ? 'Bs.' : '$';
+            const detalleGasoil = gasoilGuardado > 0
+                ? ` + Gasoil: ${simbolo} ${gasoilGuardado.toFixed(2)}`
+                : '';
+
             mostrarToast(
-                `Anticipo de ${monedaAnticipoInput === 'Bs' ? 'Bs.' : '$'} ${montoGuardado.toFixed(2)} (${monedaAnticipoInput}) guardado para la guía ${viajeSeleccionadoAnticipo.nroTransporte}`,
+                `Anticipo de ${simbolo} ${montoGuardado.toFixed(2)} (${monedaAnticipoInput})${detalleGasoil} guardado para la guía ${viajeSeleccionadoAnticipo.nroTransporte}`,
                 'ok'
             );
             setModalAnticipoAbierto(false);
@@ -1573,7 +1632,7 @@ export default function AsignacionRecursos() {
             const acumuladoPorConductor = new Map<string, { cedulaFormateada: string; montoTotal: number }>();
 
             for (const item of viajesFiltrados) {
-                const monto = Number(item.montoAnticipoConductor || 0);
+                const monto = Number(item.montoAnticipoConductor || 0) + Number(item.montoGasoil || 0);
                 if (monto <= 0) continue;
 
                 const condCatalogo = item.idConductor
@@ -1906,6 +1965,41 @@ export default function AsignacionRecursos() {
                             </div>
                             <span className="text-xs font-semibold text-slate-700">Excluyendo Cancelados</span>
                         </label>
+
+                        {/* Filtro Físico (Todos / Recibido / Pendiente) */}
+                        <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                            <span className="text-[11px] font-bold text-slate-500 px-2 select-none">Físico:</span>
+                            <button
+                                type="button"
+                                onClick={() => setFiltroFisico('todos')}
+                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${filtroFisico === 'todos'
+                                    ? 'bg-white text-slate-800 shadow-2xs'
+                                    : 'text-slate-500 hover:text-slate-800'
+                                    }`}
+                            >
+                                Todos
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setFiltroFisico('true')}
+                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${filtroFisico === 'true'
+                                    ? 'bg-purple-600 text-white shadow-2xs'
+                                    : 'text-purple-700 hover:bg-purple-100'
+                                    }`}
+                            >
+                                Físico (Sí)
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setFiltroFisico('false')}
+                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${filtroFisico === 'false'
+                                    ? 'bg-slate-700 text-white shadow-2xs'
+                                    : 'text-slate-600 hover:bg-slate-200/70'
+                                    }`}
+                            >
+                                Pendiente (No)
+                            </button>
+                        </div>
                     </div>
 
                     {/* Lado derecho: Botón Exportar Conciliación */}
@@ -1981,7 +2075,9 @@ export default function AsignacionRecursos() {
                                     viajesOrdenadosJerarquicos.map(({ viaje: trip, esSubFila }) => {
                                         const cantRecargos = (trip.guiasViajesRecargos || []).length;
                                         const tieneRecargos = cantRecargos > 0;
-                                        const tieneAnticipo = Number(trip.montoAnticipoConductor || 0) > 0;
+                                        const tieneAnticipoBase = Number(trip.montoAnticipoConductor || 0) > 0;
+                                        const tieneGasoil = Number(trip.montoGasoil || 0) > 0;
+                                        const tieneAnticipo = tieneAnticipoBase || tieneGasoil;
                                         const tienePlanchaAsignada = padresConPlancha.has(trip.idOrden);
                                         const esPlanchaAdicional = (trip.observaciones || '').includes('[PLANCHA_ADICIONAL');
                                         const tieneHijaAdicional = viajes.some(
@@ -1996,9 +2092,13 @@ export default function AsignacionRecursos() {
                                         return (
                                             <tr
                                                 key={trip.idOrden}
-                                                className={`transition-colors duration-150 ${esSubFila
-                                                    ? 'bg-emerald-50/85 hover:bg-emerald-100/50 border-l-4 border-l-emerald-600'
-                                                    : 'hover:bg-slate-50/80'
+                                                className={`transition-colors duration-150 ${trip.fisico
+                                                    ? esSubFila
+                                                        ? 'bg-purple-100/90 hover:bg-purple-200/70 border-l-4 border-l-emerald-600'
+                                                        : 'bg-purple-100/90 hover:bg-purple-200/70 border-l-4 border-l-purple-500'
+                                                    : esSubFila
+                                                        ? 'bg-emerald-50/85 hover:bg-emerald-100/50 border-l-4 border-l-emerald-600'
+                                                        : 'hover:bg-slate-50/80'
                                                     }`}
                                             >
                                                 {/* 1. FECHA / SALIDA */}
@@ -2035,12 +2135,24 @@ export default function AsignacionRecursos() {
                                                             ${trip.fleteBase.toFixed(2)}
                                                         </strong>
                                                     </div>
-                                                    {tieneAnticipo && (
+                                                    {tieneAnticipoBase && (
                                                         <div className="text-[10px] text-teal-700 font-semibold mt-0.5">
                                                             Anticipo:{' '}
                                                             <strong className="font-extrabold">
                                                                 {trip.monedaAnticipo === 'USD' ? '$' : 'Bs. '}
                                                                 {Number(trip.montoAnticipoConductor).toLocaleString('es-VE', {
+                                                                    minimumFractionDigits: 2,
+                                                                    maximumFractionDigits: 2,
+                                                                })}
+                                                            </strong>
+                                                        </div>
+                                                    )}
+                                                    {tieneGasoil && (
+                                                        <div className="text-[10px] text-amber-700 font-semibold mt-0.5">
+                                                            Gasoil:{' '}
+                                                            <strong className="font-extrabold">
+                                                                {trip.monedaAnticipo === 'USD' ? '$' : 'Bs. '}
+                                                                {Number(trip.montoGasoil).toLocaleString('es-VE', {
                                                                     minimumFractionDigits: 2,
                                                                     maximumFractionDigits: 2,
                                                                 })}
@@ -2232,7 +2344,7 @@ export default function AsignacionRecursos() {
                                                                     }`}
                                                                 title={
                                                                     tieneAnticipo
-                                                                        ? `Anticipo asignado: ${trip.monedaAnticipo === 'USD' ? '$' : 'Bs.'} ${Number(trip.montoAnticipoConductor).toFixed(2)}`
+                                                                        ? `Anticipo: ${trip.monedaAnticipo === 'USD' ? '$' : 'Bs.'} ${Number(trip.montoAnticipoConductor || 0).toFixed(2)}${tieneGasoil ? ` | Gasoil: ${trip.monedaAnticipo === 'USD' ? '$' : 'Bs.'} ${Number(trip.montoGasoil || 0).toFixed(2)}` : ''}`
                                                                         : 'Registrar anticipo transferido al conductor'
                                                                 }
                                                             >
@@ -2719,7 +2831,10 @@ export default function AsignacionRecursos() {
                                     <input
                                         type="text"
                                         value={nroTransporteRetorno}
-                                        onChange={(e) => setNroTransporteRetorno(e.target.value)}
+                                        onChange={(e) => {
+                                            setNroTransporteRetorno(e.target.value);
+                                            if (errorRetorno) setErrorRetorno(null);
+                                        }}
                                         placeholder="Ingrese el número de transporte o pulse el icono..."
                                         className="w-full bg-white border border-slate-200 focus:border-emerald-600 rounded-xl pl-3.5 pr-10 py-2.5 text-sm font-bold text-slate-900 focus:outline-hidden transition"
                                     />
@@ -2884,6 +2999,13 @@ export default function AsignacionRecursos() {
                                     className="w-full bg-white border border-slate-200 focus:border-emerald-600 rounded-xl p-3 text-xs text-slate-800 focus:outline-hidden resize-none"
                                 />
                             </div>
+
+                            {errorRetorno && (
+                                <div className="flex items-start gap-2.5 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold">
+                                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                                    <span>{errorRetorno}</span>
+                                </div>
+                            )}
                         </div>
 
                         {/* Footer Plancha Retorno */}
@@ -3264,6 +3386,123 @@ export default function AsignacionRecursos() {
                                     </select>
                                 </div>
                             </div>
+
+                            {/* Sección Opcional: Monto adicional para Gasoil */}
+                            {(() => {
+                                const baseVal = Math.max(0, parseFloat(montoAnticipoInput) || 0);
+                                const gasoilVal = incluirGasoil ? Math.max(0, parseFloat(montoGasoilInput) || 0) : 0;
+                                const totalTransferir = baseVal + gasoilVal;
+                                const simbolo = monedaAnticipoInput === 'Bs' ? 'Bs.' : '$';
+
+                                if (!incluirGasoil) {
+                                    return (
+                                        <button
+                                            type="button"
+                                            onClick={() => setIncluirGasoil(true)}
+                                            className="w-full group flex items-center justify-between gap-3 p-3 rounded-2xl border border-dashed border-amber-300/90 bg-gradient-to-r from-amber-50/70 via-orange-50/40 to-white hover:border-amber-400 hover:from-amber-50 hover:to-orange-50/60 transition-all text-left cursor-pointer"
+                                        >
+                                            <div className="flex items-center gap-2.5 min-w-0">
+                                                <div className="w-8 h-8 rounded-xl bg-amber-100 border border-amber-200/80 text-amber-700 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                                                    <Fuel className="w-4 h-4" />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <span className="text-xs font-extrabold text-slate-800 block">
+                                                        ¿Incluir monto para Gasoil?
+                                                    </span>
+                                                    <span className="text-[11px] text-slate-500 block truncate">
+                                                        Opcional • Adiciona combustible al total a transferir
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white border border-amber-300 text-amber-800 text-[11px] font-bold shadow-2xs group-hover:bg-amber-500 group-hover:text-white group-hover:border-amber-500 transition-colors shrink-0">
+                                                <Plus className="w-3.5 h-3.5" />
+                                                Agregar
+                                            </span>
+                                        </button>
+                                    );
+                                }
+
+                                return (
+                                    <div className="p-3.5 rounded-2xl border border-amber-300/90 bg-gradient-to-br from-amber-50/80 via-orange-50/35 to-white shadow-xs space-y-3">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-7 h-7 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-2xs shrink-0">
+                                                    <Fuel className="w-4 h-4" />
+                                                </div>
+                                                <div>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <label
+                                                            htmlFor="input-monto-gasoil"
+                                                            className="text-xs font-extrabold text-slate-900"
+                                                        >
+                                                            Monto para Gasoil
+                                                        </label>
+                                                        <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-200">
+                                                            Adicional
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-[10px] text-slate-500 block">
+                                                        Se suma al anticipo en la misma moneda ({monedaAnticipoInput})
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setIncluirGasoil(false);
+                                                    setMontoGasoilInput('');
+                                                }}
+                                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold text-slate-500 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition cursor-pointer"
+                                                title="Quitar monto de gasoil"
+                                            >
+                                                <X className="w-3 h-3" />
+                                                Quitar
+                                            </button>
+                                        </div>
+
+                                        <div className="relative flex items-center">
+                                            <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-amber-700 font-extrabold text-xs select-none">
+                                                {simbolo}
+                                            </span>
+                                            <input
+                                                id="input-monto-gasoil"
+                                                type="number"
+                                                step="0.01"
+                                                min="0"
+                                                value={montoGasoilInput}
+                                                onChange={(e) => setMontoGasoilInput(e.target.value)}
+                                                placeholder="0.00"
+                                                autoFocus
+                                                className="w-full bg-white border border-amber-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 rounded-xl pl-10 pr-14 py-2 text-sm font-black text-slate-900 focus:outline-hidden transition tabular-nums"
+                                            />
+                                            <span className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-[11px] font-bold text-amber-700 font-mono select-none">
+                                                {monedaAnticipoInput}
+                                            </span>
+                                        </div>
+
+                                        {/* Desglose y Total a Transferir */}
+                                        <div className="pt-2.5 border-t border-amber-200/70 flex flex-wrap items-center justify-between gap-2 text-xs">
+                                            <div className="flex items-center gap-2 text-[11px] text-slate-600 font-medium tabular-nums">
+                                                <span>
+                                                    Anticipo: <strong className="text-slate-800">{simbolo} {baseVal.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                                                </span>
+                                                <span className="text-amber-500 font-bold">+</span>
+                                                <span>
+                                                    Gasoil: <strong className="text-amber-800">{simbolo} {gasoilVal.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                                                </span>
+                                            </div>
+                                            <div className="inline-flex items-center gap-1.5 bg-teal-700 text-white px-2.5 py-1 rounded-xl shadow-2xs">
+                                                <span className="text-[10px] font-bold uppercase tracking-wider text-teal-100">
+                                                    Total:
+                                                </span>
+                                                <span className="text-xs font-black tabular-nums">
+                                                    {simbolo} {totalTransferir.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {monedaAnticipoInput}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                         </div>
                     );
                 })()}
