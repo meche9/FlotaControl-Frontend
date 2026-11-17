@@ -286,7 +286,7 @@ function generarTextoWhatsapp(viaje: ViajeAsignacion): string {
 🏭 Punto de Carga: *${puntoCarga}*
 📍 Punto de Descarga: *${puntoDescarga}*${obsTexto}
 
-Por favor confirmar recepción y reporte de presencia en patio.`;
+Por favor confirmar recepción.`;
 }
 
 export default function AsignacionConductores() {
@@ -2350,7 +2350,7 @@ export default function AsignacionConductores() {
         const registrarEnvioWhatsapp = () => {
           const idActual = viajeParaWhatsapp.id;
           if (navigator.clipboard?.writeText) {
-            navigator.clipboard.writeText(mensajeWhatsapp).catch(() => {});
+            navigator.clipboard.writeText(mensajeWhatsapp).catch(() => { });
           }
           marcarWhatsappEnviado(idActual);
           mostrarToast('Abriendo WhatsApp y viaje marcado como notificado');

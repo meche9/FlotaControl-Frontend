@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { RegistrarDespachoModal } from './RegistrarDespachoModal';
 import { programacionService, type GuiaProgramada } from '../../services/programacionService';
+import { urlFotoConductor } from '../../services/conductoresService';
+import { ImagenProtegida } from '../../components/ui';
 import {
   Truck,
   Users,
@@ -916,14 +918,34 @@ export default function Dashboard() {
                             {/* Conductor */}
                             <td className="py-3.5 px-3 align-middle">
                               <div className="flex items-center gap-2.5">
-                                <div
-                                  className={`w-7 h-7 rounded-full font-bold text-[10px] flex items-center justify-center shrink-0 border ${viaje.conductor
-                                    ? 'bg-teal-50 text-teal-800 border-teal-200'
-                                    : 'bg-slate-100 text-slate-400 border-slate-200'
-                                    }`}
-                                >
-                                  {obtenerIniciales(conductorNombre)}
-                                </div>
+                                {(() => {
+                                  const fotoUrl = viaje.conductor?.idConductor
+                                    ? urlFotoConductor(viaje.conductor.idConductor, viaje.conductor.foto)
+                                    : null;
+                                  const avatarFallback = (
+                                    <div
+                                      className={`w-8 h-8 rounded-full font-bold text-[10px] flex items-center justify-center shrink-0 border ${viaje.conductor
+                                        ? 'bg-teal-50 text-teal-800 border-teal-200'
+                                        : 'bg-slate-100 text-slate-400 border-slate-200'
+                                        }`}
+                                    >
+                                      {obtenerIniciales(conductorNombre)}
+                                    </div>
+                                  );
+
+                                  return fotoUrl ? (
+                                    <div className="w-8 h-8 rounded-full overflow-hidden border border-teal-200 bg-slate-100 shrink-0 flex items-center justify-center">
+                                      <ImagenProtegida
+                                        url={fotoUrl}
+                                        alt={conductorNombre}
+                                        className="w-full h-full object-cover"
+                                        fallback={avatarFallback}
+                                      />
+                                    </div>
+                                  ) : (
+                                    avatarFallback
+                                  );
+                                })()}
                                 <div className="min-w-0">
                                   <span
                                     className={`block text-xs truncate max-w-[150px] ${viaje.conductor

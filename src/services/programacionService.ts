@@ -141,6 +141,7 @@ export interface GuiaProgramada {
     nombres: string;
     apellidos: string;
     telefono: string;
+    foto?: string | null;
     banco?: string | null;
     nroCuenta?: string | null;
     pagoMovil?: string | null;
