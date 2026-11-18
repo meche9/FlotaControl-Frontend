@@ -55,6 +55,7 @@ export interface ViajeFleteItem {
     idPuntoDestino: string;
     idRuta: string;
     nombreRuta?: string;
+    distanciaKm?: number;
     idCliente: string;
     clienteNombre?: string;
     idVehiculoMotriz: string | null;
@@ -562,6 +563,10 @@ export default function AsignacionRecursos() {
                     idPuntoDestino: g.idPuntoDestino,
                     idRuta: g.idRuta,
                     nombreRuta: (g as any).ruta?.nombreRuta || `${g.puntoOrigen?.nombreSede || ''} — ${g.puntoDestino?.nombreSede || ''}`,
+                    distanciaKm:
+                        (g as any).ruta?.distanciaKm !== undefined && (g as any).ruta?.distanciaKm !== null
+                            ? Number((g as any).ruta.distanciaKm)
+                            : undefined,
                     idCliente: g.idCliente || g.cliente?.idCliente || '',
                     clienteNombre: g.cliente?.nombreComercial || g.cliente?.razonSocial || '',
                     idVehiculoMotriz: g.idVehiculoMotriz,
@@ -694,7 +699,24 @@ export default function AsignacionRecursos() {
             }
         }
 
-        const compararPorFechaYConductor = (a: ViajeFleteItem, b: ViajeFleteItem) => {
+        const rutasPorId = new Map<string, Ruta>();
+        for (const r of rutasCatalogo) {
+            rutasPorId.set(r.idRuta, r);
+        }
+
+        const obtenerDistanciaKm = (v: ViajeFleteItem): number => {
+            if (v.distanciaKm !== undefined && Number.isFinite(v.distanciaKm)) {
+                return v.distanciaKm;
+            }
+            const ruta = rutasPorId.get(v.idRuta);
+            if (ruta && ruta.distanciaKm !== undefined && ruta.distanciaKm !== null) {
+                const km = Number(ruta.distanciaKm);
+                if (Number.isFinite(km)) return km;
+            }
+            return Number.POSITIVE_INFINITY;
+        };
+
+        const compararPorFechaConductorYKm = (a: ViajeFleteItem, b: ViajeFleteItem) => {
             const fechaA = (a.fechaISO || '').split(/[T\s]/)[0];
             const fechaB = (b.fechaISO || '').split(/[T\s]/)[0];
             const cmpFecha = fechaA.localeCompare(fechaB);
@@ -704,11 +726,17 @@ export default function AsignacionRecursos() {
             const sinB = !b.idConductor || b.conductorNombre === 'Sin conductor asignado';
             if (sinA && !sinB) return 1;
             if (!sinA && sinB) return -1;
-            return (a.conductorNombre || '').localeCompare(b.conductorNombre || '', 'es', { sensitivity: 'base' });
+            const cmpConductor = (a.conductorNombre || '').localeCompare(b.conductorNombre || '', 'es', { sensitivity: 'base' });
+            if (cmpConductor !== 0) return cmpConductor;
+
+            const kmA = obtenerDistanciaKm(a);
+            const kmB = obtenerDistanciaKm(b);
+            if (kmA === kmB) return 0;
+            return kmA - kmB;
         };
 
-        padres.sort(compararPorFechaYConductor);
-        retornosHuerfanos.sort(compararPorFechaYConductor);
+        padres.sort(compararPorFechaConductorYKm);
+        retornosHuerfanos.sort(compararPorFechaConductorYKm);
 
         const resultado: Array<{ viaje: ViajeFleteItem; esSubFila: boolean }> = [];
 
@@ -734,7 +762,7 @@ export default function AsignacionRecursos() {
         }
 
         return resultado;
-    }, [viajesFiltrados]);
+    }, [viajesFiltrados, rutasCatalogo]);
 
     // Contadores de KPIs
     const conteoKPI = useMemo(() => {
