@@ -759,13 +759,16 @@ export default function AsignacionConductores() {
     return map;
   }, [conductores]);
 
-  const compararViajes = useMemo(
-    () => (a: ViajeAsignacion, b: ViajeAsignacion) => {
+  const crearComparadorViajes = useMemo(
+    () => (usarConductorEnBD: boolean) => (a: ViajeAsignacion, b: ViajeAsignacion) => {
       const cmpDia = (a.diaKey || '').localeCompare(b.diaKey || '');
       if (cmpDia !== 0) return cmpDia;
 
-      const nombreA = a.conductorId ? conductorNombreById.get(a.conductorId) ?? '' : '';
-      const nombreB = b.conductorId ? conductorNombreById.get(b.conductorId) ?? '' : '';
+      const idA = usarConductorEnBD ? a.conductorIdEnBD : a.conductorId;
+      const idB = usarConductorEnBD ? b.conductorIdEnBD : b.conductorId;
+
+      const nombreA = idA ? conductorNombreById.get(idA) ?? '' : '';
+      const nombreB = idB ? conductorNombreById.get(idB) ?? '' : '';
 
       if (!nombreA && nombreB) return 1;
       if (nombreA && !nombreB) return -1;
@@ -812,9 +815,11 @@ export default function AsignacionConductores() {
 
     const ordenados = Array.from(mapaDias.keys()).sort();
 
+    const compararTablaPrincipal = crearComparadorViajes(true);
+
     return ordenados.map((key) => {
       const g = mapaDias.get(key)!;
-      const vDia = [...g.viajes].sort(compararViajes);
+      const vDia = [...g.viajes].sort(compararTablaPrincipal);
       const km = vDia.reduce((acc, curr) => acc + (Number(curr.distanciaKm) || 0), 0);
       const ventana = vDia.length > 0 ? `${vDia[0].hora} — ${vDia[vDia.length - 1].hora}` : 'Ventana Operativa';
 
@@ -827,7 +832,7 @@ export default function AsignacionConductores() {
         ventanaHoraria: ventana
       };
     });
-  }, [viajesFiltrados, compararViajes]);
+  }, [viajesFiltrados, crearComparadorViajes]);
 
   // Pestañas / Píldoras de días disponibles generadas dinámicamente
   const diasDisponiblesPills = useMemo(() => {
@@ -885,8 +890,8 @@ export default function AsignacionConductores() {
   const viajesSeleccionadosLista = useMemo(() => {
     return viajes
       .filter((v) => viajesSeleccionadosSet.has(v.id))
-      .sort(compararViajes);
-  }, [viajes, viajesSeleccionadosSet, compararViajes]);
+      .sort(crearComparadorViajes(false));
+  }, [viajes, viajesSeleccionadosSet, crearComparadorViajes]);
 
   const todosVisiblesSeleccionados = useMemo(() => {
     if (viajesFiltrados.length === 0) return false;
