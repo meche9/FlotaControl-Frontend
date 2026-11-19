@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { RegistrarDespachoModal } from './RegistrarDespachoModal';
 import { programacionService, type GuiaProgramada } from '../../services/programacionService';
-import { urlFotoConductor } from '../../services/conductoresService';
+import { conductoresService, urlFotoConductor, type Conductor } from '../../services/conductoresService';
+import { vehiculosService, type Vehiculo } from '../../services/vehiculosService';
 import { ImagenProtegida } from '../../components/ui';
 import {
   Truck,
@@ -23,6 +24,9 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  X,
+  Clock,
+  Phone,
 } from 'lucide-react';
 
 export interface ViajeGpsTelemetry {
@@ -98,6 +102,59 @@ function extraerHora(fechaStr?: string | null): string {
   return match ? match[1] : '';
 }
 
+function parsearFechaHora24(fechaStr?: string | null): Date | null {
+  if (!fechaStr) return null;
+  const raw = String(fechaStr).trim();
+  if (!raw) return null;
+
+  // Si incluye zona horaria explícita (Z o +/-HH:MM), usar Date nativo
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw)) {
+    const d = new Date(raw);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  // Formato YYYY-MM-DD[T ]HH:mm[:ss]
+  const matchYMD = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T\s](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (matchYMD) {
+    const anio = Number(matchYMD[1]);
+    const mes = Number(matchYMD[2]) - 1;
+    const dia = Number(matchYMD[3]);
+    const hora = matchYMD[4] !== undefined ? Number(matchYMD[4]) : 0;
+    const min = matchYMD[5] !== undefined ? Number(matchYMD[5]) : 0;
+    const seg = matchYMD[6] !== undefined ? Number(matchYMD[6]) : 0;
+    const d = new Date(anio, mes, dia, hora, min, seg);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  // Formato DD/MM/YYYY[ HH:mm[:ss]]
+  const matchDMY = raw.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})(?:[T\s](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (matchDMY) {
+    const dia = Number(matchDMY[1]);
+    const mes = Number(matchDMY[2]) - 1;
+    const anio = matchDMY[3].length === 2 ? Number(`20${matchDMY[3]}`) : Number(matchDMY[3]);
+    const hora = matchDMY[4] !== undefined ? Number(matchDMY[4]) : 0;
+    const min = matchDMY[5] !== undefined ? Number(matchDMY[5]) : 0;
+    const seg = matchDMY[6] !== undefined ? Number(matchDMY[6]) : 0;
+    const d = new Date(anio, mes, dia, hora, min, seg);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatearFechaHora24(fecha?: Date | string | null): string {
+  if (!fecha) return 'Sin registro';
+  const d = fecha instanceof Date ? fecha : parsearFechaHora24(fecha);
+  if (!d) return 'Sin registro';
+  const dia = String(d.getDate()).padStart(2, '0');
+  const mes = String(d.getMonth() + 1).padStart(2, '0');
+  const anio = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${dia}/${mes}/${anio} ${hh}:${mm}`;
+}
+
 function formatearEncabezadoDia(iso: string, hoyISO: string) {
   const [y, m, d] = iso.split('-').map(Number);
   const fecha = new Date(y, (m || 1) - 1, d || 1);
@@ -167,6 +224,42 @@ function calcularProgresoUbicacion(viaje: ViajeDashboardItem) {
   };
 }
 
+function obtenerEstadoOperativo24h(viaje: ViajeDashboardItem, ahoraMs: number) {
+  const estadoRaw = viaje.estadoOrden || 'Programado';
+  const est = estadoRaw.toLowerCase();
+  const progDate = parsearFechaHora24(viaje.fechaProgramadaCarga);
+  const entDate = parsearFechaHora24(viaje.fechaEntregaEstimada);
+
+  const tieneConductor = Boolean(
+    (viaje.idConductor && String(viaje.idConductor).trim()) || viaje.conductor?.idConductor
+  );
+
+  const esCancelado = est.includes('cancel');
+  const esCompletadoPorEstado = est.includes('complet') || est.includes('entreg') || est.includes('finaliz');
+  const esCumplidoPorHora = entDate ? ahoraMs >= entDate.getTime() : false;
+  const esCompletado = !esCancelado && (esCompletadoPorEstado || esCumplidoPorHora);
+  const esEnTransito =
+    tieneConductor &&
+    !esCancelado &&
+    !esCompletado &&
+    (entDate
+      ? ahoraMs < entDate.getTime() &&
+        ((progDate ? ahoraMs >= progDate.getTime() : false) ||
+          est.includes('tránsito') ||
+          est.includes('transito'))
+      : est.includes('tránsito') || est.includes('transito'));
+
+  const etiqueta = esCancelado
+    ? estadoRaw
+    : esCompletado
+      ? 'Viaje Culminado'
+      : esEnTransito
+        ? 'En Tránsito'
+        : estadoRaw;
+
+  return { esCancelado, esCompletado, esEnTransito, etiqueta };
+}
+
 export default function Dashboard() {
   const [rangoSemana] = useState(() => obtenerRangoSemanaActual());
   const [alcanceSemana, setAlcanceSemana] = useState<'desde_hoy' | 'toda_semana'>('desde_hoy');
@@ -180,6 +273,13 @@ export default function Dashboard() {
   const [verTodosOperadores, setVerTodosOperadores] = useState(false);
   const [isModalDespachoOpen, setIsModalDespachoOpen] = useState(false);
   const [toastMensaje, setToastMensaje] = useState<string | null>(null);
+  const [vehiculosFlota, setVehiculosFlota] = useState<Vehiculo[]>([]);
+  const [conductoresFlota, setConductoresFlota] = useState<Conductor[]>([]);
+  const [guiasHistorial, setGuiasHistorial] = useState<ViajeDashboardItem[]>([]);
+  const [ahoraTs, setAhoraTs] = useState<number>(() => Date.now());
+  const [isModalDisponibilidadOpen, setIsModalDisponibilidadOpen] = useState(false);
+  const [filtroDisponibilidad, setFiltroDisponibilidad] = useState<'todas' | 'disponible' | 'en_ruta' | 'no_operativa'>('todas');
+  const [busquedaDisponibilidad, setBusquedaDisponibilidad] = useState('');
 
   const alternarOrdenRuta = () => {
     setOrdenTabla((prev) =>
@@ -198,12 +298,47 @@ export default function Dashboard() {
     setCargandoViajes(true);
     setErrorViajes(null);
     try {
-      const data = await programacionService.getGuiasProgramadas({
-        fechaInicio: rangoSemana.lunesISO,
-        fechaFin: rangoSemana.domingoISO,
-        estadoOrden: 'todos',
-      });
-      setViajesSemana(Array.isArray(data) ? data : []);
+      const hace30Dias = new Date();
+      hace30Dias.setDate(hace30Dias.getDate() - 30);
+      const hace30DiasISO = `${hace30Dias.getFullYear()}-${String(hace30Dias.getMonth() + 1).padStart(2, '0')}-${String(hace30Dias.getDate()).padStart(2, '0')}`;
+
+      const [resSemana, resHistorial, resVehiculos, resConductores] = await Promise.allSettled([
+        programacionService.getGuiasProgramadas({
+          fechaInicio: rangoSemana.lunesISO,
+          fechaFin: rangoSemana.domingoISO,
+          estadoOrden: 'todos',
+        }),
+        programacionService.getGuiasProgramadas({
+          fechaInicio: hace30DiasISO,
+          fechaFin: rangoSemana.domingoISO,
+          estadoOrden: 'todos',
+        }),
+        vehiculosService.getVehiculos(),
+        conductoresService.getConductores(),
+      ]);
+
+      if (resSemana.status === 'fulfilled') {
+        setViajesSemana(Array.isArray(resSemana.value) ? resSemana.value : []);
+      } else {
+        setErrorViajes('No se pudo cargar el listado de viajes de la semana.');
+        setViajesSemana([]);
+      }
+
+      if (resHistorial.status === 'fulfilled') {
+        setGuiasHistorial(Array.isArray(resHistorial.value) ? resHistorial.value : []);
+      } else if (resSemana.status === 'fulfilled') {
+        setGuiasHistorial(Array.isArray(resSemana.value) ? resSemana.value : []);
+      }
+
+      if (resVehiculos.status === 'fulfilled') {
+        setVehiculosFlota(Array.isArray(resVehiculos.value) ? resVehiculos.value : []);
+      }
+
+      if (resConductores.status === 'fulfilled') {
+        setConductoresFlota(Array.isArray(resConductores.value) ? resConductores.value : []);
+      }
+
+      setAhoraTs(Date.now());
     } catch {
       setErrorViajes('No se pudo cargar el listado de viajes de la semana.');
       setViajesSemana([]);
@@ -215,6 +350,155 @@ export default function Dashboard() {
   useEffect(() => {
     cargarViajesSemana();
   }, [cargarViajesSemana]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setAhoraTs(Date.now());
+    }, 60000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  // Evaluación de disponibilidad en tiempo real (hora 24h) usando fechaEntregaEstimada de guias_viajes
+  const disponibilidadFlota = useMemo(() => {
+    const ahora = new Date(ahoraTs);
+    const unidadesMotrices = vehiculosFlota.filter((v) => v.tipoUnidad === 'motriz');
+    const guiasValidas = guiasHistorial.filter(
+      (g) => !(g.estadoOrden || '').toLowerCase().includes('cancel')
+    );
+
+    const conductorPorId = new Map<string, Conductor>();
+    const conductorPorVehiculo = new Map<string, Conductor>();
+    conductoresFlota.forEach((c) => {
+      conductorPorId.set(c.idConductor, c);
+      if (c.idVehiculoHabitual) {
+        conductorPorVehiculo.set(c.idVehiculoHabitual, c);
+      }
+    });
+
+    const items = unidadesMotrices.map((vehiculo) => {
+      const idsConductoresHabituales = new Set(
+        (vehiculo.conductoresHabituales || []).map((ch) => ch.idConductor)
+      );
+
+      const guiasUnidad = guiasValidas.filter((g) => {
+        if (g.idVehiculoMotriz && g.idVehiculoMotriz === vehiculo.idVehiculo) return true;
+        if (g.conductor?.idVehiculoHabitual && g.conductor.idVehiculoHabitual === vehiculo.idVehiculo) return true;
+        if (g.idConductor && idsConductoresHabituales.has(g.idConductor)) return true;
+        return false;
+      });
+
+      // Priorizar viajes ya iniciados (fechaProgramadaCarga <= ahora); si no hay, considerar todos
+      const guiasIniciadas = guiasUnidad.filter((g) => {
+        const inicio = parsearFechaHora24(g.fechaProgramadaCarga);
+        return inicio ? inicio.getTime() <= ahora.getTime() : true;
+      });
+      const pool = guiasIniciadas.length > 0 ? guiasIniciadas : guiasUnidad;
+
+      const ordenadas = [...pool].sort((a, b) => {
+        const entA = parsearFechaHora24(a.fechaEntregaEstimada)?.getTime() ?? 0;
+        const entB = parsearFechaHora24(b.fechaEntregaEstimada)?.getTime() ?? 0;
+        if (entB !== entA) return entB - entA;
+        const progA = parsearFechaHora24(a.fechaProgramadaCarga)?.getTime() ?? 0;
+        const progB = parsearFechaHora24(b.fechaProgramadaCarga)?.getTime() ?? 0;
+        return progB - progA;
+      });
+
+      const ultimoViaje = ordenadas[0] ?? null;
+      const fechaEntregaDate = ultimoViaje ? parsearFechaHora24(ultimoViaje.fechaEntregaEstimada) : null;
+      const fechaProgramadaDate = ultimoViaje ? parsearFechaHora24(ultimoViaje.fechaProgramadaCarga) : null;
+
+      let estado: 'disponible' | 'en_ruta' | 'taller' | 'inactivo' = 'disponible';
+      if (vehiculo.estadoTipo === 'taller') {
+        estado = 'taller';
+      } else if (vehiculo.estadoTipo === 'inactivo') {
+        estado = 'inactivo';
+      } else if (ultimoViaje) {
+        if (fechaEntregaDate) {
+          estado = ahora.getTime() >= fechaEntregaDate.getTime() ? 'disponible' : 'en_ruta';
+        } else {
+          const est = (ultimoViaje.estadoOrden || '').toLowerCase();
+          const cumplido = est.includes('complet') || est.includes('entreg') || est.includes('finaliz');
+          estado = cumplido ? 'disponible' : 'en_ruta';
+        }
+      }
+
+      const conductorViaje = ultimoViaje?.conductor;
+      const conductorCat =
+        (ultimoViaje?.idConductor ? conductorPorId.get(ultimoViaje.idConductor) : undefined) ||
+        conductorPorVehiculo.get(vehiculo.idVehiculo);
+
+      const nombreConductor = conductorViaje
+        ? `${conductorViaje.nombres || ''} ${conductorViaje.apellidos || ''}`.trim()
+        : conductorCat
+          ? `${conductorCat.nombres || ''} ${conductorCat.apellidos || ''}`.trim()
+          : vehiculo.conductoresHabituales?.[0]
+            ? `${vehiculo.conductoresHabituales[0].nombres || ''} ${vehiculo.conductoresHabituales[0].apellidos || ''}`.trim()
+            : 'Sin conductor asignado';
+
+      const telefonoConductor = conductorViaje?.telefono || conductorCat?.telefono || '';
+      const fotoConductor = conductorViaje?.foto || conductorCat?.foto || null;
+
+      return {
+        vehiculo,
+        estado,
+        disponible: estado === 'disponible',
+        conductor: {
+          nombre: nombreConductor || 'Sin conductor asignado',
+          iniciales: obtenerIniciales(nombreConductor || 'Sin conductor asignado'),
+          telefono: telefonoConductor,
+          foto: fotoConductor,
+        },
+        ultimoViaje: ultimoViaje
+          ? {
+            nroTransporte: ultimoViaje.nroTransporte || 'S/N',
+            origen:
+              ultimoViaje.puntoOrigen?.nombreSede ||
+              ultimoViaje.puntoOrigen?.ciudad ||
+              ultimoViaje.puntoOrigen?.codigoPuntoc ||
+              'Origen',
+            destino:
+              ultimoViaje.puntoDestino?.nombreSede ||
+              ultimoViaje.puntoDestino?.ciudad ||
+              ultimoViaje.puntoDestino?.codigoPuntoc ||
+              'Destino',
+            fechaProgramada24: formatearFechaHora24(fechaProgramadaDate || ultimoViaje.fechaProgramadaCarga),
+            fechaEntregaEstimada24: formatearFechaHora24(fechaEntregaDate || ultimoViaje.fechaEntregaEstimada),
+            cumplidoPorHora: fechaEntregaDate ? ahora.getTime() >= fechaEntregaDate.getTime() : estado === 'disponible',
+          }
+          : null,
+      };
+    });
+
+    const prioridadEstado: Record<string, number> = {
+      disponible: 0,
+      en_ruta: 1,
+      taller: 2,
+      inactivo: 3,
+    };
+
+    items.sort((a, b) => {
+      const pDiff = prioridadEstado[a.estado] - prioridadEstado[b.estado];
+      if (pDiff !== 0) return pDiff;
+      return a.vehiculo.placa.localeCompare(b.vehiculo.placa);
+    });
+
+    const totalUnidades = items.length;
+    const disponiblesCount = items.filter((i) => i.disponible).length;
+    const enRutaCount = items.filter((i) => i.estado === 'en_ruta').length;
+    const noOperativasCount = items.filter((i) => i.estado === 'taller' || i.estado === 'inactivo').length;
+    const porcentajeDisponibilidad =
+      totalUnidades > 0 ? Math.round((disponiblesCount / totalUnidades) * 1000) / 10 : 0;
+
+    return {
+      items,
+      totalUnidades,
+      disponiblesCount,
+      enRutaCount,
+      noOperativasCount,
+      porcentajeDisponibilidad,
+      horaEvaluacion24: formatearFechaHora24(ahora),
+    };
+  }, [vehiculosFlota, conductoresFlota, guiasHistorial, ahoraTs]);
 
   // Filtra desde hoy (o toda la semana Lun-Dom), ordena por fecha asc -> conductor asc, y agrupa por día
   const viajesAgrupadosPorDia = useMemo(() => {
@@ -243,14 +527,17 @@ export default function Dashboard() {
       })
       .filter(({ viaje, fechaISO, conductorNombre }) => {
         if (!fechaISO) return false;
-        if (fechaISO < fechaMinima || fechaISO > rangoSemana.domingoISO) return false;
+        const { esCancelado, esCompletado, esEnTransito } = obtenerEstadoOperativo24h(viaje, ahoraTs);
 
-        if (filtroEstado !== 'todos') {
-          const est = (viaje.estadoOrden || '').toLowerCase();
-          if (filtroEstado === 'En Tránsito' && !est.includes('tránsito') && !est.includes('transito')) return false;
-          if (filtroEstado === 'Programado' && !est.includes('programado') && !est.includes('andén') && !est.includes('anden')) return false;
-          if (filtroEstado === 'Completado' && !est.includes('complet') && !est.includes('entreg') && !est.includes('finaliz')) return false;
+        if (filtroEstado === 'En Tránsito') {
+          if (!esEnTransito) return false;
+          if (fechaISO > rangoSemana.domingoISO) return false;
+        } else {
+          if (fechaISO < fechaMinima || fechaISO > rangoSemana.domingoISO) return false;
         }
+
+        if (filtroEstado === 'Programado' && (esCancelado || esCompletado || esEnTransito)) return false;
+        if (filtroEstado === 'Completado' && !esCompletado) return false;
 
         if (termino) {
           const placa = viaje.vehiculoMotriz?.placa || viaje.conductor?.vehiculoHabitual?.placa || '';
@@ -310,7 +597,7 @@ export default function Dashboard() {
     }
 
     return grupos;
-  }, [viajesSemana, alcanceSemana, filtroEstado, searchTerm, rangoSemana, ordenTabla]);
+  }, [viajesSemana, alcanceSemana, filtroEstado, searchTerm, rangoSemana, ordenTabla, ahoraTs]);
 
   const totalViajesMostrados = useMemo(
     () => viajesAgrupadosPorDia.reduce((acc, g) => acc + g.items.length, 0),
@@ -505,19 +792,40 @@ export default function Dashboard() {
 
       {/* 2. Top Metric KPI Cards (4 cards) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Card 1: Unidades Activas */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-xs hover:shadow-md transition">
+        {/* Card 1: Unidades Disponibles */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setIsModalDisponibilidadOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setIsModalDisponibilidadOpen(true);
+            }
+          }}
+          className="bg-white rounded-2xl p-5 border border-slate-100 shadow-xs hover:shadow-lg hover:border-emerald-200 transition cursor-pointer group text-left"
+          title="Click para ver detalle de disponibilidad de unidades y conductores"
+        >
           <div className="flex items-start justify-between">
             <div>
-              <span className="text-[11px] font-bold text-slate-400 tracking-wider uppercase">
-                Unidades Activas
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-bold text-slate-400 tracking-wider uppercase">
+                  Unidades Disponibles
+                </span>
+                <ArrowUpRight className="w-3.5 h-3.5 text-emerald-500 opacity-0 group-hover:opacity-100 transition" />
+              </div>
               <div className="flex items-baseline gap-1 mt-1.5">
-                <span className="text-3xl font-black text-slate-900 tracking-tight">42</span>
-                <span className="text-sm font-semibold text-slate-400">/ 48</span>
+                <span className="text-3xl font-black text-slate-900 tracking-tight">
+                  {cargandoViajes && disponibilidadFlota.totalUnidades === 0
+                    ? '—'
+                    : disponibilidadFlota.disponiblesCount}
+                </span>
+                <span className="text-sm font-semibold text-slate-400">
+                  / {disponibilidadFlota.totalUnidades}
+                </span>
               </div>
             </div>
-            <div className="w-12 h-12 rounded-2xl bg-emerald-100/70 text-emerald-600 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-100/70 text-emerald-600 flex items-center justify-center group-hover:scale-105 transition">
               <Truck className="w-6 h-6 stroke-[1.8]" />
             </div>
           </div>
@@ -525,13 +833,18 @@ export default function Dashboard() {
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1 text-emerald-700 font-semibold text-[11px]">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                <span>87.5% Disponibilidad</span>
+                <span>{disponibilidadFlota.porcentajeDisponibilidad}% Disponibilidad</span>
               </div>
             </div>
-            <span className="text-slate-400 text-[11px] font-medium">6 en base</span>
+            <span className="text-slate-400 text-[11px] font-medium">
+              {disponibilidadFlota.enRutaCount} en ruta
+            </span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mt-2">
-            <div className="bg-emerald-600 h-full rounded-full" style={{ width: '87.5%' }}></div>
+            <div
+              className="bg-emerald-600 h-full rounded-full transition-all duration-500"
+              style={{ width: `${disponibilidadFlota.porcentajeDisponibilidad}%` }}
+            ></div>
           </div>
         </div>
 
@@ -870,16 +1183,19 @@ export default function Dashboard() {
                           completado,
                         } = calcularProgresoUbicacion(viaje);
 
-                        const estadoTexto = viaje.estadoOrden || 'Programado';
-                        const estadoLower = estadoTexto.toLowerCase();
-                        const badgeEstadoClass =
-                          estadoLower.includes('tránsito') || estadoLower.includes('transito')
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
-                            : completado
-                              ? 'bg-teal-50 text-teal-700 border-teal-200/60'
-                              : estadoLower.includes('cancel')
-                                ? 'bg-red-50 text-red-700 border-red-200/60'
-                                : 'bg-sky-50 text-sky-700 border-sky-200/60';
+                        const {
+                          esCancelado: esCanceladoFila,
+                          esCompletado: esCompletadoFila,
+                          esEnTransito: esEnTransitoFila,
+                          etiqueta: estadoTexto,
+                        } = obtenerEstadoOperativo24h(viaje, ahoraTs);
+                        const badgeEstadoClass = esEnTransitoFila
+                          ? 'bg-orange-50 text-orange-700 border-orange-200/60'
+                          : completado || esCompletadoFila
+                            ? 'bg-teal-50 text-teal-700 border-teal-200/60'
+                            : esCanceladoFila
+                              ? 'bg-red-50 text-red-700 border-red-200/60'
+                              : 'bg-sky-50 text-sky-700 border-sky-200/60';
 
                         return (
                           <tr key={viaje.idOrden} className="hover:bg-slate-50/70 transition group">
@@ -1415,6 +1731,329 @@ export default function Dashboard() {
           <span>{toastMensaje}</span>
         </div>
       )}
+
+      {/* Modal Disponibilidad de Unidades y Conductores */}
+      {isModalDisponibilidadOpen && (() => {
+        const term = busquedaDisponibilidad.trim().toLowerCase();
+        const itemsFiltrados = disponibilidadFlota.items.filter((item) => {
+          if (filtroDisponibilidad === 'disponible' && !item.disponible) return false;
+          if (filtroDisponibilidad === 'en_ruta' && item.estado !== 'en_ruta') return false;
+          if (
+            filtroDisponibilidad === 'no_operativa' &&
+            item.estado !== 'taller' &&
+            item.estado !== 'inactivo'
+          ) {
+            return false;
+          }
+
+          if (term) {
+            const texto = [
+              item.vehiculo.placa,
+              item.vehiculo.marca,
+              item.vehiculo.modelo,
+              item.vehiculo.codigoUnidad,
+              item.conductor.nombre,
+              item.ultimoViaje?.nroTransporte || '',
+              item.ultimoViaje?.origen || '',
+              item.ultimoViaje?.destino || '',
+            ]
+              .join(' ')
+              .toLowerCase();
+            if (!texto.includes(term)) return false;
+          }
+          return true;
+        });
+
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/65 backdrop-blur-xs animate-in fade-in duration-150"
+            onClick={() => setIsModalDisponibilidadOpen(false)}
+          >
+            <div
+              className="bg-white rounded-3xl max-w-4xl w-full max-h-[88vh] flex flex-col overflow-hidden shadow-2xl border border-slate-200"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header llamativo */}
+              <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 text-white px-6 py-5 flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center shrink-0">
+                    <Truck className="w-5 h-5 text-emerald-300" />
+                  </div>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-lg font-black tracking-tight">
+                        Disponibilidad de Unidades y Conductores
+                      </h3>
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-200 border border-emerald-400/30">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        {disponibilidadFlota.disponiblesCount} de {disponibilidadFlota.totalUnidades} Disponibles
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-300 mt-1 flex flex-wrap items-center gap-2">
+                      <span>
+                        Criterio: entrega estimada &le; hora actual (formato 24h)
+                      </span>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 text-emerald-200 font-mono text-[11px]">
+                        <Clock className="w-3 h-3" />
+                        Corte: {disponibilidadFlota.horaEvaluacion24}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsModalDisponibilidadOpen(false)}
+                  className="p-1.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                  aria-label="Cerrar modal"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Barra de filtros y búsqueda */}
+              <div className="px-6 py-3.5 bg-slate-50 border-b border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setFiltroDisponibilidad('todas')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                      filtroDisponibilidad === 'todas'
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    Todas ({disponibilidadFlota.totalUnidades})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFiltroDisponibilidad('disponible')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                      filtroDisponibilidad === 'disponible'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50'
+                    }`}
+                  >
+                    Disponibles ({disponibilidadFlota.disponiblesCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFiltroDisponibilidad('en_ruta')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                      filtroDisponibilidad === 'en_ruta'
+                        ? 'bg-amber-500 text-white shadow-xs'
+                        : 'bg-white text-amber-700 border border-amber-200 hover:bg-amber-50'
+                    }`}
+                  >
+                    En Ruta ({disponibilidadFlota.enRutaCount})
+                  </button>
+                  {disponibilidadFlota.noOperativasCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setFiltroDisponibilidad('no_operativa')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                        filtroDisponibilidad === 'no_operativa'
+                          ? 'bg-rose-600 text-white shadow-xs'
+                          : 'bg-white text-rose-700 border border-rose-200 hover:bg-rose-50'
+                      }`}
+                    >
+                      Taller / Inactivas ({disponibilidadFlota.noOperativasCount})
+                    </button>
+                  )}
+                </div>
+
+                <div className="relative w-full sm:w-64">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={busquedaDisponibilidad}
+                    onChange={(e) => setBusquedaDisponibilidad(e.target.value)}
+                    placeholder="Buscar placa, conductor o guía..."
+                    className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                  />
+                </div>
+              </div>
+
+              {/* Listado */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-3 bg-slate-50/40">
+                {itemsFiltrados.length === 0 ? (
+                  <div className="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-200">
+                    <Truck className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                    <p className="text-sm font-bold text-slate-700">
+                      No hay unidades que coincidan con el filtro
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Prueba cambiando la pestaña de estado o limpiando la búsqueda.
+                    </p>
+                  </div>
+                ) : (
+                  itemsFiltrados.map((item) => {
+                    const esDisponible = item.estado === 'disponible';
+                    const esEnRuta = item.estado === 'en_ruta';
+
+                    return (
+                      <div
+                        key={item.vehiculo.idVehiculo}
+                        className={`bg-white rounded-2xl p-4 border transition shadow-2xs hover:shadow-md ${
+                          esDisponible
+                            ? 'border-emerald-200/80'
+                            : esEnRuta
+                              ? 'border-amber-200/80'
+                              : 'border-slate-200'
+                        }`}
+                      >
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                          {/* Conductor y Unidad */}
+                          <div className="flex items-center gap-3.5 min-w-0">
+                            <div className="w-11 h-11 rounded-2xl bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shrink-0">
+                              {item.conductor.foto ? (
+                                <ImagenProtegida
+                                  src={urlFotoConductor(item.conductor.foto)}
+                                  alt={item.conductor.nombre}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <span className="text-xs font-black text-slate-700">
+                                  {item.conductor.iniciales}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-sm font-black text-slate-900 truncate">
+                                  {item.conductor.nombre}
+                                </span>
+                                {item.conductor.telefono && (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-lg">
+                                    <Phone className="w-3 h-3 text-slate-400" />
+                                    {item.conductor.telefono}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-600">
+                                <span className="inline-flex items-center gap-1 font-extrabold text-slate-800 bg-slate-100 px-2 py-0.5 rounded-md">
+                                  <Truck className="w-3 h-3 text-slate-500" />
+                                  {item.vehiculo.placa}
+                                </span>
+                                <span className="text-slate-500 font-medium">
+                                  {item.vehiculo.marca} {item.vehiculo.modelo}
+                                </span>
+                                {item.vehiculo.codigoUnidad && (
+                                  <span className="text-[11px] text-slate-400 font-mono">
+                                    #{item.vehiculo.codigoUnidad}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Badge de Estado */}
+                          <div className="shrink-0">
+                            {esDisponible ? (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                                {item.ultimoViaje ? 'Disponible • Viaje cumplido' : 'Disponible • Sin viajes'}
+                              </span>
+                            ) : esEnRuta ? (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-amber-50 text-amber-800 border border-amber-200">
+                                <Navigation className="w-3.5 h-3.5 text-amber-600" />
+                                En Ruta • Entrega pendiente
+                              </span>
+                            ) : item.estado === 'taller' ? (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-rose-50 text-rose-700 border border-rose-200">
+                                <Wrench className="w-3.5 h-3.5 text-rose-600" />
+                                En Taller
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-slate-100 text-slate-600 border border-slate-200">
+                                Inactiva
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Detalle del último viaje realizado */}
+                        {item.ultimoViaje ? (
+                          <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+                            <div className="bg-slate-50 rounded-xl px-3 py-2 border border-slate-100">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                                Último Viaje Realizado
+                              </span>
+                              <div className="font-black text-slate-900 mt-0.5">
+                                TR-{item.ultimoViaje.nroTransporte}
+                              </div>
+                              <div className="text-[11px] text-slate-600 truncate mt-0.5" title={`${item.ultimoViaje.origen} → ${item.ultimoViaje.destino}`}>
+                                {item.ultimoViaje.origen} &rarr; {item.ultimoViaje.destino}
+                              </div>
+                            </div>
+
+                            <div className="bg-slate-50 rounded-xl px-3 py-2 border border-slate-100">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                                Fecha y Hora Programada (24h)
+                              </span>
+                              <div className="font-bold text-slate-800 font-mono mt-1 flex items-center gap-1.5">
+                                <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                <span>{item.ultimoViaje.fechaProgramada24}</span>
+                              </div>
+                            </div>
+
+                            <div
+                              className={`rounded-xl px-3 py-2 border ${
+                                item.ultimoViaje.cumplidoPorHora
+                                  ? 'bg-emerald-50/70 border-emerald-200/70'
+                                  : 'bg-amber-50/70 border-amber-200/70'
+                              }`}
+                            >
+                              <span
+                                className={`text-[10px] font-bold uppercase tracking-wider block ${
+                                  item.ultimoViaje.cumplidoPorHora ? 'text-emerald-700' : 'text-amber-700'
+                                }`}
+                              >
+                                Entrega Estimada (24h)
+                              </span>
+                              <div
+                                className={`font-extrabold font-mono mt-1 flex items-center gap-1.5 ${
+                                  item.ultimoViaje.cumplidoPorHora ? 'text-emerald-900' : 'text-amber-900'
+                                }`}
+                              >
+                                <Clock
+                                  className={`w-3.5 h-3.5 shrink-0 ${
+                                    item.ultimoViaje.cumplidoPorHora ? 'text-emerald-600' : 'text-amber-600'
+                                  }`}
+                                />
+                                <span>{item.ultimoViaje.fechaEntregaEstimada24}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mt-3 pt-2.5 border-t border-slate-100 text-[11px] text-slate-400 italic">
+                            Sin viajes registrados en los últimos 30 días.
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-3 bg-white border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
+                <span>
+                  Mostrando <strong className="text-slate-800">{itemsFiltrados.length}</strong> de{' '}
+                  <strong className="text-slate-800">{disponibilidadFlota.totalUnidades}</strong> unidades motrices
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsModalDisponibilidadOpen(false)}
+                  className="px-4 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition cursor-pointer"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Modal Registrar Despacho / Asignar Viaje */}
       <RegistrarDespachoModal
