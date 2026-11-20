@@ -456,13 +456,15 @@ export default function Dashboard() {
             : 'Sin conductor asignado';
 
       const telefonoConductor = conductorViaje?.telefono || conductorCat?.telefono || '';
-      const fotoConductor = conductorViaje?.foto || conductorCat?.foto || null;
+      const fuenteFoto = conductorViaje?.foto ? conductorViaje : conductorCat?.foto ? conductorCat : null;
+      const fotoConductor = fuenteFoto?.foto || null;
 
       return {
         vehiculo,
         estado,
         disponible: estado === 'disponible',
         conductor: {
+          idConductor: fuenteFoto?.idConductor || '',
           nombre: nombreConductor || 'Sin conductor asignado',
           iniciales: obtenerIniciales(nombreConductor || 'Sin conductor asignado'),
           telefono: telefonoConductor,
@@ -2042,7 +2044,7 @@ export default function Dashboard() {
                             <div className="w-11 h-11 rounded-2xl bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shrink-0">
                               {item.conductor.foto ? (
                                 <ImagenProtegida
-                                  src={urlFotoConductor(item.conductor.foto)}
+                                  url={urlFotoConductor(item.conductor.idConductor, item.conductor.foto)}
                                   alt={item.conductor.nombre}
                                   className="w-full h-full object-cover"
                                 />
