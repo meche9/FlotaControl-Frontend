@@ -62,11 +62,28 @@ function obtenerRangoSemanaActual() {
     return `${String(d.getDate()).padStart(2, '0')} ${meses[d.getMonth()]}`;
   };
 
+  const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+  const finMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
+
+  const esPrimeraQuincena = hoy.getDate() <= 15;
+  const inicioQuincena = esPrimeraQuincena
+    ? inicioMes
+    : new Date(hoy.getFullYear(), hoy.getMonth(), 16);
+  const finQuincena = esPrimeraQuincena
+    ? new Date(hoy.getFullYear(), hoy.getMonth(), 15)
+    : finMes;
+
   return {
     hoyISO: toISO(hoy),
     lunesISO: toISO(lunes),
     domingoISO: toISO(domingo),
     etiquetaSemana: `${formatCorto(lunes)} - ${formatCorto(domingo)}`,
+    quincenaInicioISO: toISO(inicioQuincena),
+    quincenaFinISO: toISO(finQuincena),
+    etiquetaQuincena: `${formatCorto(inicioQuincena)} - ${formatCorto(finQuincena)}`,
+    mesInicioISO: toISO(inicioMes),
+    mesFinISO: toISO(finMes),
+    etiquetaMes: `${formatCorto(inicioMes)} - ${formatCorto(finMes)}`,
   };
 }
 
@@ -270,6 +287,7 @@ export default function Dashboard() {
   const [errorViajes, setErrorViajes] = useState<string | null>(null);
   const [diasPlegados, setDiasPlegados] = useState<Record<string, boolean>>({});
   const [ordenTabla, setOrdenTabla] = useState<'conductor' | 'ruta_asc' | 'ruta_desc'>('conductor');
+  const [periodoRanking, setPeriodoRanking] = useState<'semana' | 'quincena' | 'mes'>('semana');
   const [verTodosOperadores, setVerTodosOperadores] = useState(false);
   const [isModalDespachoOpen, setIsModalDespachoOpen] = useState(false);
   const [toastMensaje, setToastMensaje] = useState<string | null>(null);
@@ -301,6 +319,8 @@ export default function Dashboard() {
       const hace30Dias = new Date();
       hace30Dias.setDate(hace30Dias.getDate() - 30);
       const hace30DiasISO = `${hace30Dias.getFullYear()}-${String(hace30Dias.getMonth() + 1).padStart(2, '0')}-${String(hace30Dias.getDate()).padStart(2, '0')}`;
+      const fechaInicioHistorial = [hace30DiasISO, rangoSemana.lunesISO, rangoSemana.mesInicioISO].sort()[0];
+      const fechaFinHistorial = [rangoSemana.domingoISO, rangoSemana.mesFinISO].sort().reverse()[0];
 
       const [resSemana, resHistorial, resVehiculos, resConductores] = await Promise.allSettled([
         programacionService.getGuiasProgramadas({
@@ -309,8 +329,8 @@ export default function Dashboard() {
           estadoOrden: 'todos',
         }),
         programacionService.getGuiasProgramadas({
-          fechaInicio: hace30DiasISO,
-          fechaFin: rangoSemana.domingoISO,
+          fechaInicio: fechaInicioHistorial,
+          fechaFin: fechaFinHistorial,
           estadoOrden: 'todos',
         }),
         vehiculosService.getVehiculos(),
@@ -345,7 +365,7 @@ export default function Dashboard() {
     } finally {
       setCargandoViajes(false);
     }
-  }, [rangoSemana.lunesISO, rangoSemana.domingoISO]);
+  }, [rangoSemana.lunesISO, rangoSemana.domingoISO, rangoSemana.mesInicioISO, rangoSemana.mesFinISO]);
 
   useEffect(() => {
     cargarViajesSemana();
@@ -619,7 +639,22 @@ export default function Dashboard() {
       }
     >();
 
-    for (const viaje of viajesSemana) {
+    const viajesFuente =
+      periodoRanking === 'semana'
+        ? viajesSemana
+        : guiasHistorial.filter((viaje) => {
+            const fechaISO = extraerFechaISO(viaje.fechaProgramadaCarga);
+            if (!fechaISO) return false;
+            if (periodoRanking === 'quincena') {
+              return (
+                fechaISO >= rangoSemana.quincenaInicioISO &&
+                fechaISO <= rangoSemana.quincenaFinISO
+              );
+            }
+            return fechaISO >= rangoSemana.mesInicioISO && fechaISO <= rangoSemana.mesFinISO;
+          });
+
+    for (const viaje of viajesFuente) {
       if (!viaje.conductor) continue;
       const estadoNorm = (viaje.estadoOrden || '').toLowerCase();
       if (estadoNorm.includes('cancel')) continue;
@@ -670,7 +705,15 @@ export default function Dashboard() {
       rankingOperadores: lista,
       totalKmRanking: Math.round(totalKm),
     };
-  }, [viajesSemana]);
+  }, [
+    periodoRanking,
+    viajesSemana,
+    guiasHistorial,
+    rangoSemana.quincenaInicioISO,
+    rangoSemana.quincenaFinISO,
+    rangoSemana.mesInicioISO,
+    rangoSemana.mesFinISO,
+  ]);
 
   // Kilometraje semanal por día (Lunes a Domingo) y conteo de viajes efectuados / cancelados
   const kilometrajeSemanal = useMemo(() => {
@@ -689,6 +732,8 @@ export default function Dashboard() {
         letra: letrasDias[idx],
         nombreCompleto,
         km: 0,
+        viajesPrincipales: 0,
+        planchas: 0,
         viajesEfectuados: 0,
         viajesCancelados: 0,
         fleteAcumulado: 0,
@@ -697,10 +742,27 @@ export default function Dashboard() {
 
     const indicePorFecha = new Map(dias.map((d, idx) => [d.fechaISO, idx]));
 
+    let totalViajesPrincipales = 0;
+    let totalPlanchas = 0;
     let totalEfectuados = 0;
     let totalCancelados = 0;
 
-    for (const viaje of viajesSemana) {
+    const viajesFuente =
+      periodoRanking === 'semana'
+        ? viajesSemana
+        : guiasHistorial.filter((viaje) => {
+            const fechaISO = extraerFechaISO(viaje.fechaProgramadaCarga);
+            if (!fechaISO) return false;
+            if (periodoRanking === 'quincena') {
+              return (
+                fechaISO >= rangoSemana.quincenaInicioISO &&
+                fechaISO <= rangoSemana.quincenaFinISO
+              );
+            }
+            return fechaISO >= rangoSemana.mesInicioISO && fechaISO <= rangoSemana.mesFinISO;
+          });
+
+    for (const viaje of viajesFuente) {
       const fechaISO = extraerFechaISO(viaje.fechaProgramadaCarga);
       const idx = indicePorFecha.get(fechaISO);
       if (idx === undefined) continue;
@@ -710,6 +772,20 @@ export default function Dashboard() {
         dias[idx].viajesCancelados += 1;
         totalCancelados += 1;
         continue;
+      }
+
+      const obs = String(viaje.observaciones || '');
+      const esPlancha =
+        obs.includes('[RETORNO_DE:') ||
+        obs.includes('[RETORNO]') ||
+        obs.includes('[PLANCHA_ADICIONAL');
+
+      if (esPlancha) {
+        dias[idx].planchas += 1;
+        totalPlanchas += 1;
+      } else {
+        dias[idx].viajesPrincipales += 1;
+        totalViajesPrincipales += 1;
       }
 
       dias[idx].viajesEfectuados += 1;
@@ -737,14 +813,23 @@ export default function Dashboard() {
     const totalKm = Math.round(dias.reduce((acc, d) => acc + d.km, 0));
     const totalFlete = dias.reduce((acc, d) => acc + d.fleteAcumulado, 0);
     const maxKm = Math.max(...dias.map((d) => d.km), 0);
-    const diaPico = maxKm > 0 ? dias.find((d) => d.km === maxKm) ?? null : null;
+    const maxFlete = Math.max(...dias.map((d) => d.fleteAcumulado), 0);
+    const diaPico =
+      maxFlete > 0
+        ? dias.find((d) => d.fleteAcumulado === maxFlete) ?? null
+        : maxKm > 0
+          ? dias.find((d) => d.km === maxKm) ?? null
+          : null;
 
     return {
       dias,
       totalKm,
       totalFlete,
       maxKm,
+      maxFlete,
       diaPico,
+      totalViajesPrincipales,
+      totalPlanchas,
       totalEfectuados,
       totalCancelados,
     };
@@ -1417,23 +1502,55 @@ export default function Dashboard() {
         <div className="space-y-6">
           {/* Posición 1: Operadores Destacados (Ordenados por Flete Acumulado) */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-xs p-5 space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Trophy className="w-4 h-4 text-emerald-600" />
                 <h3 className="font-bold text-slate-900 text-sm">
                   Operadores Destacados
                 </h3>
               </div>
-              <span className="bg-slate-100 text-slate-600 font-semibold text-[10px] px-2 py-0.5 rounded-md">
-                Semana Actual
-              </span>
+              <div className="flex items-center p-0.5 bg-slate-100 rounded-lg gap-0.5">
+                {(
+                  [
+                    { id: 'semana', label: 'Semana Actual', rango: rangoSemana.etiquetaSemana },
+                    { id: 'quincena', label: 'Quincenal', rango: rangoSemana.etiquetaQuincena },
+                    { id: 'mes', label: 'Mensual', rango: rangoSemana.etiquetaMes },
+                  ] as const
+                ).map((opcion) => {
+                  const activo = periodoRanking === opcion.id;
+                  return (
+                    <button
+                      key={opcion.id}
+                      type="button"
+                      onClick={() => setPeriodoRanking(opcion.id)}
+                      title={`Rango: ${opcion.rango}`}
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition cursor-pointer ${
+                        activo
+                          ? 'bg-white text-slate-800 shadow-2xs'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      {opcion.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Resumen Total de Kilometraje Recorrido */}
             <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-teal-50/70 border border-teal-200/50 text-xs">
-              <span className="font-semibold text-teal-900 text-[11px]">
-                Total Kilometraje Recorrido
-              </span>
+              <div>
+                <span className="font-semibold text-teal-900 text-[11px] block">
+                  Total Kilometraje Recorrido
+                </span>
+                <span className="text-[10px] text-teal-700/80 font-medium">
+                  {periodoRanking === 'semana'
+                    ? `Semana: ${rangoSemana.etiquetaSemana}`
+                    : periodoRanking === 'quincena'
+                      ? `Quincena: ${rangoSemana.etiquetaQuincena}`
+                      : `Mes: ${rangoSemana.etiquetaMes}`}
+                </span>
+              </div>
               <span className="font-black text-teal-800 text-xs">
                 {totalKmRanking.toLocaleString('es-VE')} km
               </span>
@@ -1445,7 +1562,11 @@ export default function Dashboard() {
               </div>
             ) : rankingOperadores.length === 0 ? (
               <div className="py-6 text-center text-xs text-slate-400">
-                Sin viajes asignados a operadores esta semana.
+                {periodoRanking === 'semana'
+                  ? 'Sin viajes asignados a operadores esta semana.'
+                  : periodoRanking === 'quincena'
+                    ? 'Sin viajes asignados a operadores esta quincena.'
+                    : 'Sin viajes asignados a operadores este mes.'}
               </div>
             ) : (
               <div className="space-y-2.5">
@@ -1546,16 +1667,21 @@ export default function Dashboard() {
             <div className="pt-3 pb-1">
               <div className="flex items-end justify-between h-44 gap-2 px-1">
                 {kilometrajeSemanal.dias.map((dia) => {
-                  const esPico = kilometrajeSemanal.maxKm > 0 && dia.km === kilometrajeSemanal.maxKm;
+                  const esPico =
+                    kilometrajeSemanal.maxFlete > 0
+                      ? dia.fleteAcumulado === kilometrajeSemanal.maxFlete
+                      : kilometrajeSemanal.maxKm > 0 && dia.km === kilometrajeSemanal.maxKm;
                   const esHoy = dia.fechaISO === rangoSemana.hoyISO;
-                  const tieneActividad = dia.km > 0 || dia.viajesEfectuados > 0;
+                  const tieneActividad = dia.km > 0 || dia.viajesEfectuados > 0 || dia.fleteAcumulado > 0;
 
                   const alturaPct =
-                    kilometrajeSemanal.maxKm > 0 && dia.km > 0
-                      ? Math.max(26, Math.round((dia.km / kilometrajeSemanal.maxKm) * 76))
-                      : dia.viajesEfectuados > 0
-                        ? 26
-                        : 8;
+                    kilometrajeSemanal.maxFlete > 0 && dia.fleteAcumulado > 0
+                      ? Math.max(36, Math.round((dia.fleteAcumulado / kilometrajeSemanal.maxFlete) * 78))
+                      : kilometrajeSemanal.maxKm > 0 && dia.km > 0
+                        ? Math.max(36, Math.round((dia.km / kilometrajeSemanal.maxKm) * 78))
+                        : dia.viajesEfectuados > 0
+                          ? 36
+                          : 8;
 
                   const barColorClass = esPico
                     ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-xs'
@@ -1576,7 +1702,7 @@ export default function Dashboard() {
                     maximumFractionDigits: 2,
                   })}`;
 
-                  const tooltip = `${dia.nombreCompleto}: ${Math.round(dia.km).toLocaleString('es-VE')} km • ${dia.viajesEfectuados} ${dia.viajesEfectuados === 1 ? 'viaje efectuado' : 'viajes efectuados'} • $${dia.fleteAcumulado.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} en fletes${dia.viajesCancelados > 0 ? ` • ${dia.viajesCancelados} ${dia.viajesCancelados === 1 ? 'cancelado' : 'cancelados'}` : ''}`;
+                  const tooltip = `${dia.nombreCompleto}: $${dia.fleteAcumulado.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} en fletes • ${Math.round(dia.km).toLocaleString('es-VE')} km • ${dia.viajesPrincipales} ${dia.viajesPrincipales === 1 ? 'viaje' : 'viajes'} • ${dia.planchas} ${dia.planchas === 1 ? 'plancha' : 'planchas'}${dia.viajesCancelados > 0 ? ` • ${dia.viajesCancelados} ${dia.viajesCancelados === 1 ? 'cancelado' : 'cancelados'}` : ''}`;
 
                   return (
                     <div
@@ -1592,12 +1718,17 @@ export default function Dashboard() {
                       )}
                       <div
                         style={{ height: `${alturaPct}%` }}
-                        className={`w-full rounded-t-lg transition-all flex items-center justify-center overflow-hidden px-0.5 ${barColorClass}`}
+                        className={`w-full rounded-t-lg transition-all flex items-center justify-center gap-0.5 overflow-hidden px-0.5 ${barColorClass}`}
                       >
                         {dia.viajesEfectuados > 0 && (
-                          <span className="[writing-mode:vertical-rl] rotate-180 text-[10px] font-bold tracking-tight whitespace-nowrap select-none leading-none">
-                            {dia.viajesEfectuados} {dia.viajesEfectuados === 1 ? 'viaje' : 'viajes'}
-                          </span>
+                          <div className="flex items-center justify-center gap-0.5 select-none">
+                            <span className="[writing-mode:vertical-rl] rotate-180 text-[9.5px] font-bold tracking-tight whitespace-nowrap leading-none">
+                              {dia.viajesPrincipales} {dia.viajesPrincipales === 1 ? 'viaje' : 'viajes'}
+                            </span>
+                            <span className="[writing-mode:vertical-rl] rotate-180 text-[9px] font-semibold opacity-90 tracking-tight whitespace-nowrap leading-none">
+                              {dia.planchas} {dia.planchas === 1 ? 'plancha' : 'planchas'}
+                            </span>
+                          </div>
                         )}
                       </div>
                       <span className={`text-[10px] font-bold ${labelDiaClass}`}>{dia.letra}</span>
@@ -1642,8 +1773,12 @@ export default function Dashboard() {
                 <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
                   <span className="w-2 h-2 rounded-full bg-orange-500 shrink-0"></span>
                   <span>
-                    Máx: {kilometrajeSemanal.diaPico.nombreCompleto} (
-                    {Math.round(kilometrajeSemanal.diaPico.km).toLocaleString('es-VE')} km)
+                    Mayor flete: {kilometrajeSemanal.diaPico.nombreCompleto} ($
+                    {kilometrajeSemanal.diaPico.fleteAcumulado.toLocaleString('es-VE', {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}{' '}
+                    • {kilometrajeSemanal.diaPico.viajesPrincipales} viajes, {kilometrajeSemanal.diaPico.planchas} planchas)
                   </span>
                 </div>
               )}
