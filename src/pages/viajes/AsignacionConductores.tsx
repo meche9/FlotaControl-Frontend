@@ -430,15 +430,10 @@ export default function AsignacionConductores() {
         estadoOrden: 'todos',
       });
 
-      // Excluir planchas de retorno generadas para mostrar únicamente los viajes principales
+      // Excluir planchas de retorno generadas (identificadas por '[RETORNO_DE:') para mostrar únicamente los viajes principales
       const guiasPrincipales = (guias || []).filter((g) => {
-        const obs = String(g.observaciones || '');
-        return (
-          !obs.includes('[RETORNO_DE:') &&
-          !obs.includes('[RETORNO]') &&
-          !obs.includes('[PLANCHA_ADICIONAL') &&
-          !obs.toLowerCase().includes('retorno')
-        );
+        const obs = String(g.observaciones ?? (g as any).observacion ?? '');
+        return !obs.includes('[RETORNO_DE:');
       });
 
       const viajesMapeados = guiasPrincipales.map(mapGuiaToViaje);

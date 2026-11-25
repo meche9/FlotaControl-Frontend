@@ -215,8 +215,8 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               </Link>
 
               <Link
-                to="/costs"
-                className={`flex items-center space-x-3 px-3 py-1.5 rounded-xl font-medium transition ${isActive('/costs')
+                to="/nominas/procesos"
+                className={`flex items-center space-x-3 px-3 py-1.5 rounded-xl font-medium transition ${isActive('/nominas/procesos') || isActive('/nominas')
                   ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20'
                   : 'text-gray-700 hover:bg-gray-100'
                   }`}

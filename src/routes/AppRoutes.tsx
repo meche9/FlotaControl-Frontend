@@ -19,6 +19,7 @@ import Programacion from '../pages/viajes/Programacion';
 import InicialProgramacion from '../pages/viajes/InicialProgramacion';
 import AsignacionConductores from '../pages/viajes/AsignacionConductores';
 import AsignacionRecursos from '../pages/viajes/AsignacionRecursos';
+import ProcesosNominaListado from '../pages/nominas/ProcesosNominaListado';
 import PaginaEnConstruccion from '../componentes/common/PaginaEnConstruccion';
 
 export default function AppRoutes() {
@@ -85,6 +86,8 @@ export default function AppRoutes() {
 
                         {/* Financiero */}
                         <Route path="/proformas" element={<PaginaEnConstruccion titulo="Proformas" descripcion="Generación y gestión de proformas de liquidación de fletes." />} />
+                        <Route path="/nominas" element={<ProcesosNominaListado />} />
+                        <Route path="/nominas/procesos" element={<ProcesosNominaListado />} />
                         <Route path="/costs" element={<PaginaEnConstruccion titulo="Costos" descripcion="Análisis de costos operativos por viaje, ruta y vehículo." />} />
                         <Route path="/profitability" element={<PaginaEnConstruccion titulo="Rentabilidad" descripcion="Indicadores de rentabilidad y márgenes por operación." />} />
 
