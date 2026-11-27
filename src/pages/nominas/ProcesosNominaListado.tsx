@@ -552,7 +552,7 @@ function formatFechaCorta(iso: string): string {
 }
 
 function formatFechaLarga(iso: string): string {
-    const { year, month, day } = parseIsoDatePart(iso);
+    const { month, day } = parseIsoDatePart(iso);
     return `${String(day).padStart(2, '0')} de ${MESES_LARGOS[month]}`;
 }
 
@@ -954,7 +954,7 @@ export default function ProcesosNominaListado() {
             }
             setModalAperturaAbierto(false);
         } catch (err) {
-            setErrorApertura(getApiErrorMessage(err));
+            setErrorApertura(getApiErrorMessage(err, 'No se pudo abrir el proceso de nómina.'));
         } finally {
             setGuardandoApertura(false);
         }
@@ -987,7 +987,7 @@ export default function ProcesosNominaListado() {
             }
             setModalCierreAbierto(false);
         } catch (err) {
-            setErrorCierre(getApiErrorMessage(err));
+            setErrorCierre(getApiErrorMessage(err, 'No se pudo cerrar el proceso de nómina.'));
         } finally {
             setCerrandoProceso(false);
         }
