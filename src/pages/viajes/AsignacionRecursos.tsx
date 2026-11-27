@@ -1290,6 +1290,18 @@ export default function AsignacionRecursos() {
             return;
         }
 
+        if (!rutaContrariaActiva) {
+            const pRegresoObj = puntos.find((p) => p.idPunto === puntoRegresoSeleccionado);
+            const nombreRegreso = pRegresoObj
+                ? `[${pRegresoObj.codigoPuntoc || 'PTO'}] ${pRegresoObj.nombreSede}`
+                : viajeSeleccionadoRetorno.origenNombre;
+            const nombreOrigenPlancha = `[${viajeSeleccionadoRetorno.destinoCodigo}] ${viajeSeleccionadoRetorno.destinoNombre}`;
+            const msgRutaNoExiste = `La ruta entre ${nombreRegreso} y ${nombreOrigenPlancha} no existe en la tabla rutas. Debe crear primero esa ruta antes de poder registrar este viaje.`;
+            setErrorRetorno(msgRutaNoExiste);
+            mostrarToast(msgRutaNoExiste, 'error');
+            return;
+        }
+
         setErrorRetorno(null);
         setGuardandoRetorno(true);
 
@@ -2968,6 +2980,19 @@ export default function AsignacionRecursos() {
                                     <p className="text-[11px] text-orange-800/80 font-medium">
                                         Puntos de carga y descarga vinculados exclusivamente a este cliente.
                                     </p>
+                                    {puntoRegresoSeleccionado && !rutaContrariaActiva && (
+                                        <div className="mt-2 p-2.5 rounded-xl bg-rose-50 border border-rose-200 flex items-start gap-2 text-rose-800 text-xs font-bold">
+                                            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                                            <div>
+                                                <span className="block font-black text-rose-900">
+                                                    Ruta no registrada en la tabla rutas
+                                                </span>
+                                                <span className="font-medium text-[11px] text-rose-700">
+                                                    No existe una ruta que conecte estos puntos. Debe crear primero esa ruta en el módulo de Rutas para poder registrar este viaje.
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
@@ -3058,8 +3083,13 @@ export default function AsignacionRecursos() {
                             <button
                                 type="button"
                                 onClick={handleGenerarPlanchaRetorno}
-                                disabled={guardandoRetorno}
-                                className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-extrabold text-xs sm:text-sm px-5 py-2.5 rounded-xl shadow-md shadow-emerald-600/30 hover:shadow-lg hover:shadow-emerald-600/40 transition transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer disabled:opacity-50"
+                                disabled={guardandoRetorno || !rutaContrariaActiva}
+                                title={
+                                    !rutaContrariaActiva
+                                        ? 'Debe crear primero la ruta en la tabla rutas antes de registrar este viaje'
+                                        : undefined
+                                }
+                                className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-extrabold text-xs sm:text-sm px-5 py-2.5 rounded-xl shadow-md shadow-emerald-600/30 hover:shadow-lg hover:shadow-emerald-600/40 transition transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {planchaEditando ? (
                                     <Save className="w-4 h-4 stroke-[2.5]" />

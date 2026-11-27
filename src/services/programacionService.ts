@@ -36,6 +36,9 @@ export interface ClienteDetectado {
 export interface TripItem {
   id: string;
   nroTransporte: string;
+  idRuta?: string | null;
+  nombreRuta?: string | null;
+  sinRuta?: boolean;
   origenSalida: {
     codigo: string;
     nombre: string;
@@ -72,6 +75,7 @@ export interface SchedulePreviewResponse {
   nombreArchivo: string;
   totalViajes: number;
   colisiones: number;
+  sinRuta?: number;
   nuevos: number;
   todosExisten: boolean;
   clienteDetectado?: ClienteDetectado | null;
@@ -85,6 +89,8 @@ export interface ConfirmScheduleResponse {
   message: string;
   guardados: number;
   omitidosPorColision: number;
+  omitidosSinRuta?: number;
+  viajesSinRuta?: Array<{ nroTransporte: string; origen: string; destino: string }>;
   guias?: any[];
 }
 
@@ -135,6 +141,15 @@ export interface GuiaProgramada {
     nombreRuta: string;
     distanciaKm: number | string;
     montoTarifa: number | string;
+    moneda?: string;
+    rutaPeajes?: Array<{
+      idRutaPeaje: string;
+      idRuta: string;
+      nombrePeaje: string;
+      costo: number | string;
+      activo: boolean;
+    }>;
+    rutaRecargos?: RutaRecargoItem[];
   };
   conductor?: {
     idConductor: string;

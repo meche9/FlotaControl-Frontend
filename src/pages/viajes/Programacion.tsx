@@ -214,6 +214,7 @@ export default function Programacion() {
     setCargandoPdf(true);
     let totalViajesNuevos = 0;
     let totalColisiones = 0;
+    let totalSinRuta = 0;
     let rechazadosPorDistintoCliente = 0;
     const nuevosArchivosExitosos: string[] = [];
 
@@ -292,7 +293,7 @@ export default function Programacion() {
                 id: viajesBase[idx].id,
                 puntoRegreso: viajesBase[idx].puntoRegreso || tripNuevo.puntoRegreso,
                 observacion: tripNuevo.observacion || viajesBase[idx].observacion,
-                seleccionado: !tripNuevo.colision,
+                seleccionado: !tripNuevo.colision && !tripNuevo.sinRuta,
               };
             } else {
               // Asignar ID único e irrepetible para evitar colisiones entre manifiestos
@@ -306,13 +307,16 @@ export default function Programacion() {
               viajesBase.push({
                 ...tripNuevo,
                 id: idUnico,
-                seleccionado: !tripNuevo.colision,
+                seleccionado: !tripNuevo.colision && !tripNuevo.sinRuta,
               });
               totalViajesNuevos++;
             }
 
             if (tripNuevo.colision || tripNuevo.yaExiste) {
               totalColisiones++;
+            }
+            if (tripNuevo.sinRuta) {
+              totalSinRuta++;
             }
           }
         } catch (err: any) {
@@ -331,7 +335,12 @@ export default function Programacion() {
 
       if (nuevosArchivosExitosos.length > 0) {
         const nombreClienteStr = clienteActual ? ` [${clienteActual.nombreComercial || clienteActual.razonSocial}]` : '';
-        if (totalColisiones > 0) {
+        if (totalSinRuta > 0) {
+          mostrarToast(
+            'warn',
+            `Alerta: Se detectaron ${totalSinRuta} viaje(s) sin ruta registrada en la tabla rutas. Debe crear primero la ruta para poder registrarlos.`
+          );
+        } else if (totalColisiones > 0) {
           mostrarToast(
             'warn',
             `Se procesó(eron) ${nuevosArchivosExitosos.length} manifiesto(s)${nombreClienteStr}. Total acumulado: ${viajesBase.length} viajes (${totalColisiones} con colisión en BD).`
@@ -449,8 +458,34 @@ export default function Programacion() {
   const metricas = useMemo(() => {
     const total = trips.length;
     const colisiones = trips.filter((t) => (t.yaExiste || t.colision) && !t.registradoEnSesion).length;
-    const seleccionadosValidos = trips.filter((t) => !t.colision && !t.yaExiste && !t.registradoEnSesion).length;
-    return { total, colisiones, seleccionadosValidos };
+    const sinRuta = trips.filter((t) => Boolean(t.sinRuta) && !t.registradoEnSesion).length;
+    const seleccionadosValidos = trips.filter(
+      (t) => !t.colision && !t.yaExiste && !t.sinRuta && !t.registradoEnSesion
+    ).length;
+
+    // Lista de rutas únicas faltantes para mostrar en la alerta
+    const rutasFaltantesMap = new Map<string, { origen: string; destino: string; cantidad: number }>();
+    for (const t of trips) {
+      if (t.sinRuta && !t.registradoEnSesion) {
+        const orig = `${t.origenSalida.codigo ? `[${t.origenSalida.codigo}] ` : ''}${t.origenSalida.nombre}`;
+        const dest = `${t.destinoLlegada.codigo ? `[${t.destinoLlegada.codigo}] ` : ''}${t.destinoLlegada.nombre}`;
+        const key = `${orig}__${dest}`;
+        const ex = rutasFaltantesMap.get(key);
+        if (ex) {
+          ex.cantidad += 1;
+        } else {
+          rutasFaltantesMap.set(key, { origen: orig, destino: dest, cantidad: 1 });
+        }
+      }
+    }
+
+    return {
+      total,
+      colisiones,
+      sinRuta,
+      seleccionadosValidos,
+      rutasFaltantes: Array.from(rutasFaltantesMap.values()),
+    };
   }, [trips]);
 
   // Lista filtrada común
@@ -588,9 +623,16 @@ export default function Programacion() {
 
   // Guardar / Confirmar en base de datos
   const handleConfirmarYGuardar = async () => {
-    const validos = trips.filter((t) => !t.colision && !t.yaExiste && !t.registradoEnSesion);
+    const validos = trips.filter((t) => !t.colision && !t.yaExiste && !t.sinRuta && !t.registradoEnSesion);
     if (validos.length === 0) {
-      mostrarToast('warn', 'No hay viajes pendientes por registrar.');
+      if (metricas.sinRuta > 0) {
+        mostrarToast(
+          'err',
+          'No se puede registrar: los viajes pendientes no tienen su ruta creada en la tabla rutas. Debe crear primero la ruta.'
+        );
+      } else {
+        mostrarToast('warn', 'No hay viajes pendientes por registrar.');
+      }
       return;
     }
 
@@ -598,12 +640,24 @@ export default function Programacion() {
     try {
       const res = await programacionService.confirmarProgramacion(validos, clienteActivo?.idCliente);
       if (res.success) {
-        mostrarToast('ok', `Éxito: Se registraron ${res.guardados} viajes en la tabla guias_viajes.`);
+        if (res.omitidosSinRuta && res.omitidosSinRuta > 0) {
+          mostrarToast(
+            'warn',
+            `Se registraron ${res.guardados} viajes. Se bloquearon ${res.omitidosSinRuta} viaje(s) porque su ruta no existe en la tabla rutas.`
+          );
+        } else {
+          mostrarToast('ok', `Éxito: Se registraron ${res.guardados} viajes en la tabla guias_viajes.`);
+        }
+        const guardadosNros = new Set((res.guias || []).map((g: any) => g.nroTransporte));
         const validosIds = new Set(validos.map((v) => v.id));
         const validosNros = new Set(validos.map((v) => v.nroTransporte));
         setTrips((prev) =>
           prev.map((t) => {
-            if (validosIds.has(t.id) || validosNros.has(t.nroTransporte)) {
+            const fueGuardado =
+              guardadosNros.size > 0
+                ? guardadosNros.has(t.nroTransporte)
+                : (validosIds.has(t.id) || validosNros.has(t.nroTransporte));
+            if (fueGuardado) {
               return { ...t, registradoEnSesion: true, yaExiste: false, colision: false };
             }
             return t;
@@ -624,6 +678,13 @@ export default function Programacion() {
   const handleGuardarViajeIndividual = async (trip: TripItem) => {
     if (trip.registradoEnSesion) {
       mostrarToast('ok', `El viaje ${trip.nroTransporte} ya fue registrado en esta sesión.`);
+      return;
+    }
+    if (trip.sinRuta) {
+      mostrarToast(
+        'err',
+        `No se puede registrar el viaje ${trip.nroTransporte}: la ruta [${trip.origenSalida.codigo}] ${trip.origenSalida.nombre} → [${trip.destinoLlegada.codigo}] ${trip.destinoLlegada.nombre} no existe en la tabla rutas. Debe crear primero esa ruta.`
+      );
       return;
     }
     if (trip.colision || trip.yaExiste) {
@@ -665,9 +726,17 @@ export default function Programacion() {
 
   // Guardar/confirmar en BD únicamente los viajes de un grupo (día específico o planta)
   const handleGuardarGrupo = async (viajesGrupo: TripItem[], nombreGrupo: string, grupoKey: string) => {
-    const validos = viajesGrupo.filter((t) => !t.colision && !t.yaExiste && !t.registradoEnSesion);
+    const validos = viajesGrupo.filter((t) => !t.colision && !t.yaExiste && !t.sinRuta && !t.registradoEnSesion);
+    const sinRutaEnGrupo = viajesGrupo.filter((t) => t.sinRuta && !t.registradoEnSesion).length;
     if (validos.length === 0) {
-      mostrarToast('warn', `No hay viajes pendientes o aptos para registrar en ${nombreGrupo}.`);
+      if (sinRutaEnGrupo > 0) {
+        mostrarToast(
+          'err',
+          `No se pueden registrar los viajes de ${nombreGrupo} porque su ruta no existe en la tabla rutas. Debe crear primero la ruta.`
+        );
+      } else {
+        mostrarToast('warn', `No hay viajes pendientes o aptos para registrar en ${nombreGrupo}.`);
+      }
       return;
     }
 
@@ -675,12 +744,24 @@ export default function Programacion() {
     try {
       const res = await programacionService.confirmarProgramacion(validos, clienteActivo?.idCliente);
       if (res.success && res.guardados > 0) {
-        mostrarToast('ok', `Éxito: Se registraron ${res.guardados} viajes de ${nombreGrupo} en guias_viajes.`);
+        if (res.omitidosSinRuta && res.omitidosSinRuta > 0) {
+          mostrarToast(
+            'warn',
+            `Se registraron ${res.guardados} viajes de ${nombreGrupo}. Se bloquearon ${res.omitidosSinRuta} viaje(s) por no tener ruta en la tabla rutas.`
+          );
+        } else {
+          mostrarToast('ok', `Éxito: Se registraron ${res.guardados} viajes de ${nombreGrupo} en guias_viajes.`);
+        }
+        const guardadosNros = new Set((res.guias || []).map((g: any) => g.nroTransporte));
         const validosIds = new Set(validos.map((v) => v.id));
         const validosNros = new Set(validos.map((v) => v.nroTransporte));
         setTrips((prev) =>
           prev.map((t) => {
-            if (validosIds.has(t.id) || validosNros.has(t.nroTransporte)) {
+            const fueGuardado =
+              guardadosNros.size > 0
+                ? guardadosNros.has(t.nroTransporte)
+                : (validosIds.has(t.id) || validosNros.has(t.nroTransporte));
+            if (fueGuardado) {
               return { ...t, registradoEnSesion: true, yaExiste: false, colision: false };
             }
             return t;
@@ -715,6 +796,7 @@ export default function Programacion() {
           <tbody className="divide-y divide-gray-100">
             {viajesGrupo.map((trip) => {
               const esRegistrado = Boolean(trip.registradoEnSesion);
+              const esSinRuta = !esRegistrado && Boolean(trip.sinRuta);
               const esColision = !esRegistrado && (trip.yaExiste || trip.colision);
 
               return (
@@ -723,9 +805,11 @@ export default function Programacion() {
                   className={`transition hover:bg-orange-50/40 ${
                     esRegistrado
                       ? 'bg-emerald-50/30'
-                      : esColision
-                        ? 'bg-rose-50/30'
-                        : 'bg-white'
+                      : esSinRuta
+                        ? 'bg-amber-50/50'
+                        : esColision
+                          ? 'bg-rose-50/30'
+                          : 'bg-white'
                   }`}
                 >
                   {/* N° Guía / Despacho */}
@@ -741,6 +825,13 @@ export default function Programacion() {
                             className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-1.5 py-0.2 rounded border border-emerald-300"
                           >
                             ✓ Registrado
+                          </span>
+                        ) : esSinRuta ? (
+                          <span
+                            title="La ruta entre el origen y el destino no existe en la tabla rutas. Debe crear primero esa ruta."
+                            className="bg-amber-100 text-amber-900 text-[10px] font-black px-1.5 py-0.2 rounded border border-amber-300"
+                          >
+                            🚫 Sin Ruta
                           </span>
                         ) : esColision ? (
                           <span
@@ -809,6 +900,22 @@ export default function Programacion() {
                         <CheckCircle2 className="w-3 h-3 text-emerald-700 shrink-0" />
                         <span>Registrado en BD</span>
                       </span>
+                    ) : esSinRuta ? (
+                      <div className="flex flex-col space-y-1">
+                        <span
+                          title="Debe crear primero esta ruta en la tabla rutas para poder registrar el viaje"
+                          className="inline-flex items-center space-x-1 bg-amber-100 text-amber-900 text-[10px] font-black px-2 py-0.5 rounded-md border border-amber-300 w-fit"
+                        >
+                          <AlertTriangle className="w-3 h-3 text-amber-700 shrink-0" />
+                          <span>Ruta No Existe (Crear Ruta)</span>
+                        </span>
+                        <Link
+                          to="/rutas"
+                          className="text-[10px] font-extrabold text-orange-700 hover:text-orange-800 underline w-fit"
+                        >
+                          + Crear en módulo Rutas
+                        </Link>
+                      </div>
                     ) : esColision ? (
                       <span className="inline-flex items-center space-x-1 bg-rose-100 text-rose-800 text-[10px] font-black px-2 py-0.5 rounded-md border border-rose-200">
                         <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
@@ -829,16 +936,18 @@ export default function Programacion() {
                       <button
                         type="button"
                         onClick={() => handleGuardarViajeIndividual(trip)}
-                        disabled={esColision || esRegistrado || guardandoTripId === trip.id}
+                        disabled={esColision || esSinRuta || esRegistrado || guardandoTripId === trip.id}
                         title={
                           esRegistrado
                             ? 'Este viaje ya fue registrado exitosamente'
-                            : esColision
-                              ? 'Este viaje ya está registrado en base de datos'
-                              : 'Guardar / Registrar este viaje en base de datos'
+                            : esSinRuta
+                              ? 'Bloqueado: La ruta no existe en la tabla rutas. Debe crear primero esa ruta.'
+                              : esColision
+                                ? 'Este viaje ya está registrado en base de datos'
+                                : 'Guardar / Registrar este viaje en base de datos'
                         }
                         className={`w-7 h-7 rounded-lg flex items-center justify-center transition ${
-                          esColision || esRegistrado
+                          esColision || esSinRuta || esRegistrado
                             ? 'bg-gray-100 text-gray-300 border border-gray-200 cursor-not-allowed opacity-60'
                             : 'bg-orange-50 hover:bg-orange-100 text-orange-600 hover:text-orange-700 border border-orange-300 shadow-xs cursor-pointer active:scale-95'
                         }`}
@@ -1092,6 +1201,40 @@ export default function Programacion() {
         </div>
       </div>
 
+          {/* Alerta Destacada si existen Viajes sin Ruta en la tabla rutas */}
+      {metricas.sinRuta > 0 && (
+        <div className="bg-amber-50 border-2 border-amber-300 text-amber-950 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-start justify-between gap-4 shadow-xs">
+          <div className="flex items-start space-x-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="text-xs space-y-1.5">
+              <p className="font-black text-amber-900 text-sm">
+                Ruta no encontrada en la tabla rutas: {metricas.sinRuta} viaje(s) bloqueado(s) para registro
+              </p>
+              <p className="text-amber-800 leading-relaxed">
+                Para registrar un viaje en <code className="bg-amber-100 px-1 py-0.5 rounded font-mono font-bold">guias_viajes</code> es obligatorio que su ruta (Origen → Destino) exista previamente en la tabla <code className="bg-amber-100 px-1 py-0.5 rounded font-mono font-bold">rutas</code>. Debe crear primero {metricas.rutasFaltantes.length === 1 ? 'la siguiente ruta' : 'las siguientes rutas'}:
+              </p>
+              <ul className="list-disc list-inside space-y-1 pt-0.5 text-amber-950 font-bold">
+                {metricas.rutasFaltantes.map((rf, idx) => (
+                  <li key={idx}>
+                    {rf.origen} → {rf.destino}{' '}
+                    <span className="text-[11px] font-semibold text-amber-700">
+                      ({rf.cantidad} {rf.cantidad === 1 ? 'viaje afectado' : 'viajes afectados'})
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          <Link
+            to="/rutas"
+            className="inline-flex items-center justify-center space-x-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-extrabold px-3.5 py-2 rounded-xl shadow-xs transition shrink-0 self-start"
+          >
+            <span>Ir a Crear Ruta</span>
+          </Link>
+        </div>
+      )}
+
       {/* Alerta Destacada si existen Colisiones en guias_viajes */}
       {metricas.colisiones > 0 && (
         <div className="bg-rose-50 border border-rose-200 text-rose-900 p-4 rounded-2xl flex items-start space-x-3 shadow-xs">
@@ -1287,7 +1430,7 @@ export default function Programacion() {
             // VISTA: CORTE POR DÍA
             gruposCronologicos.map((grupo) => {
               const estaAbierto = seccionesAbiertas[grupo.isoKey] !== undefined ? seccionesAbiertas[grupo.isoKey] : true;
-              const viajesAptos = grupo.viajes.filter((v) => !v.colision && !v.yaExiste && !v.registradoEnSesion).length;
+              const viajesAptos = grupo.viajes.filter((v) => !v.colision && !v.yaExiste && !v.sinRuta && !v.registradoEnSesion).length;
               const viajesTotal = grupo.viajes.length;
 
               return (
@@ -1360,7 +1503,7 @@ export default function Programacion() {
             // VISTA: CORTE POR PLANTA
             gruposPorPlanta.map((grupo) => {
               const estaAbierto = seccionesAbiertas[grupo.key] !== undefined ? seccionesAbiertas[grupo.key] : true;
-              const viajesAptos = grupo.viajes.filter((v) => !v.colision && !v.yaExiste && !v.registradoEnSesion).length;
+              const viajesAptos = grupo.viajes.filter((v) => !v.colision && !v.yaExiste && !v.sinRuta && !v.registradoEnSesion).length;
               const viajesTotal = grupo.viajes.length;
 
               return (

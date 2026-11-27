@@ -2156,13 +2156,13 @@ export default function AsignacionConductores() {
 
                 <div className="flex flex-wrap items-center gap-2">
                   <a
-                    href={whatsappGrupoUrl}
+                    href={whatsappApiUrl}
                     target="flotacontrol_whatsapp_web"
                     onClick={registrarEnvioWhatsapp}
                     className="px-3 py-2 border border-teal-200 bg-teal-50/70 hover:bg-teal-100 text-teal-800 rounded-xl text-xs font-bold transition cursor-pointer"
-                    title="Abrir selector de chats/grupos en WhatsApp Web con el mensaje listo (también se copia al portapapeles)"
+                    title="Enviar al número del conductor por WhatsApp"
                   >
-                    A Grupo
+                    {fueEnviado ? 'Reenviar WhatsApp' : 'Enviar por WhatsApp'}
                   </a>
 
                   <a
@@ -2176,16 +2176,17 @@ export default function AsignacionConductores() {
                   </a>
 
                   <a
-                    href={whatsappApiUrl}
+                    href={whatsappGrupoUrl}
                     target="flotacontrol_whatsapp_web"
                     onClick={registrarEnvioWhatsapp}
                     className={`px-4 py-2 ${fueEnviado
                       ? 'bg-purple-600 hover:bg-purple-700 text-white'
                       : 'bg-emerald-600 hover:bg-emerald-700 text-white'
                       } rounded-xl text-xs font-bold shadow-md transition flex items-center gap-1.5 cursor-pointer`}
+                    title="Abrir selector de chats/grupos en WhatsApp Web con el mensaje listo (también se copia al portapapeles)"
                   >
                     <MessageCircle className="w-4 h-4" />
-                    <span>{fueEnviado ? 'Reenviar WhatsApp' : 'Enviar por WhatsApp'}</span>
+                    <span>{fueEnviado ? 'Reenviar a Grupo' : 'Enviar a Grupo'}</span>
                   </a>
                 </div>
               </div>

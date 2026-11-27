@@ -16,10 +16,7 @@ import {
     Check,
     Calculator,
     ArrowRight,
-    UserCheck,
-    DollarSign,
-    Fuel,
-    CreditCard,
+    SlidersHorizontal,
     History,
     X,
     AlertCircle,
@@ -30,19 +27,248 @@ import {
     type NominaProceso,
     type NominaResumen,
     type CreateProcesoNominaDto,
+    type NominaDeduccionItem,
 } from '../../services/nominasProcesosService';
+import {
+    programacionService,
+    type GuiaProgramada,
+} from '../../services/programacionService';
 import { getApiErrorMessage } from '../../services/api';
 
-interface OperadorPreAuditoria {
+interface OperadorLiquidacionDetalle {
+    idConductor?: string;
     iniciales: string;
-    colorAvatar: string;
     nombre: string;
     cedula: string;
-    unidad: string;
+    chuto: string;
     viajes: number;
-    fleteBrutoUsd: number;
-    anticiposUsd: number;
-    netoUsd: number;
+    viajesDestacado?: boolean;
+    baseUsd: number;
+    totalFletesUsd: number;
+    peajesUsd: number;
+    caletasUsd: number;
+    otrosUsd: number;
+    totReembUsd: number;
+    ssoUsd: number;
+    lphUsd: number;
+    islrUsd: number;
+    totDeducUsd: number;
+    netoPagarUsd: number;
+    estatus: string;
+}
+
+function obtenerInicialesConductor(nombres?: string, apellidos?: string): string {
+    const n = (nombres || '').trim();
+    const a = (apellidos || '').trim();
+    if (n && a) return `${n[0]}${a[0]}`.toUpperCase();
+    const full = `${n} ${a}`.trim();
+    if (!full) return 'OP';
+    const parts = full.split(/\s+/);
+    if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    return full.slice(0, 2).toUpperCase();
+}
+
+function redondearMoneda(val: number): number {
+    return Number((Number.isFinite(val) ? val : 0).toFixed(2));
+}
+
+function convertirAUsd(monto: number | string | null | undefined, moneda: string | undefined, tasaBcv: number): number {
+    const num = Number(monto) || 0;
+    if (!num) return 0;
+    const mon = (moneda || 'USD').trim().toUpperCase();
+    if (mon === 'BS' || mon === 'VES' || mon === 'BS.') {
+        return tasaBcv > 0 ? num / tasaBcv : num;
+    }
+    return num;
+}
+
+function construirLiquidacionDesdeViajes(
+    guias: GuiaProgramada[],
+    deduccionesBd: NominaDeduccionItem[],
+    tasaBcv: number,
+): OperadorLiquidacionDetalle[] {
+    // Filtrar viajes con conductor asignado y no cancelados
+    const guiasValidas = guias.filter(
+        (g) =>
+            Boolean(g.idConductor) &&
+            String(g.estadoOrden || '').toLowerCase() !== 'cancelado',
+    );
+
+    if (guiasValidas.length === 0) return [];
+
+    // Identificar reglas de deducción en BD (S.S.O., L.P.H./FAOV, I.S.L.R.) o usar tasas de ley por defecto
+    const buscarRegla = (keywords: string[]) =>
+        deduccionesBd.find((d) => {
+            const desc = (d.descripcion || '').toLowerCase();
+            return keywords.some((k) => desc.includes(k));
+        });
+
+    const reglaSso = buscarRegla(['sso', 's.s.o', 'seguro social', 'ivss']);
+    const reglaLph = buscarRegla(['lph', 'l.p.h', 'faov', 'vivienda', 'banavih']);
+    const reglaIslr = buscarRegla(['islr', 'i.s.l.r', 'impuesto', 'renta']);
+
+    const agrupado = new Map<
+        string,
+        {
+            idConductor: string;
+            nombre: string;
+            iniciales: string;
+            cedula: string;
+            chuto: string;
+            viajes: number;
+            baseUsd: number;
+            recargosFleteUsd: number;
+            peajesUsd: number;
+            caletasUsd: number;
+            otrosUsd: number;
+            todosEntregados: boolean;
+        }
+    >();
+
+    for (const g of guiasValidas) {
+        const idCond = g.idConductor!;
+        const cond = g.conductor;
+        const nombreCompleto = cond
+            ? `${cond.nombres || ''} ${cond.apellidos || ''}`.trim()
+            : 'Conductor Asignado';
+        const iniciales = cond
+            ? obtenerInicialesConductor(cond.nombres, cond.apellidos)
+            : obtenerInicialesConductor(nombreCompleto, '');
+        const cedula = cond?.cedulaIdentidad?.trim() || 'S/C';
+
+        const veh = g.vehiculoMotriz || cond?.vehiculoHabitual;
+        const chuto = veh
+            ? `${(veh.marca || 'UNIDAD').toUpperCase()} ${veh.placa ? `(${veh.placa})` : ''}`.trim()
+            : 'SIN UNIDAD';
+
+        const actual = agrupado.get(idCond) ?? {
+            idConductor: idCond,
+            nombre: nombreCompleto,
+            iniciales,
+            cedula,
+            chuto,
+            viajes: 0,
+            baseUsd: 0,
+            recargosFleteUsd: 0,
+            peajesUsd: 0,
+            caletasUsd: 0,
+            otrosUsd: 0,
+            todosEntregados: true,
+        };
+
+        actual.viajes += 1;
+        if (actual.chuto === 'SIN UNIDAD' && chuto !== 'SIN UNIDAD') {
+            actual.chuto = chuto;
+        }
+
+        // 1. Monto anticipo para el viaje (monto_anticipo_conductor de guias_viajes, expresado en Bs)
+        const anticipoBs = Number(g.montoAnticipoConductor) || 0;
+        actual.baseUsd += anticipoBs;
+
+        // 2. Costo del flete del viaje (11.5% del monto_flete_cliente en guias_viajes o monto_tarifa de rutas)
+        const fleteRaw =
+            g.montoFleteCliente !== null &&
+            g.montoFleteCliente !== undefined &&
+            Number(g.montoFleteCliente) > 0
+                ? Number(g.montoFleteCliente)
+                : Number(g.ruta?.montoTarifa || 0);
+        const fleteUsd = convertirAUsd(fleteRaw, g.moneda || g.ruta?.moneda, tasaBcv) * 0.115;
+        actual.recargosFleteUsd += fleteUsd;
+
+        // 3. Reembolsos ruta extraídos exclusivamente de guias_viajes_recargos:
+        //    - Peajes -> columna Peajes
+        //    - Caletas -> columna Caletas
+        //    - Resto de recargos -> columna Otros
+        //    (monto_gasoil de guias_viajes no se toma en cuenta)
+        const recargosViaje = g.guiasViajesRecargos ?? [];
+        for (const rec of recargosViaje) {
+            if (rec.estado === 'Rechazado') continue;
+            const concepto = (
+                rec.recargo?.concepto ||
+                rec.observaciones ||
+                ''
+            ).toLowerCase();
+            const monedaRec = (rec.recargo?.moneda || g.moneda || 'Bs').toUpperCase();
+            const montoNum = Number(rec.monto) || 0;
+            const montoRecBs =
+                monedaRec === 'USD' ? montoNum * tasaBcv : montoNum;
+
+            if (concepto.includes('peaje')) {
+                actual.peajesUsd += montoRecBs;
+            } else if (concepto.includes('caleta')) {
+                actual.caletasUsd += montoRecBs;
+            } else {
+                actual.otrosUsd += montoRecBs;
+            }
+        }
+
+        if (String(g.estadoOrden || '').toLowerCase() !== 'entregado') {
+            actual.todosEntregados = false;
+        }
+
+        agrupado.set(idCond, actual);
+    }
+
+    const lista = Array.from(agrupado.values());
+    const maxViajes = lista.reduce((max, item) => Math.max(max, item.viajes), 0);
+
+    const calcularDeduccion = (
+        regla: NominaDeduccionItem | undefined,
+        baseCalculoUsd: number,
+        porcentajeDefecto: number,
+    ): number => {
+        if (regla) {
+            const val = Number(regla.valor) || 0;
+            if (regla.tipocalculo === 'porcentaje') {
+                return redondearMoneda((baseCalculoUsd * val) / 100);
+            }
+            return redondearMoneda(convertirAUsd(val, regla.moneda, tasaBcv));
+        }
+        return redondearMoneda(baseCalculoUsd * porcentajeDefecto);
+    };
+
+    return lista
+        .map((item) => {
+            const baseUsd = redondearMoneda(item.baseUsd);
+            const totalFletesUsd = redondearMoneda(item.recargosFleteUsd);
+            const peajesUsd = redondearMoneda(item.peajesUsd);
+            const caletasUsd = redondearMoneda(item.caletasUsd);
+            const otrosUsd = redondearMoneda(item.otrosUsd);
+            const totReembUsd = redondearMoneda(peajesUsd + caletasUsd + otrosUsd);
+
+            // Deducciones de ley calculadas sobre el devengado de fletes (o según reglas de nominas_deducciones)
+            const ssoUsd = calcularDeduccion(reglaSso, totalFletesUsd, 0.04);
+            const lphUsd = calcularDeduccion(reglaLph, totalFletesUsd, 0.01);
+            const islrUsd = calcularDeduccion(reglaIslr, totalFletesUsd, 0.03);
+            const totDeducUsd = redondearMoneda(ssoUsd + lphUsd + islrUsd);
+
+            const netoPagarUsd = redondearMoneda(
+                totalFletesUsd + totReembUsd - totDeducUsd,
+            );
+
+            return {
+                idConductor: item.idConductor,
+                iniciales: item.iniciales,
+                nombre: item.nombre,
+                cedula: item.cedula,
+                chuto: item.chuto,
+                viajes: item.viajes,
+                viajesDestacado: maxViajes > 1 && item.viajes === maxViajes,
+                baseUsd,
+                totalFletesUsd,
+                peajesUsd,
+                caletasUsd,
+                otrosUsd,
+                totReembUsd,
+                ssoUsd,
+                lphUsd,
+                islrUsd,
+                totDeducUsd,
+                netoPagarUsd,
+                estatus: 'LISTO',
+            };
+        })
+        .sort((a, b) => b.totalFletesUsd - a.totalFletesUsd);
 }
 
 interface ResumenProcesoVisual {
@@ -58,8 +284,107 @@ interface ResumenProcesoVisual {
     comprobantesCount: number;
     responsableCierre?: string;
     creadoPor: string;
-    operadoresMuestra: OperadorPreAuditoria[];
+    operadoresMuestra: OperadorLiquidacionDetalle[];
 }
+
+const OPERADORES_LIQUIDACION_CLAVE: OperadorLiquidacionDetalle[] = [
+    {
+        iniciales: 'RM',
+        nombre: 'Roberto Méndez',
+        cedula: 'V-19.845.221',
+        chuto: 'MACK #04',
+        viajes: 5,
+        baseUsd: 2800,
+        totalFletesUsd: 3200,
+        peajesUsd: 260,
+        caletasUsd: 215,
+        otrosUsd: 135,
+        totReembUsd: 610,
+        ssoUsd: 128,
+        lphUsd: 32,
+        islrUsd: 109.5,
+        totDeducUsd: 285.5,
+        netoPagarUsd: 3524.5,
+        estatus: 'LISTO',
+    },
+    {
+        iniciales: 'CV',
+        nombre: 'Carlos Vaca',
+        cedula: 'V-18.392.441',
+        chuto: 'FREIGHT. #12',
+        viajes: 4,
+        baseUsd: 2300,
+        totalFletesUsd: 2550,
+        peajesUsd: 190,
+        caletasUsd: 180,
+        otrosUsd: 110,
+        totReembUsd: 480,
+        ssoUsd: 102,
+        lphUsd: 25.5,
+        islrUsd: 84.55,
+        totDeducUsd: 224.8,
+        netoPagarUsd: 2805.2,
+        estatus: 'LISTO',
+    },
+    {
+        iniciales: 'AR',
+        nombre: 'Alejandro Ramírez',
+        cedula: 'V-16.721.908',
+        chuto: 'KENWORTH #09',
+        viajes: 6,
+        viajesDestacado: true,
+        baseUsd: 3300,
+        totalFletesUsd: 3800,
+        peajesUsd: 310,
+        caletasUsd: 260,
+        otrosUsd: 150,
+        totReembUsd: 720,
+        ssoUsd: 152,
+        lphUsd: 38,
+        islrUsd: 123,
+        totDeducUsd: 332,
+        netoPagarUsd: 4188,
+        estatus: 'LISTO',
+    },
+    {
+        iniciales: 'MM',
+        nombre: 'Marcos Morales',
+        cedula: 'V-14.882.102',
+        chuto: 'VOLVO #07',
+        viajes: 4,
+        baseUsd: 2450,
+        totalFletesUsd: 2700,
+        peajesUsd: 210,
+        caletasUsd: 190,
+        otrosUsd: 110,
+        totReembUsd: 510,
+        ssoUsd: 108,
+        lphUsd: 27,
+        islrUsd: 91.8,
+        totDeducUsd: 240.3,
+        netoPagarUsd: 2969.7,
+        estatus: 'LISTO',
+    },
+    {
+        iniciales: 'LD',
+        nombre: 'Lucía Domínguez',
+        cedula: 'V-22.104.553',
+        chuto: 'IVECO #18',
+        viajes: 3,
+        baseUsd: 1850,
+        totalFletesUsd: 2100,
+        peajesUsd: 160,
+        caletasUsd: 140,
+        otrosUsd: 90,
+        totReembUsd: 390,
+        ssoUsd: 84,
+        lphUsd: 21,
+        islrUsd: 70.7,
+        totDeducUsd: 186.2,
+        netoPagarUsd: 2303.8,
+        estatus: 'LISTO',
+    },
+];
 
 const TASA_BCV_ACTUAL = 36.42;
 
@@ -147,41 +472,7 @@ const RESUMEN_POR_CODIGO: Record<string, ResumenProcesoVisual> = {
         deduccionesUsd: 1000,
         comprobantesCount: 33,
         creadoPor: 'a.silva',
-        operadoresMuestra: [
-            {
-                iniciales: 'RG',
-                colorAvatar: 'bg-amber-100 text-amber-800',
-                nombre: 'Rafael González',
-                cedula: 'C.I. 14.821.902',
-                unidad: 'MACK-08',
-                viajes: 4,
-                fleteBrutoUsd: 1450,
-                anticiposUsd: 450,
-                netoUsd: 1000,
-            },
-            {
-                iniciales: 'EM',
-                colorAvatar: 'bg-emerald-100 text-emerald-800',
-                nombre: 'Eduardo Morales',
-                cedula: 'C.I. 16.339.102',
-                unidad: 'MACK-12',
-                viajes: 5,
-                fleteBrutoUsd: 1820,
-                anticiposUsd: 600,
-                netoUsd: 1220,
-            },
-            {
-                iniciales: 'CL',
-                colorAvatar: 'bg-sky-100 text-sky-800',
-                nombre: 'Carlos Linares',
-                cedula: 'C.I. 18.002.411',
-                unidad: 'MACK-04',
-                viajes: 3,
-                fleteBrutoUsd: 980,
-                anticiposUsd: 250,
-                netoUsd: 730,
-            },
-        ],
+        operadoresMuestra: OPERADORES_LIQUIDACION_CLAVE,
     },
     '2026-Q10': {
         etiquetaTipo: 'Fletes Mack',
@@ -189,37 +480,14 @@ const RESUMEN_POR_CODIGO: Record<string, ResumenProcesoVisual> = {
         regimenJuridico: 'Art. 241 LOTTT',
         regimenSubtitulo: 'Flete por Distancia',
         viajesCount: 38,
-        choferesCount: 13,
+        choferesCount: 28,
         fletesBrutosUsd: 10920,
         anticiposUsd: 3450,
         deduccionesUsd: 890,
         comprobantesCount: 29,
         responsableCierre: 'm.torres',
         creadoPor: 'm.torres',
-        operadoresMuestra: [
-            {
-                iniciales: 'RG',
-                colorAvatar: 'bg-amber-100 text-amber-800',
-                nombre: 'Rafael González',
-                cedula: 'C.I. 14.821.902',
-                unidad: 'MACK-08',
-                viajes: 3,
-                fleteBrutoUsd: 1180,
-                anticiposUsd: 320,
-                netoUsd: 860,
-            },
-            {
-                iniciales: 'EM',
-                colorAvatar: 'bg-emerald-100 text-emerald-800',
-                nombre: 'Eduardo Morales',
-                cedula: 'C.I. 16.339.102',
-                unidad: 'MACK-12',
-                viajes: 4,
-                fleteBrutoUsd: 1540,
-                anticiposUsd: 480,
-                netoUsd: 1060,
-            },
-        ],
+        operadoresMuestra: OPERADORES_LIQUIDACION_CLAVE,
     },
     '2026-Q09': {
         etiquetaTipo: 'Fletes Mack',
@@ -227,26 +495,14 @@ const RESUMEN_POR_CODIGO: Record<string, ResumenProcesoVisual> = {
         regimenJuridico: 'Art. 241 LOTTT',
         regimenSubtitulo: 'Flete por Distancia',
         viajesCount: 45,
-        choferesCount: 14,
+        choferesCount: 28,
         fletesBrutosUsd: 13650,
         anticiposUsd: 4380,
         deduccionesUsd: 1120,
         comprobantesCount: 36,
         responsableCierre: 'a.silva',
         creadoPor: 'a.silva',
-        operadoresMuestra: [
-            {
-                iniciales: 'CL',
-                colorAvatar: 'bg-sky-100 text-sky-800',
-                nombre: 'Carlos Linares',
-                cedula: 'C.I. 18.002.411',
-                unidad: 'MACK-04',
-                viajes: 4,
-                fleteBrutoUsd: 1320,
-                anticiposUsd: 390,
-                netoUsd: 930,
-            },
-        ],
+        operadoresMuestra: OPERADORES_LIQUIDACION_CLAVE,
     },
 };
 
@@ -331,12 +587,20 @@ function formatUsd(amount: number, decimals = 2): string {
     })}`;
 }
 
-function formatBs(amountUsd: number): string {
-    const bs = amountUsd * TASA_BCV_ACTUAL;
-    return `Bs. ${bs.toLocaleString('en-US', {
-        minimumFractionDigits: 2,
+function formatUsdAuto(amount: number): string {
+    const isInteger = Number.isInteger(amount);
+    return `$${amount.toLocaleString('en-US', {
+        minimumFractionDigits: isInteger ? 0 : 2,
         maximumFractionDigits: 2,
     })}`;
+}
+
+function formatMontoSinSigno(amount: number): string {
+    const isInteger = Number.isInteger(amount);
+    return amount.toLocaleString('en-US', {
+        minimumFractionDigits: isInteger ? 0 : 2,
+        maximumFractionDigits: 2,
+    });
 }
 
 function shortenUuid(uuid: string): string {
@@ -360,14 +624,14 @@ function buildResumenVisual(proceso: NominaProceso): ResumenProcesoVisual {
         regimenJuridico: esConductores ? 'Art. 241 LOTTT' : 'Art. 104 LOTTT',
         regimenSubtitulo: esConductores ? 'Flete por Distancia' : 'Salario Base Quincenal',
         viajesCount: viajes,
-        choferesCount: esConductores ? 14 : 18,
+        choferesCount: esConductores ? 28 : 18,
         fletesBrutosUsd: fletes,
         anticiposUsd: anticipos,
         deduccionesUsd: deducciones,
         comprobantesCount: viajes > 0 ? Math.max(1, Math.round(viajes * 0.78)) : 0,
         responsableCierre: proceso.fechaCierreP ? 'a.silva' : undefined,
         creadoPor: 'a.silva',
-        operadoresMuestra: [],
+        operadoresMuestra: OPERADORES_LIQUIDACION_CLAVE,
     };
 }
 
@@ -376,11 +640,18 @@ export default function ProcesosNominaListado() {
 
     const [procesos, setProcesos] = useState<NominaProceso[]>(PROCESOS_INICIALES_DEMO);
     const [tiposNomina, setTiposNomina] = useState<NominaResumen[]>([]);
+    const [tasaBcvActual, setTasaBcvActual] = useState<number>(TASA_BCV_ACTUAL);
+    const [deduccionesCatalogo, setDeduccionesCatalogo] = useState<NominaDeduccionItem[]>([]);
+    const [operadoresRealesBd, setOperadoresRealesBd] = useState<OperadorLiquidacionDetalle[]>([]);
+    const [cargandoLiquidacionBd, setCargandoLiquidacionBd] = useState<boolean>(false);
+    const [totalViajesPeriodoBd, setTotalViajesPeriodoBd] = useState<number | null>(null);
     const [cargando, setCargando] = useState<boolean>(true);
     const [usandoDatosDemo, setUsandoDatosDemo] = useState<boolean>(false);
 
     const [tipoNominaActivo, setTipoNominaActivo] = useState<string>('');
     const [busquedaCodigo, setBusquedaCodigo] = useState<string>('');
+    const [busquedaChofer, setBusquedaChofer] = useState<string>('');
+    const [paginaLiquidacion, setPaginaLiquidacion] = useState<number>(1);
     const [soloAbiertosFiltro, setSoloAbiertosFiltro] = useState<boolean>(false);
     const [procesoSeleccionadoId, setProcesoSeleccionadoId] = useState<string>(
         PROCESOS_INICIALES_DEMO[0].idProcesonomina,
@@ -406,10 +677,24 @@ export default function ProcesosNominaListado() {
     const cargarProcesos = useCallback(async () => {
         setCargando(true);
         try {
-            const [tiposRes, procesosRes] = await Promise.allSettled([
+            const [tiposRes, procesosRes, tasaRes, deduccionesRes] = await Promise.allSettled([
                 nominasProcesosService.listarTiposNomina(),
                 nominasProcesosService.listar(),
+                nominasProcesosService.obtenerTasaBcv(),
+                nominasProcesosService.listarDeducciones(),
             ]);
+
+            if (
+                tasaRes.status === 'fulfilled' &&
+                tasaRes.value &&
+                Number(tasaRes.value.tasa) > 0
+            ) {
+                setTasaBcvActual(Number(tasaRes.value.tasa));
+            }
+
+            if (deduccionesRes.status === 'fulfilled' && Array.isArray(deduccionesRes.value)) {
+                setDeduccionesCatalogo(deduccionesRes.value);
+            }
 
             if (tiposRes.status === 'fulfilled' && Array.isArray(tiposRes.value)) {
                 setTiposNomina(tiposRes.value);
@@ -496,6 +781,88 @@ export default function ProcesosNominaListado() {
         () => (procesoActual ? buildResumenVisual(procesoActual) : null),
         [procesoActual],
     );
+
+    // Consultar viajes reales y sus costos desde guias_viajes para el proceso seleccionado
+    useEffect(() => {
+        if (!procesoActual) {
+            setOperadoresRealesBd([]);
+            setTotalViajesPeriodoBd(null);
+            return;
+        }
+
+        let cancelado = false;
+
+        const cargarCostosViajesReales = async () => {
+            setCargandoLiquidacionBd(true);
+            try {
+                const fechaInicio = procesoActual.fechaInicioP.slice(0, 10);
+                const fechaFin = procesoActual.fechaFinP.slice(0, 10);
+
+                // 1. Consultar guías de viaje del período del proceso de nómina
+                let guias = await programacionService.getGuiasProgramadas({
+                    fechaInicio,
+                    fechaFin,
+                    estadoOrden: 'todos',
+                });
+
+                // 2. Si no hay viajes en el rango exacto del proceso, consultar todos los viajes con conductor en BD
+                const conConductorEnRango = (guias || []).filter(
+                    (g) =>
+                        Boolean(g.idConductor) &&
+                        String(g.estadoOrden || '').toLowerCase() !== 'cancelado',
+                );
+
+                if (conConductorEnRango.length === 0) {
+                    const todasLasGuias = await programacionService.getGuiasProgramadas({
+                        estadoOrden: 'todos',
+                    });
+                    if (Array.isArray(todasLasGuias) && todasLasGuias.length > 0) {
+                        guias = todasLasGuias;
+                    }
+                }
+
+                if (cancelado) return;
+
+                const deduccionesNomina = deduccionesCatalogo.filter(
+                    (d) => d.idNomina === procesoActual.idCodnomina,
+                );
+
+                const liquidacionReal = construirLiquidacionDesdeViajes(
+                    guias || [],
+                    deduccionesNomina,
+                    tasaBcvActual,
+                );
+
+                setOperadoresRealesBd(liquidacionReal);
+                setTotalViajesPeriodoBd(
+                    liquidacionReal.reduce((acc, op) => acc + op.viajes, 0),
+                );
+                setPaginaLiquidacion(1);
+            } catch {
+                if (!cancelado) {
+                    setOperadoresRealesBd([]);
+                    setTotalViajesPeriodoBd(null);
+                }
+            } finally {
+                if (!cancelado) {
+                    setCargandoLiquidacionBd(false);
+                }
+            }
+        };
+
+        void cargarCostosViajesReales();
+
+        return () => {
+            cancelado = true;
+        };
+    }, [
+        procesoActual?.idProcesonomina,
+        procesoActual?.fechaInicioP,
+        procesoActual?.fechaFinP,
+        procesoActual?.idCodnomina,
+        deduccionesCatalogo,
+        tasaBcvActual,
+    ]);
 
     const handleCopiarUuid = async (uuid: string) => {
         try {
@@ -626,47 +993,70 @@ export default function ProcesosNominaListado() {
         }
     };
 
-    // Cálculos para la barra de balance neto
-    const balanceData = useMemo(() => {
-        if (!resumenActual) {
-            return {
-                netoPagar: 0,
-                pctFlete: 67,
-                pctAnticipos: 25,
-                pctDeducciones: 8,
-                anticiposBarra: 0,
-            };
+    const operadoresBaseTabla = useMemo(() => {
+        if (operadoresRealesBd.length > 0) {
+            return operadoresRealesBd;
         }
-        const bruto = resumenActual.fletesBrutosUsd;
-        const netoPagar = Math.max(0, bruto - resumenActual.anticiposUsd);
-        const anticiposBarra = Math.max(
-            0,
-            resumenActual.anticiposUsd - resumenActual.deduccionesUsd,
+        if (usandoDatosDemo) {
+            return resumenActual?.operadoresMuestra ?? [];
+        }
+        return [];
+    }, [operadoresRealesBd, usandoDatosDemo, resumenActual]);
+
+    const operadoresFiltrados = useMemo(() => {
+        const q = busquedaChofer.trim().toLowerCase();
+        if (!q) return operadoresBaseTabla;
+        return operadoresBaseTabla.filter(
+            (op) =>
+                op.nombre.toLowerCase().includes(q) ||
+                op.cedula.toLowerCase().includes(q) ||
+                op.chuto.toLowerCase().includes(q),
         );
-        const total = netoPagar + anticiposBarra + resumenActual.deduccionesUsd;
+    }, [operadoresBaseTabla, busquedaChofer]);
 
-        if (total <= 0) {
-            return {
-                netoPagar: 0,
-                pctFlete: 0,
-                pctAnticipos: 0,
-                pctDeducciones: 0,
-                anticiposBarra: 0,
-            };
-        }
+    const ITEMS_POR_PAGINA = 5;
+    const totalPaginasLiquidacion = Math.max(
+        1,
+        Math.ceil(operadoresFiltrados.length / ITEMS_POR_PAGINA),
+    );
 
-        const pctFlete = Math.round((netoPagar / total) * 100);
-        const pctAnticipos = Math.round((anticiposBarra / total) * 100);
-        const pctDeducciones = Math.max(0, 100 - pctFlete - pctAnticipos);
+    const operadoresPaginados = useMemo(() => {
+        const inicio = (paginaLiquidacion - 1) * ITEMS_POR_PAGINA;
+        return operadoresFiltrados.slice(inicio, inicio + ITEMS_POR_PAGINA);
+    }, [operadoresFiltrados, paginaLiquidacion]);
 
-        return {
-            netoPagar,
-            pctFlete,
-            pctAnticipos,
-            pctDeducciones,
-            anticiposBarra,
-        };
-    }, [resumenActual]);
+    const subtotalesLiquidacion = useMemo(() => {
+        return operadoresPaginados.reduce(
+            (acc, op) => ({
+                viajes: acc.viajes + op.viajes,
+                baseUsd: acc.baseUsd + op.baseUsd,
+                totalFletesUsd: acc.totalFletesUsd + op.totalFletesUsd,
+                peajesUsd: acc.peajesUsd + op.peajesUsd,
+                caletasUsd: acc.caletasUsd + op.caletasUsd,
+                otrosUsd: acc.otrosUsd + op.otrosUsd,
+                totReembUsd: acc.totReembUsd + op.totReembUsd,
+                ssoUsd: acc.ssoUsd + op.ssoUsd,
+                lphUsd: acc.lphUsd + op.lphUsd,
+                islrUsd: acc.islrUsd + op.islrUsd,
+                totDeducUsd: acc.totDeducUsd + op.totDeducUsd,
+                netoPagarUsd: acc.netoPagarUsd + op.netoPagarUsd,
+            }),
+            {
+                viajes: 0,
+                baseUsd: 0,
+                totalFletesUsd: 0,
+                peajesUsd: 0,
+                caletasUsd: 0,
+                otrosUsd: 0,
+                totReembUsd: 0,
+                ssoUsd: 0,
+                lphUsd: 0,
+                islrUsd: 0,
+                totDeducUsd: 0,
+                netoPagarUsd: 0,
+            },
+        );
+    }, [operadoresPaginados]);
 
     return (
         <div className="min-h-full space-y-5 text-slate-800">
@@ -696,19 +1086,19 @@ export default function ProcesosNominaListado() {
                     <div className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200/90 text-xs">
                         <span className="text-slate-500 font-medium">Tasa Fijada BCV:</span>
                         <span className="font-bold text-slate-900">
-                            Bs. {TASA_BCV_ACTUAL.toFixed(2)}
+                            Bs. {tasaBcvActual.toFixed(2)}
                         </span>
                     </div>
 
                     <div className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200/90 text-xs font-semibold text-slate-700">
                         <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                        <span>LOTTT Art. 241 &amp; 245</span>
+                        <span>LOTTT Art. 241</span>
                     </div>
                 </div>
             </header>
 
             {/* 2. CUERPO PRINCIPAL DE 2 COLUMNAS */}
-            <div className="grid grid-cols-1 lg:grid-cols-[45fr_55fr] gap-5 items-start">
+            <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] xl:grid-cols-[290px_minmax(0,1fr)] 2xl:grid-cols-[310px_minmax(0,1fr)] gap-4 items-start">
                 {/* COLUMNA IZQUIERDA: SELECTOR Y LISTADO DE PROCESOS */}
                 <aside className="min-w-0 space-y-4">
                     <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-4 space-y-3.5">
@@ -1065,7 +1455,7 @@ export default function ProcesosNominaListado() {
                                             TASA FISCAL BCV
                                         </p>
                                         <p className="text-sm font-bold text-slate-900 mt-1">
-                                            {TASA_BCV_ACTUAL.toFixed(2)} Bs/$
+                                            {tasaBcvActual.toFixed(2)} Bs/$
                                         </p>
                                         <p className="text-[11px] font-semibold text-emerald-600 mt-0.5">
                                             Sincronizado Hoy
@@ -1097,214 +1487,384 @@ export default function ProcesosNominaListado() {
                                 </div>
                             </div>
 
-                            {/* 4 KPI CARDS */}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
-                                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-4">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                                            {procesoActual.idCodnomina === '01'
-                                                ? 'CHOFERES MACK'
-                                                : 'EMPLEADOS ACTIVOS'}
-                                        </span>
-                                        <UserCheck className="w-4 h-4 text-slate-400" />
-                                    </div>
-                                    <p className="text-2xl font-extrabold text-slate-900 mt-2">
-                                        {resumenActual.choferesCount}
-                                    </p>
-                                    <p className="text-xs font-medium text-emerald-600 mt-1">
-                                        100% con hojas de ruta
-                                    </p>
-                                </div>
-
-                                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-4">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                                            VIAJES COMPUTADOS
-                                        </span>
-                                        <GitFork className="w-4 h-4 text-sky-600" />
-                                    </div>
-                                    <p className="text-2xl font-extrabold text-slate-900 mt-2">
-                                        {resumenActual.viajesCount}
-                                    </p>
-                                    <p className="text-xs text-slate-500 mt-1">
-                                        {resumenActual.viajesCount} guías validadas
-                                    </p>
-                                </div>
-
-                                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-4">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                                            FLETES BRUTOS
-                                        </span>
-                                        <DollarSign className="w-4 h-4 text-emerald-600" />
-                                    </div>
-                                    <p className="text-2xl font-extrabold text-emerald-700 mt-2">
-                                        {formatUsd(resumenActual.fletesBrutosUsd)}
-                                    </p>
-                                    <p className="text-xs text-slate-500 mt-1">
-                                        {formatBs(resumenActual.fletesBrutosUsd)}
-                                    </p>
-                                </div>
-
-                                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-4">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                                            ANTICIPOS / VIÁTICOS
-                                        </span>
-                                        <Fuel className="w-4 h-4 text-orange-500" />
-                                    </div>
-                                    <p className="text-2xl font-extrabold text-orange-600 mt-2">
-                                        -{formatUsd(resumenActual.anticiposUsd)}
-                                    </p>
-                                    <p className="text-xs text-slate-500 mt-1">
-                                        {resumenActual.comprobantesCount} comprobantes
-                                    </p>
-                                </div>
-                            </div>
-
-                            {/* ESTIMACIÓN DE BALANCE NETO DE SALIDA */}
-                            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 space-y-3.5">
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                    <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
-                                        <CreditCard className="w-4 h-4 text-slate-600" />
-                                        <span>Estimación de Balance Neto de Salida</span>
-                                    </div>
-                                    <div className="sm:text-right">
-                                        <p className="text-[11px] text-slate-400 leading-none">
-                                            Neto Provisional a Pagar
-                                        </p>
-                                        <p className="text-lg font-extrabold text-emerald-700 mt-0.5">
-                                            {formatUsd(balanceData.netoPagar)} USD
-                                        </p>
-                                    </div>
-                                </div>
-
-                                {/* Barra segmentada */}
-                                <div className="w-full h-2.5 rounded-full bg-slate-100 overflow-hidden flex">
-                                    <div
-                                        className="h-full bg-emerald-600 transition-all duration-300"
-                                        style={{ width: `${balanceData.pctFlete}%` }}
-                                    />
-                                    <div
-                                        className="h-full bg-orange-500 transition-all duration-300"
-                                        style={{ width: `${balanceData.pctAnticipos}%` }}
-                                    />
-                                    <div
-                                        className="h-full bg-sky-700 transition-all duration-300"
-                                        style={{ width: `${balanceData.pctDeducciones}%` }}
-                                    />
-                                </div>
-
-                                {/* Leyenda */}
-                                <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 pt-0.5">
-                                    <div className="flex items-center gap-1.5">
-                                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />
-                                        <span>
-                                            {balanceData.pctFlete}% Flete Neto (
-                                            {formatUsd(balanceData.netoPagar, 0)})
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center gap-1.5">
-                                        <span className="w-2.5 h-2.5 rounded-full bg-orange-500" />
-                                        <span>
-                                            {balanceData.pctAnticipos}% Anticipos (
-                                            {formatUsd(balanceData.anticiposBarra, 0)})
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center gap-1.5">
-                                        <span className="w-2.5 h-2.5 rounded-full bg-sky-700" />
-                                        <span>
-                                            {balanceData.pctDeducciones}% Deducciones Legales (
-                                            {formatUsd(resumenActual.deduccionesUsd, 0)})
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* PRE-AUDITORÍA DE OPERADORES ASIGNADOS */}
-                            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 space-y-4">
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                    <div>
-                                        <h3 className="text-sm font-bold text-slate-900">
-                                            Pre-Auditoría de Operadores Asignados
+                            {/* DETALLE INDIVIDUAL DE LIQUIDACIÓN POR OPERADOR */}
+                            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                                {/* Barra Superior del Card */}
+                                <div className="px-4 py-3 bg-slate-100/90 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div className="flex flex-wrap items-center gap-2.5">
+                                        <span className="w-2.5 h-2.5 rounded-xs bg-orange-600 shrink-0" />
+                                        <h3 className="text-sm font-extrabold text-slate-900 tracking-tight">
+                                            Detalle Individual de Liquidación por Operador
                                         </h3>
-                                        <p className="text-xs text-slate-400">
-                                            Muestreo preliminar para verificación previa al cierre
-                                        </p>
+                                        <span className="px-2 py-0.5 rounded-md bg-slate-200/80 text-slate-600 text-[11px] font-mono font-semibold">
+                                            {operadoresPaginados.length} Registros Clave Desplegados
+                                        </span>
+                                        {totalViajesPeriodoBd !== null && (
+                                            <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-mono font-bold">
+                                                BD: {totalViajesPeriodoBd} viajes
+                                            </span>
+                                        )}
                                     </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => navigate('/costs')}
-                                        className="text-xs font-bold text-amber-700 hover:text-amber-800 inline-flex items-center gap-1 cursor-pointer"
-                                    >
-                                        <span>Ver los {resumenActual.choferesCount} Choferes</span>
-                                        <ArrowRight className="w-3.5 h-3.5" />
-                                    </button>
+
+                                    <div className="flex items-center gap-2">
+                                        <div className="relative">
+                                            <ListFilter className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                                            <input
+                                                type="text"
+                                                value={busquedaChofer}
+                                                onChange={(e) => {
+                                                    setBusquedaChofer(e.target.value);
+                                                    setPaginaLiquidacion(1);
+                                                }}
+                                                placeholder="Filtrar por chofer o C.I..."
+                                                className="w-48 sm:w-52 pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-md text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-400"
+                                            />
+                                        </div>
+                                        <button
+                                            type="button"
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-white hover:bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700 transition cursor-pointer shrink-0"
+                                        >
+                                            <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
+                                            <span>Columnas</span>
+                                        </button>
+                                    </div>
                                 </div>
 
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left border-collapse">
+                                {/* Tabla Multigrupo */}
+                                <div className="w-full overflow-x-hidden">
+                                    <table className="w-full text-left border-collapse table-auto">
                                         <thead>
-                                            <tr className="border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                                                <th className="py-2.5 pr-3">OPERADOR MACK</th>
-                                                <th className="py-2.5 px-3">UNIDAD</th>
-                                                <th className="py-2.5 px-3 text-center">VIAJES</th>
-                                                <th className="py-2.5 px-3 text-right">FLETE BRUTO</th>
-                                                <th className="py-2.5 px-3 text-right">ANTICIPOS</th>
-                                                <th className="py-2.5 pl-3 text-right">NETO USD</th>
+                                            {/* Fila 1: Grupos */}
+                                            <tr className="text-[10px] font-extrabold uppercase tracking-wider border-b border-slate-200">
+                                                <th
+                                                    colSpan={2}
+                                                    className="py-2 px-2 bg-slate-50 text-slate-600 border-r border-slate-200/80"
+                                                >
+                                                    1. DATOS CONDUCTOR
+                                                </th>
+                                                <th
+                                                    colSpan={2}
+                                                    className="py-2 px-1.5 bg-sky-50/80 text-sky-900 text-center border-r border-slate-200/80"
+                                                >
+                                                    2. DEVENGADO FLETES
+                                                </th>
+                                                <th
+                                                    colSpan={4}
+                                                    className="py-2 px-1.5 bg-orange-50/70 text-amber-900 text-center border-r border-slate-200/80"
+                                                >
+                                                    3. REEMBOLSOS RUTA
+                                                </th>
+                                                <th
+                                                    colSpan={4}
+                                                    className="py-2 px-1.5 bg-rose-50/70 text-rose-900 text-center border-r border-slate-200/80"
+                                                >
+                                                    4. DEDUCCIONES DE LEY
+                                                </th>
+                                                <th
+                                                    colSpan={1}
+                                                    className="py-2 px-2 bg-slate-900 text-white text-center"
+                                                >
+                                                    5. LIQUIDACIÓN NETA
+                                                </th>
+                                            </tr>
+
+                                            {/* Fila 2: Columnas */}
+                                            <tr className="text-[10px] xl:text-[11px] font-bold text-slate-600 border-b border-slate-200 bg-slate-50/90 whitespace-nowrap">
+                                                <th className="py-2 px-2 text-left">
+                                                    Conductor / Chuto
+                                                </th>
+                                                <th className="py-2 px-1 text-center border-r border-slate-200/70">
+                                                    Viajes
+                                                </th>
+                                                <th className="py-2 px-1.5 text-right bg-sky-50/35">
+                                                    Monto Anticipo
+                                                </th>
+                                                <th className="py-2 px-1.5 text-right bg-sky-50/35 text-slate-800 border-r border-slate-200/70">
+                                                    Total Fletes
+                                                </th>
+                                                <th className="py-2 px-1.5 text-right">Peajes</th>
+                                                <th className="py-2 px-1.5 text-right">Caletas</th>
+                                                <th className="py-2 px-1.5 text-right">Otros</th>
+                                                <th className="py-2 px-1.5 text-right bg-orange-50/50 text-orange-700 border-r border-slate-200/70">
+                                                    Tot. Reemb.
+                                                </th>
+                                                <th className="py-2 px-1.5 text-right text-rose-700">
+                                                    S.S.O.
+                                                </th>
+                                                <th className="py-2 px-1.5 text-right text-rose-700">
+                                                    L.P.H.
+                                                </th>
+                                                <th className="py-2 px-1.5 text-right text-rose-700">
+                                                    I.S.L.R.
+                                                </th>
+                                                <th className="py-2 px-1.5 text-right bg-rose-50/40 text-rose-700 border-r border-slate-200/70">
+                                                    Tot. Deduc.
+                                                </th>
+                                                <th className="py-2 px-2 text-right bg-slate-200/70 text-slate-900 font-extrabold">
+                                                    NETO A PAGAR
+                                                </th>
                                             </tr>
                                         </thead>
-                                        <tbody className="divide-y divide-slate-100 text-xs">
-                                            {resumenActual.operadoresMuestra.length === 0 ? (
+
+                                        <tbody className="divide-y divide-slate-200/70 text-[11px] xl:text-xs font-mono">
+                                            {cargandoLiquidacionBd ? (
                                                 <tr>
                                                     <td
-                                                        colSpan={6}
-                                                        className="py-6 text-center text-slate-400 text-xs"
+                                                        colSpan={13}
+                                                        className="py-8 text-center text-slate-400 font-sans text-xs"
                                                     >
-                                                        Aún no hay cálculos registrados en este período.
+                                                        <div className="inline-flex items-center gap-2">
+                                                            <Loader2 className="w-4 h-4 animate-spin text-orange-500" />
+                                                            <span>
+                                                                Consultando costos reales de viajes en base de datos...
+                                                            </span>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ) : operadoresPaginados.length === 0 ? (
+                                                <tr>
+                                                    <td
+                                                        colSpan={13}
+                                                        className="py-8 text-center text-slate-400 font-sans text-xs"
+                                                    >
+                                                        No se encontraron viajes asignados a conductores en la base de datos para este período.
                                                     </td>
                                                 </tr>
                                             ) : (
-                                                resumenActual.operadoresMuestra.map((op) => (
+                                                operadoresPaginados.map((op) => (
                                                     <tr
-                                                        key={op.cedula}
-                                                        className="hover:bg-slate-50/70 transition-colors"
+                                                        key={op.idConductor || op.cedula}
+                                                        className="hover:bg-slate-50/80 transition-colors whitespace-nowrap"
                                                     >
-                                                        <td className="py-3 pr-3">
-                                                            <div className="flex items-center gap-2.5">
-                                                                <span
-                                                                    className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${op.colorAvatar}`}
-                                                                >
+                                                        {/* Conductor / Chuto */}
+                                                        <td className="py-2.5 px-2 font-sans">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="w-6 h-6 rounded-full bg-slate-200/90 text-slate-700 flex items-center justify-center text-[10px] font-bold shrink-0">
                                                                     {op.iniciales}
                                                                 </span>
-                                                                <div className="font-medium text-slate-800">
-                                                                    {op.nombre}{' '}
-                                                                    <span className="text-slate-400 font-normal">
-                                                                        ({op.cedula})
-                                                                    </span>
+                                                                <div className="leading-tight min-w-0">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() =>
+                                                                            navigate(
+                                                                                op.idConductor
+                                                                                    ? `/nominas/conductor/${encodeURIComponent(op.idConductor)}`
+                                                                                    : '/nominas/conductor',
+                                                                                {
+                                                                                    state: {
+                                                                                        idConductor: op.idConductor,
+                                                                                        nombre: op.nombre,
+                                                                                        cedula: op.cedula,
+                                                                                        chutoMarcaModelo: op.chuto,
+                                                                                        proceso: procesoActual,
+                                                                                        tasaBcv: tasaBcvActual,
+                                                                                    },
+                                                                                },
+                                                                            )
+                                                                        }
+                                                                        title={`Ver detalle de liquidación de ${op.nombre}`}
+                                                                        className="font-bold text-slate-900 hover:text-orange-600 hover:underline text-[11px] xl:text-xs truncate block text-left transition-colors cursor-pointer"
+                                                                    >
+                                                                        {op.nombre}
+                                                                    </button>
+                                                                    <p className="font-mono text-[9.5px] text-slate-500 mt-0.5 truncate">
+                                                                        {op.cedula} • {op.chuto}
+                                                                    </p>
                                                                 </div>
                                                             </div>
                                                         </td>
-                                                        <td className="py-3 px-3 font-mono text-[11px] text-slate-600">
-                                                            {op.unidad}
+
+                                                        {/* Viajes */}
+                                                        <td className="py-2.5 px-1 text-center border-r border-slate-100">
+                                                            <span
+                                                                className={`inline-flex items-center justify-center w-5 h-5 rounded-md text-[10px] font-bold ${
+                                                                    op.viajesDestacado
+                                                                        ? 'bg-orange-50 text-orange-600 border border-orange-200/80'
+                                                                        : 'bg-slate-100 text-slate-800'
+                                                                }`}
+                                                            >
+                                                                {op.viajes}
+                                                            </span>
                                                         </td>
-                                                        <td className="py-3 px-3 text-center font-bold text-slate-800">
-                                                            {op.viajes}
+
+                                                        {/* Monto Anticipo */}
+                                                        <td className="py-2.5 px-1.5 text-right text-slate-500 bg-sky-50/20">
+                                                            {formatMontoSinSigno(op.baseUsd)}
                                                         </td>
-                                                        <td className="py-3 px-3 text-right font-semibold text-slate-800">
-                                                            {formatUsd(op.fleteBrutoUsd)}
+
+                                                        {/* Total Fletes (11.65% multiplicado por tasa del día en Bs, y debajo en pequeño en $) */}
+                                                        <td className="py-2.5 px-1.5 text-right bg-sky-50/20 border-r border-slate-100">
+                                                            <div className="leading-tight">
+                                                                <p className="font-extrabold text-slate-900 text-[11px] xl:text-xs">
+                                                                    {formatMontoSinSigno(
+                                                                        redondearMoneda(op.totalFletesUsd * tasaBcvActual),
+                                                                    )}
+                                                                </p>
+                                                                <p className="font-mono text-[9.5px] font-normal text-slate-500 mt-0.5">
+                                                                    {formatUsd(op.totalFletesUsd, 2)}
+                                                                </p>
+                                                            </div>
                                                         </td>
-                                                        <td className="py-3 px-3 text-right font-semibold text-orange-600">
-                                                            -{formatUsd(op.anticiposUsd)}
+
+                                                        {/* Peajes */}
+                                                        <td className="py-2.5 px-1.5 text-right text-slate-500">
+                                                            {formatMontoSinSigno(op.peajesUsd)}
                                                         </td>
-                                                        <td className="py-3 pl-3 text-right font-bold text-emerald-700">
-                                                            {formatUsd(op.netoUsd)}
+
+                                                        {/* Caletas */}
+                                                        <td className="py-2.5 px-1.5 text-right text-slate-500">
+                                                            {formatMontoSinSigno(op.caletasUsd)}
+                                                        </td>
+
+                                                        {/* Otros */}
+                                                        <td className="py-2.5 px-1.5 text-right text-slate-500">
+                                                            {formatMontoSinSigno(op.otrosUsd)}
+                                                        </td>
+
+                                                        {/* Tot. Reemb. */}
+                                                        <td className="py-2.5 px-1.5 text-right font-bold text-orange-600 bg-orange-50/40 border-r border-slate-100">
+                                                            +{formatMontoSinSigno(op.totReembUsd)}
+                                                        </td>
+
+                                                        {/* S.S.O. */}
+                                                        <td className="py-2.5 px-1.5 text-right text-rose-500">
+                                                            -{formatUsdAuto(op.ssoUsd)}
+                                                        </td>
+
+                                                        {/* L.P.H. */}
+                                                        <td className="py-2.5 px-1.5 text-right text-rose-500">
+                                                            -{formatUsdAuto(op.lphUsd)}
+                                                        </td>
+
+                                                        {/* I.S.L.R. */}
+                                                        <td className="py-2.5 px-1.5 text-right text-rose-500">
+                                                            -{formatUsd(op.islrUsd, 2)}
+                                                        </td>
+
+                                                        {/* Tot. Deduc. */}
+                                                        <td className="py-2.5 px-1.5 text-right font-bold text-rose-600 bg-rose-50/35 border-r border-slate-100">
+                                                            -{formatUsd(op.totDeducUsd, 2)}
+                                                        </td>
+
+                                                        {/* NETO A PAGAR */}
+                                                        <td className="py-2.5 px-2 text-right font-extrabold text-xs xl:text-sm text-emerald-800 bg-slate-100/90">
+                                                            {formatUsd(op.netoPagarUsd, 2)}
                                                         </td>
                                                     </tr>
                                                 ))
                                             )}
                                         </tbody>
+
+                                        {/* Fila de Subtotales */}
+                                        {operadoresPaginados.length > 0 && (
+                                            <tfoot>
+                                                <tr className="bg-slate-200/75 border-t-2 border-slate-300 text-[11px] xl:text-xs font-mono font-extrabold text-slate-900 whitespace-nowrap">
+                                                    <td className="py-2.5 px-2 font-sans text-[10px] xl:text-[11px] font-extrabold uppercase tracking-wide text-slate-700">
+                                                        SUBTOTALES ({operadoresPaginados.length} CHOFERES)
+                                                    </td>
+                                                    <td className="py-2.5 px-1 text-center border-r border-slate-300/70">
+                                                        {subtotalesLiquidacion.viajes}
+                                                    </td>
+                                                    <td className="py-2.5 px-1.5 text-right text-slate-700">
+                                                        {formatMontoSinSigno(subtotalesLiquidacion.baseUsd)}
+                                                    </td>
+                                                    <td className="py-2.5 px-1.5 text-right text-slate-900 border-r border-slate-300/70">
+                                                        <div className="leading-tight">
+                                                            <p className="font-extrabold text-slate-900 text-[11px] xl:text-xs">
+                                                                {formatMontoSinSigno(
+                                                                    redondearMoneda(
+                                                                        subtotalesLiquidacion.totalFletesUsd *
+                                                                            tasaBcvActual,
+                                                                    ),
+                                                                )}
+                                                            </p>
+                                                            <p className="font-mono text-[9.5px] font-semibold text-slate-500 mt-0.5">
+                                                                {formatUsd(subtotalesLiquidacion.totalFletesUsd, 2)}
+                                                            </p>
+                                                        </div>
+                                                    </td>
+                                                    <td className="py-2.5 px-1.5 text-right text-slate-700">
+                                                        {formatMontoSinSigno(subtotalesLiquidacion.peajesUsd)}
+                                                    </td>
+                                                    <td className="py-2.5 px-1.5 text-right text-slate-700">
+                                                        {formatMontoSinSigno(subtotalesLiquidacion.caletasUsd)}
+                                                    </td>
+                                                    <td className="py-2.5 px-1.5 text-right text-slate-700">
+                                                        {formatMontoSinSigno(subtotalesLiquidacion.otrosUsd)}
+                                                    </td>
+                                                    <td className="py-2.5 px-1.5 text-right text-orange-600 bg-orange-100/50 border-r border-slate-300/70">
+                                                        +{formatMontoSinSigno(subtotalesLiquidacion.totReembUsd)}
+                                                    </td>
+                                                    <td className="py-2.5 px-1.5 text-right text-rose-600">
+                                                        -{formatUsdAuto(subtotalesLiquidacion.ssoUsd)}
+                                                    </td>
+                                                    <td className="py-2.5 px-1.5 text-right text-rose-600">
+                                                        -{formatUsdAuto(subtotalesLiquidacion.lphUsd)}
+                                                    </td>
+                                                    <td className="py-2.5 px-1.5 text-right text-rose-600">
+                                                        -{formatUsd(subtotalesLiquidacion.islrUsd, 2)}
+                                                    </td>
+                                                    <td className="py-2.5 px-1.5 text-right text-rose-600 bg-rose-100/40 border-r border-slate-300/70">
+                                                        -{formatUsd(subtotalesLiquidacion.totDeducUsd, 2)}
+                                                    </td>
+                                                    <td className="py-2.5 px-2 text-right text-xs xl:text-sm text-emerald-800 bg-slate-300/60">
+                                                        {formatUsd(subtotalesLiquidacion.netoPagarUsd, 2)}
+                                                    </td>
+                                                </tr>
+                                            </tfoot>
+                                        )}
                                     </table>
+                                </div>
+
+                                {/* Pie de Tabla y Paginación */}
+                                <div className="px-4 py-3 bg-white border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-500">
+                                    <span className="font-mono text-[11px] text-slate-500">
+                                        Mostrando {operadoresPaginados.length} de{' '}
+                                        {operadoresFiltrados.length} conductores liquidados en esta
+                                        corrida
+                                    </span>
+
+                                    <div className="flex items-center gap-1">
+                                        <button
+                                            type="button"
+                                            disabled={paginaLiquidacion <= 1}
+                                            onClick={() =>
+                                                setPaginaLiquidacion((p) => Math.max(1, p - 1))
+                                            }
+                                            className="px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-500 text-xs font-medium transition cursor-pointer"
+                                        >
+                                            Anterior
+                                        </button>
+                                        {Array.from(
+                                            { length: totalPaginasLiquidacion },
+                                            (_, idx) => idx + 1,
+                                        ).map((num) => (
+                                            <button
+                                                key={num}
+                                                type="button"
+                                                onClick={() => setPaginaLiquidacion(num)}
+                                                className={`w-7 h-7 rounded-md text-xs font-bold transition cursor-pointer ${
+                                                    paginaLiquidacion === num
+                                                        ? 'bg-slate-900 text-white'
+                                                        : 'border border-slate-200 bg-white hover:bg-slate-50 text-slate-600'
+                                                }`}
+                                            >
+                                                {num}
+                                            </button>
+                                        ))}
+                                        <button
+                                            type="button"
+                                            disabled={paginaLiquidacion >= totalPaginasLiquidacion}
+                                            onClick={() =>
+                                                setPaginaLiquidacion((p) =>
+                                                    Math.min(totalPaginasLiquidacion, p + 1),
+                                                )
+                                            }
+                                            className="px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-700 text-xs font-medium transition cursor-pointer"
+                                        >
+                                            Siguiente
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
 

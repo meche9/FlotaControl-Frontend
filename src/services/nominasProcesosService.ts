@@ -36,9 +36,41 @@ export interface UpdateProcesoNominaDto {
   fechaCierreP?: string | null;
 }
 
+export interface NominaDeduccionItem {
+  idDeducciones: string;
+  idNomina: string;
+  descripcion: string;
+  tipocalculo: 'monto_fijo' | 'porcentaje';
+  valor: number | string;
+  moneda: string;
+  activo: boolean;
+}
+
+export interface TasaBcvResponse {
+  tasa: number;
+  fechaTasa: string | null;
+}
+
 export const nominasProcesosService = {
   async listarTiposNomina(): Promise<NominaResumen[]> {
     const { data } = await api.get<NominaResumen[]>('/nominas-procesos/tipos');
+    return data;
+  },
+
+  async listarDeducciones(idNomina?: string): Promise<NominaDeduccionItem[]> {
+    const { data } = await api.get<NominaDeduccionItem[]>(
+      '/nominas-procesos/deducciones',
+      {
+        params: idNomina ? { idNomina } : undefined,
+      },
+    );
+    return data;
+  },
+
+  async obtenerTasaBcv(): Promise<TasaBcvResponse> {
+    const { data } = await api.get<TasaBcvResponse>(
+      '/nominas-procesos/tasa-bcv',
+    );
     return data;
   },
 
