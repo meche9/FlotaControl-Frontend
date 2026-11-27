@@ -279,8 +279,8 @@ function generarTextoWhatsapp(viaje: ViajeAsignacion, nombreChofer?: string): st
       : '';
   const diaPrefijo = nombreDia ? `${nombreDia} ` : '';
 
-  const puntoCarga = ` ${(viaje.origenNombre || 'Origen').toUpperCase()}`;
-  const puntoDescarga = ` ${(viaje.destinoNombre || 'Destino').toUpperCase()}`;
+  const puntoCarga = `${(viaje.origenNombre || 'Origen').toUpperCase()}`;
+  const puntoDescarga = `${(viaje.destinoNombre || 'Destino').toUpperCase()}`;
 
   return `🚛 *ORDEN DE CARGA & DESPACHO*${choferTexto}
 
